@@ -10,6 +10,11 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     title: "Feria Nounish 2025",
     description: "Feria Nousnish",
+    openGraph: {
+      title:"Feria Nounish 2025",
+      description: "Feria Nousnish",
+      images: "https://ferianounish2025.vercel.app/images/feria-logo.png",
+    },
     other: {
       'fc:frame': JSON.stringify({
         version: 'next',
