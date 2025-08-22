@@ -58,3 +58,7 @@ html {
     </html>
   );
 }
+
+export const metadata = {
+      generator: 'v0.app'
+    };
