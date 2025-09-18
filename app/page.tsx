@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button"
 import Image from "next/image"
 import { useEffect } from "react"
 import { useMiniKit } from "@coinbase/onchainkit/minikit"
+import Link from "next/link"
 
 export default function Home() {
   const { setFrameReady, isFrameReady } = useMiniKit()
@@ -49,12 +50,14 @@ export default function Home() {
             Galería
           </Button>
 
-          <Button
-            size="lg"
-            className="bg-red-500 text-white hover:bg-red-600 font-semibold px-8 py-4 text-lg min-w-[140px] shadow-lg"
-          >
-            Crear
-          </Button>
+          <Link href="/crear">
+            <Button
+              size="lg"
+              className="bg-red-500 text-white hover:bg-red-600 font-semibold px-8 py-4 text-lg min-w-[140px] shadow-lg"
+            >
+              Crear
+            </Button>
+          </Link>
         </div>
       </div>
     </div>
