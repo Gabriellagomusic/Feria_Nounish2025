@@ -4,10 +4,10 @@ import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import { MiniKitContextProvider } from "@/providers/MiniKitProvider";
 import "./globals.css";
+const URL = "https://ferianounish2025.vercel.app";
+export const metadata={
+ 
 
-export async function generateMetadata(): Promise<Metadata> {
-  const URL = "https://ferianounish2025.vercel.app";
-  return {
     title: "Feria Nounish 2025",
     description: "Feria Nousnish",
     openGraph: {
@@ -33,7 +33,7 @@ export async function generateMetadata(): Promise<Metadata> {
         },
       }),
     },
-  };
+    generator: 'v0.app'
 }
 
 export default function RootLayout({
@@ -58,7 +58,3 @@ html {
     </html>
   );
 }
-
-export const metadata = {
-      generator: 'v0.app'
-    };
