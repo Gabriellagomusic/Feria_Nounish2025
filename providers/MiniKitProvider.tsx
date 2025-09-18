@@ -4,8 +4,14 @@ import type { ReactNode } from "react"
 import { base } from "wagmi/chains"
 
 export function MiniKitContextProvider({ children }: { children: ReactNode }) {
+  const apiKey = process.env.NEXT_PUBLIC_CDP_CLIENT_API_KEY
+
+  if (!apiKey) {
+    console.warn("[v0] NEXT_PUBLIC_CDP_CLIENT_API_KEY is not set")
+  }
+
   return (
-    <MiniKitProvider apiKey={process.env.NEXT_PUBLIC_CDP_CLIENT_API_KEY} chain={base}>
+    <MiniKitProvider apiKey={apiKey} chain={base}>
       {children}
     </MiniKitProvider>
   )
