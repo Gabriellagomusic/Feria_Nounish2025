@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import Image from "next/image"
 import { useState } from "react"
 import { uploadToArweave } from "@/app/actions/upload-to-arweave"
+import { uploadJson } from "@/app/actions/upload-json"
 
 export default function CrearPage() {
   const [isLoading, setIsLoading] = useState(false)
@@ -42,13 +43,29 @@ export default function CrearPage() {
         console.log("[v0] Image uploaded to Arweave:", imageUri)
       }
 
+      const metadata = {
+        name: "Feria Nounish Moment",
+        description: "Un momento especial de la Feria Nounish",
+        external_url: "https://feria-nounish.vercel.app",
+        image: imageUri,
+        animation_url: imageUri,
+        content: {
+          mime: selectedFile?.type || "image/jpeg",
+          uri: imageUri,
+        },
+      }
+
+      console.log("[v0] Uploading metadata JSON to Arweave...")
+      const tokenMetadataURI = await uploadJson(metadata)
+      console.log("[v0] Metadata uploaded to Arweave:", tokenMetadataURI)
+
       const payload = {
         contract: {
           name: "Feria Nounish Moment",
           uri: imageUri,
         },
         token: {
-          tokenMetadataURI: "https://arweave.net/placeholder456",
+          tokenMetadataURI: tokenMetadataURI,
           createReferral: "0x1234567890123456789012345678901234567890",
           salesConfig: {
             type: "fixedPrice",
@@ -74,7 +91,7 @@ export default function CrearPage() {
 
       if (response.ok) {
         alert(
-          `¡Momento creado exitosamente!\\nContract: ${data.contractAddress}\\nToken ID: ${data.tokenId}\\nHash: ${data.hash}\\nArweave URI: ${imageUri}`,
+          `¡Momento creado exitosamente!\nContract: ${data.contractAddress}\nToken ID: ${data.tokenId}\nHash: ${data.hash}\nArweave URI: ${imageUri}\nMetadata URI: ${tokenMetadataURI}`,
         )
       } else {
         alert(`Error al crear momento: ${data.message || "Error desconocido"}`)
