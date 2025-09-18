@@ -5,14 +5,18 @@ import type React from "react"
 import { Button } from "@/components/ui/button"
 import Image from "next/image"
 import { useState } from "react"
+import { uploadToArweave } from "@/app/actions/upload-to-arweave"
 
 export default function CrearPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [uploadedImage, setUploadedImage] = useState<string | null>(null)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [arweaveUri, setArweaveUri] = useState<string | null>(null)
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (file) {
+      setSelectedFile(file)
       const reader = new FileReader()
       reader.onload = (e) => {
         setUploadedImage(e.target?.result as string)
@@ -25,10 +29,23 @@ export default function CrearPage() {
     setIsLoading(true)
 
     try {
+      let imageUri = "https://arweave.net/placeholder123"
+
+      if (selectedFile) {
+        console.log("[v0] Uploading image to Arweave...")
+
+        const formData = new FormData()
+        formData.append("file", selectedFile)
+
+        imageUri = await uploadToArweave(formData)
+        setArweaveUri(imageUri)
+        console.log("[v0] Image uploaded to Arweave:", imageUri)
+      }
+
       const payload = {
         contract: {
           name: "Feria Nounish Moment",
-          uri: uploadedImage || "https://arweave.net/placeholder123",
+          uri: imageUri,
         },
         token: {
           tokenMetadataURI: "https://arweave.net/placeholder456",
@@ -57,7 +74,7 @@ export default function CrearPage() {
 
       if (response.ok) {
         alert(
-          `¡Momento creado exitosamente!\nContract: ${data.contractAddress}\nToken ID: ${data.tokenId}\nHash: ${data.hash}`,
+          `¡Momento creado exitosamente!\\nContract: ${data.contractAddress}\\nToken ID: ${data.tokenId}\\nHash: ${data.hash}\\nArweave URI: ${imageUri}`,
         )
       } else {
         alert(`Error al crear momento: ${data.message || "Error desconocido"}`)
@@ -106,6 +123,13 @@ export default function CrearPage() {
                 </div>
               </div>
             )}
+
+            {arweaveUri && (
+              <div className="bg-green-500/20 backdrop-blur-sm rounded-lg p-4">
+                <p className="text-white text-sm">✅ Imagen subida a Arweave:</p>
+                <p className="text-white/80 text-xs break-all">{arweaveUri}</p>
+              </div>
+            )}
           </div>
 
           <Button
@@ -114,7 +138,7 @@ export default function CrearPage() {
             onClick={handleCreateMoment}
             disabled={isLoading}
           >
-            {isLoading ? "Creando..." : "Crear"}
+            {isLoading ? "Subiendo..." : "Crear"}
           </Button>
         </div>
       </div>
