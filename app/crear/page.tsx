@@ -1,11 +1,25 @@
 "use client"
 
+import type React from "react"
+
 import { Button } from "@/components/ui/button"
 import Image from "next/image"
 import { useState } from "react"
 
 export default function CrearPage() {
   const [isLoading, setIsLoading] = useState(false)
+  const [uploadedImage, setUploadedImage] = useState<string | null>(null)
+
+  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (file) {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        setUploadedImage(e.target?.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
 
   const handleCreateMoment = async () => {
     setIsLoading(true)
@@ -14,7 +28,7 @@ export default function CrearPage() {
       const payload = {
         contract: {
           name: "Feria Nounish Moment",
-          uri: "https://arweave.net/placeholder123",
+          uri: uploadedImage || "https://arweave.net/placeholder123",
         },
         token: {
           tokenMetadataURI: "https://arweave.net/placeholder456",
@@ -65,8 +79,34 @@ export default function CrearPage() {
 
       {/* Content */}
       <div className="relative z-10 flex flex-col items-center justify-center min-h-screen px-4">
-        <div className="text-center">
+        <div className="text-center space-y-8">
           <h1 className="text-4xl md:text-6xl font-bold text-white mb-8 text-balance">Crear</h1>
+
+          {/* Image Upload Section */}
+          <div className="space-y-6">
+            {/* Upload Button */}
+            <div>
+              <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" id="image-upload" />
+              <label htmlFor="image-upload">
+                <Button
+                  size="lg"
+                  className="bg-white text-black hover:bg-gray-100 font-semibold px-8 py-4 text-lg shadow-lg cursor-pointer"
+                  asChild
+                >
+                  <span>Subir Imagen</span>
+                </Button>
+              </label>
+            </div>
+
+            {/* Display uploaded image */}
+            {uploadedImage && (
+              <div className="flex justify-center">
+                <div className="relative w-64 h-64 rounded-lg overflow-hidden shadow-lg border-4 border-white">
+                  <Image src={uploadedImage || "/placeholder.svg"} alt="Imagen subida" fill className="object-cover" />
+                </div>
+              </div>
+            )}
+          </div>
 
           <Button
             size="lg"
