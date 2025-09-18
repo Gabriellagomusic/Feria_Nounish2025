@@ -23,7 +23,7 @@ export default function CrearPage() {
             type: "fixedPrice",
             pricePerToken: "100000000000000000", // 0.1 ETH in wei
             saleStart: 1717200000,
-            saleEnd: 18446744073709551614,
+            saleEnd: 0,
           },
           mintToCreatorCount: 1,
         },
