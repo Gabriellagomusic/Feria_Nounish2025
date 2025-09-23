@@ -14,6 +14,8 @@ export default function CrearPage() {
   const [uploadedImage, setUploadedImage] = useState<string | null>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [arweaveUri, setArweaveUri] = useState<string | null>(null)
+  const [tokenName, setTokenName] = useState("")
+  const [tokenDescription, setTokenDescription] = useState("")
 
   const { address, isConnected } = useAccount()
 
@@ -30,6 +32,15 @@ export default function CrearPage() {
   }
 
   const handleCreateMoment = async () => {
+    if (!tokenName.trim()) {
+      alert("Por favor ingresa el nombre del token")
+      return
+    }
+    if (!tokenDescription.trim()) {
+      alert("Por favor ingresa la descripción del token")
+      return
+    }
+
     setIsLoading(true)
 
     try {
@@ -47,8 +58,8 @@ export default function CrearPage() {
       }
 
       const metadata = {
-        name: "Feria Nounish Moment",
-        description: "Un momento especial de la Feria Nounish",
+        name: tokenName,
+        description: tokenDescription,
         external_url: "https://feria-nounish.vercel.app",
         image: imageUri,
         animation_url: imageUri,
@@ -64,7 +75,7 @@ export default function CrearPage() {
 
       const payload = {
         contract: {
-          name: "Feria Nounish Moment",
+          name: tokenName,
           uri: imageUri,
         },
         token: {
@@ -72,7 +83,7 @@ export default function CrearPage() {
           createReferral: "0x1234567890123456789012345678901234567890",
           salesConfig: {
             type: "fixedPrice",
-            pricePerToken: "100000000000000000", // 0.1 ETH in wei
+            pricePerToken: "1000000", // 1 USDC
             saleStart: 1717200000,
             saleEnd: 0,
           },
@@ -94,7 +105,7 @@ export default function CrearPage() {
 
       if (response.ok) {
         alert(
-          `¡Momento creado exitosamente!\\nContract: ${data.contractAddress}\\nToken ID: ${data.tokenId}\\nHash: ${data.hash}\\nArweave URI: ${imageUri}\\nMetadata URI: ${tokenMetadataURI}`,
+          `¡Momento creado exitosamente!\nContract: ${data.contractAddress}\nToken ID: ${data.tokenId}\nHash: ${data.hash}\nArweave URI: ${imageUri}\nMetadata URI: ${tokenMetadataURI}`,
         )
       } else {
         alert(`Error al crear momento: ${data.message || "Error desconocido"}`)
@@ -116,7 +127,7 @@ export default function CrearPage() {
 
       {/* Content */}
       <div className="relative z-10 flex flex-col items-center justify-center min-h-screen px-4">
-        <div className="text-center space-y-8">
+        <div className="text-center space-y-8 max-w-md w-full">
           <h1 className="text-4xl md:text-6xl font-bold text-white mb-8 text-balance">Crear</h1>
 
           {isConnected && address && (
@@ -131,6 +142,32 @@ export default function CrearPage() {
               <p className="text-white text-sm">⚠️ Conecta tu wallet para usar tu dirección como creador</p>
             </div>
           )}
+
+          <div className="space-y-4">
+            <div>
+              <input
+                type="text"
+                placeholder="Nombre del token"
+                value={tokenName}
+                onChange={(e) => setTokenName(e.target.value)}
+                className="w-full px-4 py-3 rounded-lg bg-white/10 backdrop-blur-sm text-white placeholder-white/70 border border-white/20 focus:border-white/50 focus:outline-none"
+              />
+            </div>
+            <div>
+              <textarea
+                placeholder="Descripción del token"
+                value={tokenDescription}
+                onChange={(e) => setTokenDescription(e.target.value)}
+                rows={3}
+                className="w-full px-4 py-3 rounded-lg bg-white/10 backdrop-blur-sm text-white placeholder-white/70 border border-white/20 focus:border-white/50 focus:outline-none resize-none"
+              />
+            </div>
+            <div className="bg-blue-500/20 backdrop-blur-sm rounded-lg p-4">
+              <p className="text-white text-sm">
+                💰 Precio fijo: <span className="font-bold">1 USDC</span>
+              </p>
+            </div>
+          </div>
 
           {/* Image Upload Section */}
           <div className="space-y-6">
