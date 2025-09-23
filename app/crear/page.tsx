@@ -85,7 +85,7 @@ export default function CrearPage() {
   "type": "erc20Mint",
   "pricePerToken": "1000000", // (parsed units, e.g., USDC has 6 decimals)
   "saleStart": 1717200000, // Unix timestamp (seconds)
-  "saleEnd": 18446744073709551615, // maxUint64 for no end
+  "saleEnd": 1790198804, // maxUint64 for no end
   "currency": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" // USDC address
 },
           mintToCreatorCount: 1,
