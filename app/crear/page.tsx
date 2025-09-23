@@ -82,11 +82,12 @@ export default function CrearPage() {
           tokenMetadataURI: tokenMetadataURI,
           createReferral: "0x1234567890123456789012345678901234567890",
           salesConfig: {
-            type: "fixedPrice",
-            pricePerToken: "1000000", // 1 USDC
-            saleStart: 1717200000,
-            saleEnd: 0,
-          },
+  "type": "erc20Mint",
+  "pricePerToken": "1000000", // (parsed units, e.g., USDC has 6 decimals)
+  "saleStart": 1717200000, // Unix timestamp (seconds)
+  "saleEnd": 18446744073709551615, // maxUint64 for no end
+  "currency": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" // USDC address
+},
           mintToCreatorCount: 1,
         },
         account: address || "0x0987654321098765432109876543210987654321",
