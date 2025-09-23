@@ -2,6 +2,7 @@ import type React from "react"
 import { GeistSans } from "geist/font/sans"
 import { GeistMono } from "geist/font/mono"
 import { MiniKitContextProvider } from "@/providers/MiniKitProvider"
+import { WagmiContextProvider } from "@/providers/WagmiProvider"
 import "./globals.css"
 const URL = "https://ferianounish2025.vercel.app"
 export const metadata = {
@@ -48,7 +49,9 @@ html {
         `}</style>
       </head>
       <body>
-        <MiniKitContextProvider>{children}</MiniKitContextProvider>
+        <WagmiContextProvider>
+          <MiniKitContextProvider>{children}</MiniKitContextProvider>
+        </WagmiContextProvider>
       </body>
     </html>
   )

@@ -7,12 +7,15 @@ import Image from "next/image"
 import { useState } from "react"
 import { uploadToArweave } from "@/app/actions/upload-to-arweave"
 import { uploadJson } from "@/app/actions/upload-json"
+import { useAccount } from "wagmi"
 
 export default function CrearPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [uploadedImage, setUploadedImage] = useState<string | null>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [arweaveUri, setArweaveUri] = useState<string | null>(null)
+
+  const { address, isConnected } = useAccount()
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -75,7 +78,7 @@ export default function CrearPage() {
           },
           mintToCreatorCount: 1,
         },
-        account: "0x0987654321098765432109876543210987654321",
+        account: address || "0x0987654321098765432109876543210987654321",
       }
 
       console.log("[v0] Calling API with payload:", payload)
@@ -91,7 +94,7 @@ export default function CrearPage() {
 
       if (response.ok) {
         alert(
-          `¡Momento creado exitosamente!\nContract: ${data.contractAddress}\nToken ID: ${data.tokenId}\nHash: ${data.hash}\nArweave URI: ${imageUri}\nMetadata URI: ${tokenMetadataURI}`,
+          `¡Momento creado exitosamente!\\nContract: ${data.contractAddress}\\nToken ID: ${data.tokenId}\\nHash: ${data.hash}\\nArweave URI: ${imageUri}\\nMetadata URI: ${tokenMetadataURI}`,
         )
       } else {
         alert(`Error al crear momento: ${data.message || "Error desconocido"}`)
@@ -115,6 +118,19 @@ export default function CrearPage() {
       <div className="relative z-10 flex flex-col items-center justify-center min-h-screen px-4">
         <div className="text-center space-y-8">
           <h1 className="text-4xl md:text-6xl font-bold text-white mb-8 text-balance">Crear</h1>
+
+          {isConnected && address && (
+            <div className="bg-green-500/20 backdrop-blur-sm rounded-lg p-4 mb-4">
+              <p className="text-white text-sm">🔗 Wallet conectada:</p>
+              <p className="text-white/80 text-xs break-all">{address}</p>
+            </div>
+          )}
+
+          {!isConnected && (
+            <div className="bg-yellow-500/20 backdrop-blur-sm rounded-lg p-4 mb-4">
+              <p className="text-white text-sm">⚠️ Conecta tu wallet para usar tu dirección como creador</p>
+            </div>
+          )}
 
           {/* Image Upload Section */}
           <div className="space-y-6">
