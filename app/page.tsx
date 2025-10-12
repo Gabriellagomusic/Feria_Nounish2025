@@ -43,12 +43,14 @@ export default function Home() {
 
         {/* Buttons */}
         <div className="flex flex-col sm:flex-row gap-6 items-center">
-          <Button
-            size="lg"
-            className="bg-white text-black hover:bg-gray-100 font-semibold px-8 py-4 text-lg min-w-[140px] shadow-lg"
-          >
-            Galería
-          </Button>
+          <Link href="/galeria">
+            <Button
+              size="lg"
+              className="bg-white text-black hover:bg-gray-100 font-semibold px-8 py-4 text-lg min-w-[140px] shadow-lg"
+            >
+              Galería
+            </Button>
+          </Link>
 
           <Link href="/crear">
             <Button

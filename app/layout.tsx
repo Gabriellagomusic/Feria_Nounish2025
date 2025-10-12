@@ -1,9 +1,21 @@
 import type React from "react"
-import { GeistSans } from "geist/font/sans"
-import { GeistMono } from "geist/font/mono"
+import localFont from "next/font/local"
 import { MiniKitContextProvider } from "@/providers/MiniKitProvider"
 import { WagmiContextProvider } from "@/providers/WagmiProvider"
 import "./globals.css"
+
+const barlowCondensed = localFont({
+  src: "../public/fonts/BarlowCondensed-ExtraBold.ttf",
+  variable: "--font-barlow",
+  display: "swap",
+})
+
+const plusJakarta = localFont({
+  src: "../public/fonts/PlusJakartaSans-VariableFont_wght.ttf",
+  variable: "--font-jakarta",
+  display: "swap",
+})
+
 const URL = "https://ferianounish2025.vercel.app"
 export const metadata = {
   title: "Feria Nounish 2025",
@@ -38,16 +50,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en">
-      <head>
-        <style>{`
-html {
-  font-family: ${GeistSans.style.fontFamily};
-  --font-sans: ${GeistSans.variable};
-  --font-mono: ${GeistMono.variable};
-}
-        `}</style>
-      </head>
+    <html lang="en" className={`${barlowCondensed.variable} ${plusJakarta.variable}`}>
       <body>
         <WagmiContextProvider>
           <MiniKitContextProvider>{children}</MiniKitContextProvider>
