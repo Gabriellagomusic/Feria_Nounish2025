@@ -152,7 +152,7 @@ export default function GaleriaPage() {
   return (
     <div className="min-h-screen relative overflow-hidden">
       <div className="absolute inset-0 z-0">
-        <Image src="/images/fondos4.png" alt="Fondo" fill className="object-cover" priority />
+        <Image src="/images/fondo-galeria.png" alt="Fondo" fill className="object-cover" priority />
       </div>
 
       <div className="relative z-10">

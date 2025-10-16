@@ -138,7 +138,7 @@ export default function TokenDetailPage() {
     return (
       <div className="min-h-screen relative overflow-hidden flex items-center justify-center">
         <div className="absolute inset-0 z-0">
-          <Image src="/images/fondos2.png" alt="Fondo colorido abstracto" fill className="object-cover" priority />
+          <Image src="/images/fondo-token.png" alt="Fondo colorido abstracto" fill className="object-cover" priority />
         </div>
         <p className="relative z-10 text-white text-lg">Cargando...</p>
       </div>
@@ -148,7 +148,7 @@ export default function TokenDetailPage() {
   return (
     <div className="min-h-screen relative overflow-hidden">
       <div className="absolute inset-0 z-0">
-        <Image src="/images/fondos2.png" alt="Fondo colorido abstracto" fill className="object-cover" priority />
+        <Image src="/images/fondo-token.png" alt="Fondo colorido abstracto" fill className="object-cover" priority />
       </div>
 
       <div className="relative z-10">

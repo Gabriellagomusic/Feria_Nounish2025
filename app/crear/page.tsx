@@ -124,7 +124,7 @@ export default function CrearPage() {
   return (
     <div className="min-h-screen relative overflow-hidden">
       <div className="absolute inset-0 z-0">
-        <Image src="/images/fondos.png" alt="Fondo" fill className="object-cover" priority />
+        <Image src="/images/fondo-crear-nuevo.png" alt="Fondo" fill className="object-cover" priority />
       </div>
 
       <header className="relative z-20 p-4">
@@ -173,7 +173,6 @@ export default function CrearPage() {
           </div>
 
           <div>
-            <label className="block text-white font-bold text-lg mb-2">Nombre</label>
             <input
               type="text"
               placeholder="Nombre de la obra"
@@ -184,7 +183,6 @@ export default function CrearPage() {
           </div>
 
           <div>
-            <label className="block text-white font-bold text-lg mb-2">Descripción</label>
             <textarea
               placeholder="Describe tu obra"
               value={tokenDescription}
