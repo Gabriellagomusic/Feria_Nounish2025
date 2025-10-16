@@ -5,6 +5,7 @@ import Image from "next/image"
 import { useEffect } from "react"
 import { useMiniKit } from "@coinbase/onchainkit/minikit"
 import Link from "next/link"
+import { User } from "lucide-react"
 
 export default function Home() {
   const { setFrameReady, isFrameReady } = useMiniKit()
@@ -24,6 +25,17 @@ export default function Home() {
     <div className="min-h-screen relative overflow-hidden">
       {/* Background Image */}
       <Image src="/images/fondolanding.png" alt="Background" fill className="object-cover" priority />
+
+      <div className="absolute top-4 right-4 z-20">
+        <Link href="/perfil">
+          <button
+            className="flex items-center justify-center w-12 h-12 rounded-full bg-white/20 backdrop-blur-md hover:bg-white/30 transition-all shadow-lg"
+            aria-label="Ver perfil"
+          >
+            <User className="w-6 h-6 text-white" />
+          </button>
+        </Link>
+      </div>
 
       {/* Content */}
       <div className="relative z-10 flex flex-col items-center justify-center min-h-screen px-4">
