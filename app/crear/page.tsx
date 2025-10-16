@@ -125,7 +125,7 @@ export default function CrearPage() {
     <div className="min-h-screen relative overflow-hidden">
       {/* Background Image */}
       <div className="absolute inset-0 z-0">
-        <Image src="/images/fondos2.png" alt="Fondo" fill className="object-cover" priority />
+        <Image src="/images/fondos5.png" alt="Fondo" fill className="object-cover" priority />
       </div>
 
       <header className="relative z-20 p-4">
@@ -151,9 +151,22 @@ export default function CrearPage() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    <div className="text-6xl">📸</div>
-                    <p className="text-white text-xl font-bold">Subir archivo</p>
-                    <p className="text-white/70 text-sm">Click para seleccionar imagen</p>
+                    <svg
+                      className="w-16 h-16 mx-auto text-white opacity-60"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                      />
+                    </svg>
+                    <p className="text-white text-xl font-bold">SUBIR ARCHIVO</p>
+                    <p className="text-white/70 text-sm">CLICK PARA SELECCIONAR IMAGEN</p>
                   </div>
                 )}
               </div>

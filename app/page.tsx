@@ -24,7 +24,7 @@ export default function Home() {
     <div className="min-h-screen relative overflow-hidden">
       {/* Background Image */}
       <div className="absolute inset-0 z-0">
-        <Image src="/images/fondos2.png" alt="Fondo colorido abstracto" fill className="object-cover" priority />
+        <Image src="/images/fondos.png" alt="Fondo colorido abstracto" fill className="object-cover" priority />
       </div>
 
       {/* Content */}

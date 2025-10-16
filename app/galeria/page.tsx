@@ -1,7 +1,6 @@
 "use client"
 
 import { Card, CardContent } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
 import Image from "next/image"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -44,6 +43,7 @@ export default function GaleriaPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedArtist, setSelectedArtist] = useState<string>("")
+  const [isSearchOpen, setIsSearchOpen] = useState(false)
 
   useEffect(() => {
     const fetchTokenMetadata = async () => {
@@ -152,7 +152,7 @@ export default function GaleriaPage() {
   return (
     <div className="min-h-screen relative overflow-hidden">
       <div className="absolute inset-0 z-0">
-        <Image src="/images/fondos2.png" alt="Fondo" fill className="object-cover" priority />
+        <Image src="/images/fondos4.png" alt="Fondo" fill className="object-cover" priority />
       </div>
 
       <div className="relative z-10">
@@ -164,36 +164,55 @@ export default function GaleriaPage() {
           >
             <ArrowLeft className="w-6 h-6 text-white" />
           </button>
+
+          <div className="mt-4">
+            <div className="flex items-center gap-3">
+              {/* Search Icon Button */}
+              <button
+                onClick={() => setIsSearchOpen(!isSearchOpen)}
+                className="flex items-center justify-center w-12 h-12 rounded-full bg-white/20 backdrop-blur-md hover:bg-white/30 transition-all flex-shrink-0"
+                aria-label="Buscar"
+                aria-expanded={isSearchOpen}
+              >
+                <Search className="w-5 h-5 text-white" />
+              </button>
+
+              {/* Artist Dropdown - smaller and same height */}
+              <select
+                value={selectedArtist}
+                onChange={(e) => setSelectedArtist(e.target.value)}
+                className="h-12 px-4 rounded-full bg-white/20 backdrop-blur-md border-2 border-white/30 text-white text-sm focus:border-white/60 focus:outline-none flex-shrink-0"
+                aria-label="Filtrar por artista"
+              >
+                <option value="" className="bg-gray-800">
+                  TODOS LOS ARTISTAS
+                </option>
+                {artists.map((artist) => (
+                  <option key={artist} value={artist} className="bg-gray-800">
+                    {artist}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Collapsible Search Input */}
+            {isSearchOpen && (
+              <div className="mt-3 animate-in slide-in-from-top-2 duration-200">
+                <input
+                  type="text"
+                  placeholder="BUSCAR POR TÍTULO O ARTISTA"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full h-12 px-4 rounded-full bg-white/20 backdrop-blur-md border-2 border-white/30 text-white placeholder-white/60 focus:border-white/60 focus:outline-none"
+                  autoFocus
+                />
+              </div>
+            )}
+          </div>
         </header>
 
         <main className="container mx-auto px-4 py-8">
-          <h1 className="text-4xl font-extrabold text-white text-center mb-8">Colección Oficial</h1>
-
-          <div className="max-w-2xl mx-auto mb-8 space-y-4">
-            <div className="relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/60" />
-              <Input
-                type="text"
-                placeholder="Buscar por título o artista"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-12 bg-white/20 backdrop-blur-md border-white/30 text-white placeholder-white/60 focus:border-white/60"
-              />
-            </div>
-
-            <select
-              value={selectedArtist}
-              onChange={(e) => setSelectedArtist(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl bg-white/20 backdrop-blur-md border-2 border-white/30 text-white focus:border-white/60 focus:outline-none"
-            >
-              <option value="">Todos los artistas</option>
-              {artists.map((artist) => (
-                <option key={artist} value={artist} className="bg-gray-800">
-                  {artist}
-                </option>
-              ))}
-            </select>
-          </div>
+          <div className="max-w-2xl mx-auto mb-8"></div>
 
           {isLoading ? (
             <div className="flex justify-center items-center min-h-[400px]">
