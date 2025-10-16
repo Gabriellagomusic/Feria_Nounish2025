@@ -1,22 +1,16 @@
 "use client"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { useState, useEffect } from "react"
 import { useParams } from "next/navigation"
-import {
-  Transaction,
-  TransactionButton,
-  TransactionStatus,
-  TransactionStatusLabel,
-  TransactionStatusAction,
-} from "@coinbase/onchainkit/transaction"
-import type { LifecycleStatus } from "@coinbase/onchainkit/transaction"
-import { createPublicClient, http, parseUnits } from "viem"
+import { createPublicClient, http, parseEther, encodeFunctionData, decodeErrorResult } from "viem"
 import { base } from "viem/chains"
 import { useAccount } from "wagmi"
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, Loader2 } from "lucide-react"
+import { useMiniKit } from "@coinbase/onchainkit/minikit"
 
 interface TokenMetadata {
   name: string
@@ -24,16 +18,18 @@ interface TokenMetadata {
   image: string
 }
 
-const ERC1155_ABI = [
+const ZORA1155_ABI = [
   {
     inputs: [
-      { name: "to", type: "address" },
+      { name: "minter", type: "address" },
       { name: "tokenId", type: "uint256" },
       { name: "quantity", type: "uint256" },
+      { name: "rewardsRecipients", type: "address[]" },
+      { name: "minterArguments", type: "bytes" },
     ],
     name: "mint",
     outputs: [],
-    stateMutability: "nonpayable",
+    stateMutability: "payable",
     type: "function",
   },
   {
@@ -43,22 +39,25 @@ const ERC1155_ABI = [
     stateMutability: "view",
     type: "function",
   },
-] as const
-
-const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as const
-
-const ERC20_ABI = [
   {
-    inputs: [
-      { name: "spender", type: "address" },
-      { name: "amount", type: "uint256" },
-    ],
-    name: "approve",
-    outputs: [{ name: "", type: "bool" }],
-    stateMutability: "nonpayable",
-    type: "function",
+    inputs: [],
+    name: "SaleEnded",
+    type: "error",
+  },
+  {
+    inputs: [],
+    name: "SaleHasNotStarted",
+    type: "error",
+  },
+  {
+    inputs: [],
+    name: "WrongValueSent",
+    type: "error",
   },
 ] as const
+
+const ZORA_MINTER_ADDRESS = "0x04E2516A2c207E84a1839755675dfd8eF6302F0a" as `0x${string}`
+const ZORA_MINT_PRICE = "0.000777"
 
 export default function TokenDetailPage() {
   const router = useRouter()
@@ -66,10 +65,14 @@ export default function TokenDetailPage() {
   const contractAddress = params.contractAddress as `0x${string}`
   const tokenId = params.tokenId as string
   const { address, isConnected } = useAccount()
+  const { sendTransaction, isReady } = useMiniKit()
 
   const [tokenData, setTokenData] = useState<TokenMetadata | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [quantity, setQuantity] = useState(1)
+  const [isPurchasing, setIsPurchasing] = useState(false)
+  const [purchaseError, setPurchaseError] = useState<string | null>(null)
+  const [purchaseSuccess, setpurchaseSuccess] = useState(false)
 
   useEffect(() => {
     const fetchTokenMetadata = async () => {
@@ -81,7 +84,7 @@ export default function TokenDetailPage() {
 
         const tokenURI = await publicClient.readContract({
           address: contractAddress,
-          abi: ERC1155_ABI,
+          abi: ZORA1155_ABI,
           functionName: "uri",
           args: [BigInt(tokenId)],
         })
@@ -119,7 +122,7 @@ export default function TokenDetailPage() {
           image: "/abstract-digital-composition.png",
         })
       } catch (error) {
-        console.error("Error fetching token metadata:", error)
+        console.error("[v0] Error fetching token metadata:", error)
         setTokenData({
           name: `Obra de Arte #${tokenId}`,
           description: "Obra de arte digital única de la colección oficial",
@@ -133,25 +136,135 @@ export default function TokenDetailPage() {
     fetchTokenMetadata()
   }, [contractAddress, tokenId])
 
-  const usdcAmount = parseUnits((quantity * 1).toString(), 6)
+  const handlePurchase = async () => {
+    if (!address || !isConnected) {
+      setPurchaseError("Por favor conecta tu wallet")
+      return
+    }
 
-  const contracts = [
-    {
-      address: USDC_ADDRESS,
-      abi: ERC20_ABI,
-      functionName: "approve",
-      args: [contractAddress, usdcAmount],
-    },
-    {
-      address: contractAddress,
-      abi: ERC1155_ABI,
-      functionName: "mint",
-      args: [address, BigInt(tokenId), BigInt(quantity)],
-    },
-  ]
+    if (!isReady) {
+      setPurchaseError("MiniKit no está disponible. Abre esta app desde Farcaster o Base.")
+      return
+    }
 
-  const handleOnStatus = (status: LifecycleStatus) => {
-    console.log("[v0] Transaction status:", status)
+    setIsPurchasing(true)
+    setPurchaseError(null)
+    setpurchaseSuccess(false)
+
+    try {
+      console.log("[v0] Iniciando compra...")
+      console.log("[v0] Contrato:", contractAddress)
+      console.log("[v0] Token ID:", tokenId)
+      console.log("[v0] Cantidad:", quantity)
+      console.log("[v0] Comprador:", address)
+
+      const publicClient = createPublicClient({
+        chain: base,
+        transport: http(),
+      })
+
+      const totalValue = parseEther((Number.parseFloat(ZORA_MINT_PRICE) * quantity).toString())
+      console.log("[v0] Valor total:", totalValue.toString(), "wei")
+
+      const minterArguments = encodeFunctionData({
+        abi: [{ inputs: [{ name: "recipient", type: "address" }], name: "mint", type: "function" }],
+        functionName: "mint",
+        args: [address],
+      })
+
+      const mintArgs = [
+        ZORA_MINTER_ADDRESS,
+        BigInt(tokenId),
+        BigInt(quantity),
+        [] as `0x${string}`[],
+        minterArguments,
+      ] as const
+
+      console.log("[v0] Argumentos de mint:", mintArgs)
+
+      console.log("[v0] Simulando transacción...")
+      try {
+        const { request } = await publicClient.simulateContract({
+          address: contractAddress,
+          abi: ZORA1155_ABI,
+          functionName: "mint",
+          args: mintArgs,
+          value: totalValue,
+          account: address,
+        })
+        console.log("[v0] Simulación exitosa:", request)
+      } catch (simulationError: any) {
+        console.error("[v0] Error en simulación:", simulationError)
+
+        let errorMessage = "Error al simular la transacción"
+
+        try {
+          if (simulationError.data) {
+            const decodedError = decodeErrorResult({
+              abi: ZORA1155_ABI,
+              data: simulationError.data,
+            })
+            console.log("[v0] Error decodificado:", decodedError)
+
+            switch (decodedError.errorName) {
+              case "SaleEnded":
+                errorMessage = "La venta ha terminado"
+                break
+              case "SaleHasNotStarted":
+                errorMessage = "La venta aún no ha comenzado"
+                break
+              case "WrongValueSent":
+                errorMessage = "El monto enviado es incorrecto"
+                break
+              default:
+                errorMessage = `Error: ${decodedError.errorName}`
+            }
+          }
+        } catch (decodeError) {
+          console.error("[v0] No se pudo decodificar el error:", decodeError)
+        }
+
+        if (simulationError.message) {
+          if (simulationError.message.includes("insufficient funds")) {
+            errorMessage = "Fondos insuficientes en tu wallet"
+          } else if (simulationError.message.includes("execution reverted")) {
+            errorMessage = "La transacción fue rechazada por el contrato"
+          }
+        }
+
+        setPurchaseError(errorMessage)
+        setIsPurchasing(false)
+        return
+      }
+
+      console.log("[v0] Codificando datos de transacción...")
+      const data = encodeFunctionData({
+        abi: ZORA1155_ABI,
+        functionName: "mint",
+        args: mintArgs,
+      })
+
+      console.log("[v0] Enviando transacción con MiniKit...")
+      const txHash = await sendTransaction({
+        to: contractAddress,
+        data,
+        value: totalValue.toString(),
+        chainId: base.id,
+      })
+
+      console.log("[v0] Transacción enviada:", txHash)
+      setpurchaseSuccess(true)
+      setPurchaseError(null)
+
+      setTimeout(() => {
+        router.refresh()
+      }, 2000)
+    } catch (error: any) {
+      console.error("[v0] Error en compra:", error)
+      setPurchaseError(error.message || "Error al procesar la compra")
+    } finally {
+      setIsPurchasing(false)
+    }
   }
 
   if (isLoading) {
@@ -207,7 +320,7 @@ export default function TokenDetailPage() {
                   <div className="border-t border-gray-200 pt-4">
                     <div className="flex items-center justify-between mb-4">
                       <span className="text-gray-600 font-normal">Precio</span>
-                      <span className="font-extrabold text-2xl text-gray-800">1 USDC</span>
+                      <span className="font-extrabold text-2xl text-gray-800">{ZORA_MINT_PRICE} ETH</span>
                     </div>
 
                     <div className="mb-4">
@@ -221,23 +334,48 @@ export default function TokenDetailPage() {
                         value={quantity}
                         onChange={(e) => setQuantity(Math.max(1, Number.parseInt(e.target.value) || 1))}
                         className="w-full font-normal"
+                        disabled={isPurchasing}
                       />
-                      <p className="text-sm text-gray-500 mt-1 font-normal">Total: {quantity} USDC</p>
+                      <p className="text-sm text-gray-500 mt-1 font-normal">
+                        Total: {(Number.parseFloat(ZORA_MINT_PRICE) * quantity).toFixed(6)} ETH
+                      </p>
                     </div>
 
                     {!isConnected ? (
                       <p className="text-center text-gray-600 py-4 font-normal">Conecta tu wallet para comprar</p>
                     ) : (
-                      <Transaction chainId={base.id} calls={contracts} onStatus={handleOnStatus}>
-                        <TransactionButton
-                          className="w-full bg-red-600 hover:bg-red-700 text-white font-extrabold py-6 text-lg"
-                          text={`Comprar ${quantity > 1 ? `(${quantity})` : ""}`}
-                        />
-                        <TransactionStatus>
-                          <TransactionStatusLabel />
-                          <TransactionStatusAction />
-                        </TransactionStatus>
-                      </Transaction>
+                      <div className="space-y-3">
+                        <Button
+                          onClick={handlePurchase}
+                          disabled={isPurchasing || purchaseSuccess}
+                          className="w-full bg-red-600 hover:bg-red-700 text-white font-extrabold py-6 text-lg disabled:opacity-50"
+                        >
+                          {isPurchasing ? (
+                            <>
+                              <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                              Procesando...
+                            </>
+                          ) : purchaseSuccess ? (
+                            "¡Compra exitosa!"
+                          ) : (
+                            `Comprar ${quantity > 1 ? `(${quantity})` : ""}`
+                          )}
+                        </Button>
+
+                        {purchaseError && (
+                          <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                            <p className="text-sm text-red-800 font-normal">{purchaseError}</p>
+                          </div>
+                        )}
+
+                        {purchaseSuccess && (
+                          <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                            <p className="text-sm text-green-800 font-normal">
+                              ¡Tu compra se procesó exitosamente! La transacción está siendo confirmada.
+                            </p>
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
                 </CardContent>
