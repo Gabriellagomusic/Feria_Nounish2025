@@ -10,114 +10,130 @@ import { useMiniKit } from "@coinbase/onchainkit/minikit"
 import { getName } from "@coinbase/onchainkit/identity"
 import { base } from "viem/chains"
 
-interface NFTMetadata {
+interface InprocessMoment {
+  id: string
   name: string
   description: string
   image: string
   contractAddress: string
   tokenId: string
+  createdAt: string
+  creator: string
 }
 
 export default function PerfilPage() {
   const router = useRouter()
   const { address } = useMiniKit()
   const [userName, setUserName] = useState<string>("")
-  const [nfts, setNfts] = useState<NFTMetadata[]>([])
+  const [moments, setMoments] = useState<InprocessMoment[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    const fetchUserData = async () => {
+    const fetchUserProfile = async () => {
       if (!address) {
         console.log("[v0] No wallet connected")
         setIsLoading(false)
         return
       }
 
-      console.log("[v0] Wallet connected:", address)
+      console.log("[v0] Fetching profile for address:", address)
 
       try {
         const basename = await getName({ address, chain: base })
         const displayName = basename || `${address.slice(0, 6)}...${address.slice(-4)}`
         setUserName(displayName)
-        console.log("[v0] User name:", displayName)
+        console.log("[v0] Display name:", displayName)
 
-        console.log("[v0] Fetching NFTs from inprocess timeline...")
+        console.log("[v0] Fetching moments from inprocess.fun API...")
 
-        // Try multiple possible API endpoints
-        const possibleEndpoints = [
-          `https://inprocess.fun/api/moment/timeline?address=${address}`,
-          `https://inprocess.fun/api/user/moments?address=${address}`,
-          `https://inprocess.fun/api/timeline/${address}`,
+        // Try multiple possible API endpoints for user moments
+        const apiEndpoints = [
+          `https://inprocess.fun/api/user/${address}/moments`,
+          `https://inprocess.fun/api/moment/user/${address}`,
+          `https://inprocess.fun/api/moments?creator=${address}`,
+          `https://inprocess.fun/api/timeline?address=${address}`,
         ]
 
-        let fetchedNFTs: NFTMetadata[] = []
+        let fetchedMoments: InprocessMoment[] = []
         let apiSuccess = false
 
-        for (const endpoint of possibleEndpoints) {
+        for (const endpoint of apiEndpoints) {
           try {
-            console.log("[v0] Trying endpoint:", endpoint)
-            const response = await fetch(endpoint)
+            console.log("[v0] Trying API endpoint:", endpoint)
+            const response = await fetch(endpoint, {
+              method: "GET",
+              headers: {
+                "Content-Type": "application/json",
+              },
+            })
 
             if (response.ok) {
               const data = await response.json()
-              console.log("[v0] API response:", data)
+              console.log("[v0] API response received:", data)
 
-              // Parse the response based on the structure
+              let momentsArray: any[] = []
+
               if (Array.isArray(data)) {
-                fetchedNFTs = data.map((item: any) => ({
-                  name: item.name || item.token?.name || "Obra de Arte",
-                  description: item.description || item.token?.description || "Obra de arte digital única",
-                  image: item.image || item.token?.image || "/placeholder.svg",
+                momentsArray = data
+              } else if (data.moments && Array.isArray(data.moments)) {
+                momentsArray = data.moments
+              } else if (data.data && Array.isArray(data.data)) {
+                momentsArray = data.data
+              } else if (data.tokens && Array.isArray(data.tokens)) {
+                momentsArray = data.tokens
+              }
+
+              if (momentsArray.length > 0) {
+                fetchedMoments = momentsArray.map((item: any) => ({
+                  id: item.id || item._id || `${item.contractAddress}-${item.tokenId}`,
+                  name: item.name || item.title || "Momento sin título",
+                  description: item.description || "Momento creado en inprocess.fun",
+                  image: item.image || item.imageUrl || item.media || "/placeholder.svg",
                   contractAddress: item.contractAddress || item.contract?.address || "",
                   tokenId: item.tokenId?.toString() || item.token?.id?.toString() || "1",
+                  createdAt: item.createdAt || item.timestamp || new Date().toISOString(),
+                  creator: item.creator || address,
                 }))
-                apiSuccess = true
-                break
-              } else if (data.moments || data.tokens) {
-                const items = data.moments || data.tokens
-                fetchedNFTs = items.map((item: any) => ({
-                  name: item.name || item.token?.name || "Obra de Arte",
-                  description: item.description || item.token?.description || "Obra de arte digital única",
-                  image: item.image || item.token?.image || "/placeholder.svg",
-                  contractAddress: item.contractAddress || item.contract?.address || "",
-                  tokenId: item.tokenId?.toString() || item.token?.id?.toString() || "1",
-                }))
+
+                console.log("[v0] Successfully parsed moments:", fetchedMoments.length)
                 apiSuccess = true
                 break
               }
+            } else {
+              console.log("[v0] API endpoint returned status:", response.status)
             }
           } catch (error) {
-            console.log("[v0] Endpoint failed:", endpoint, error)
+            console.log("[v0] Error with endpoint:", endpoint, error)
             continue
           }
         }
 
         if (apiSuccess) {
-          console.log("[v0] Successfully fetched NFTs from API:", fetchedNFTs.length)
-          setNfts(fetchedNFTs)
+          console.log("[v0] Setting moments:", fetchedMoments.length)
+          setMoments(fetchedMoments)
         } else {
-          console.log("[v0] All API endpoints failed, no NFTs found")
-          setNfts([])
+          console.log("[v0] No moments found from any API endpoint")
+          setMoments([])
         }
       } catch (error) {
-        console.error("[v0] Error fetching user data:", error)
+        console.error("[v0] Error fetching user profile:", error)
+        setMoments([])
       } finally {
         setIsLoading(false)
       }
     }
 
-    fetchUserData()
+    fetchUserProfile()
   }, [address])
 
   return (
     <div className="min-h-screen relative overflow-hidden">
-      {/* Background Image */}
       <div className="absolute inset-0 z-0">
         <Image src="/images/fondo-crear-nuevo.png" alt="Fondo" fill className="object-cover" priority />
       </div>
 
       <div className="relative z-10">
-        {/* Header */}
+        {/* Header with back button */}
         <header className="p-4">
           <button
             onClick={() => router.back()}
@@ -133,8 +149,8 @@ export default function PerfilPage() {
             <div className="bg-white/20 backdrop-blur-md rounded-3xl p-8 border-2 border-white/30">
               {address ? (
                 <>
-                  <h1 className="font-extrabold text-4xl text-white mb-4">MI PERFIL</h1>
-                  <p className="text-white text-xl font-semibold">{userName || "Cargando..."}</p>
+                  <h1 className="font-extrabold text-4xl text-white mb-4">{userName || "Cargando..."}</h1>
+                  <p className="text-white/80 text-lg">Mi perfil de Feria Nounish</p>
                 </>
               ) : (
                 <>
@@ -145,39 +161,51 @@ export default function PerfilPage() {
             </div>
           </div>
 
-          {/* NFTs Section */}
           <div className="max-w-6xl mx-auto">
-            <h2 className="font-extrabold text-3xl text-white mb-8 text-center">MIS NFTs</h2>
+            <h2 className="font-extrabold text-3xl text-white mb-8 text-center">MIS MOMENTOS</h2>
 
             {isLoading ? (
               <div className="flex justify-center items-center min-h-[400px]">
-                <p className="text-white text-lg">Cargando...</p>
+                <div className="text-center">
+                  <p className="text-white text-lg mb-2">Cargando momentos...</p>
+                  <p className="text-white/60 text-sm">Conectando con inprocess.fun</p>
+                </div>
               </div>
             ) : !address ? (
               <div className="text-center py-16">
-                <p className="text-white text-lg">Conecta tu wallet para ver tus NFTs</p>
+                <div className="bg-white/20 backdrop-blur-md rounded-3xl p-8 border-2 border-white/30 max-w-md mx-auto">
+                  <p className="text-white text-lg mb-4">Conecta tu wallet para ver tus momentos</p>
+                  <p className="text-white/60 text-sm">Tus NFTs y creaciones de inprocess.fun aparecerán aquí</p>
+                </div>
               </div>
-            ) : nfts.length > 0 ? (
+            ) : moments.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {nfts.map((nft, index) => (
+                {moments.map((moment) => (
                   <Link
-                    key={`${nft.contractAddress}-${nft.tokenId}-${index}`}
-                    href={`/galeria/${nft.contractAddress}/${nft.tokenId}`}
+                    key={moment.id}
+                    href={`/galeria/${moment.contractAddress}/${moment.tokenId}`}
                     className="group block"
                   >
                     <Card className="overflow-hidden transition-all duration-300 hover:shadow-2xl hover:-translate-y-2">
                       <CardContent className="p-0">
                         <div className="relative aspect-square overflow-hidden bg-gray-100">
                           <Image
-                            src={nft.image || "/placeholder.svg"}
-                            alt={nft.name}
+                            src={moment.image || "/placeholder.svg"}
+                            alt={moment.name}
                             fill
                             className="object-cover transition-transform duration-300 group-hover:scale-105"
                           />
                         </div>
                         <div className="p-6 bg-white">
-                          <h3 className="font-extrabold text-xl text-gray-800 mb-2">{nft.name}</h3>
-                          <p className="text-sm text-gray-600 line-clamp-2">{nft.description}</p>
+                          <h3 className="font-extrabold text-xl text-gray-800 mb-2">{moment.name}</h3>
+                          <p className="text-sm text-gray-600 line-clamp-2 mb-2">{moment.description}</p>
+                          <p className="text-xs text-gray-500">
+                            {new Date(moment.createdAt).toLocaleDateString("es-ES", {
+                              year: "numeric",
+                              month: "long",
+                              day: "numeric",
+                            })}
+                          </p>
                         </div>
                       </CardContent>
                     </Card>
@@ -186,12 +214,15 @@ export default function PerfilPage() {
               </div>
             ) : (
               <div className="text-center py-16">
-                <p className="text-white text-lg mb-4">Aún no tienes NFTs de la Feria Nounish</p>
-                <Link href="/galeria">
-                  <button className="bg-white text-black hover:bg-gray-100 font-semibold px-6 py-3 rounded-full shadow-lg transition-all">
-                    EXPLORAR GALERÍA
-                  </button>
-                </Link>
+                <div className="bg-white/20 backdrop-blur-md rounded-3xl p-8 border-2 border-white/30 max-w-md mx-auto">
+                  <p className="text-white text-lg mb-4">Aún no tienes momentos en inprocess.fun</p>
+                  <p className="text-white/60 text-sm mb-6">Crea tu primer momento para verlo aparecer aquí</p>
+                  <Link href="/crear">
+                    <button className="bg-white text-black hover:bg-gray-100 font-extrabold px-8 py-3 rounded-full shadow-lg transition-all">
+                      CREAR MOMENTO
+                    </button>
+                  </Link>
+                </div>
               </div>
             )}
           </div>
