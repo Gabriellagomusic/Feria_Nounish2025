@@ -1,10 +1,8 @@
 "use client"
-
-import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import Image from "next/image"
-import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { useState, useEffect } from "react"
 import { useParams } from "next/navigation"
 import {
@@ -18,6 +16,7 @@ import type { LifecycleStatus } from "@coinbase/onchainkit/transaction"
 import { createPublicClient, http, parseUnits } from "viem"
 import { base } from "viem/chains"
 import { useAccount } from "wagmi"
+import { ArrowLeft } from "lucide-react"
 
 interface TokenMetadata {
   name: string
@@ -48,6 +47,7 @@ const ERC1155_ABI = [
 ] as const
 
 export default function TokenDetailPage() {
+  const router = useRouter()
   const params = useParams()
   const contractAddress = params.contractAddress as `0x${string}`
   const tokenId = params.tokenId as string
@@ -151,24 +151,15 @@ export default function TokenDetailPage() {
         <Image src="/images/fondos2.png" alt="Fondo colorido abstracto" fill className="object-cover" priority />
       </div>
 
-      {/* Content */}
       <div className="relative z-10">
-        {/* Header */}
-        <header className="bg-white/80 backdrop-blur-sm border-b border-gray-200 sticky top-0 z-50">
-          <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-            <Link href="/">
-              <Image
-                src="/images/feria-logo.png"
-                alt="Feria Nounish Logo"
-                width={150}
-                height={75}
-                className="h-12 w-auto"
-              />
-            </Link>
-            <Link href="/galeria">
-              <Button variant="outline">← Volver a Galería</Button>
-            </Link>
-          </div>
+        <header className="p-4">
+          <button
+            onClick={() => router.back()}
+            className="flex items-center justify-center w-12 h-12 rounded-full bg-white/20 backdrop-blur-md hover:bg-white/30 transition-all"
+            aria-label="Volver"
+          >
+            <ArrowLeft className="w-6 h-6 text-white" />
+          </button>
         </header>
 
         {/* Token Detail */}
@@ -189,21 +180,21 @@ export default function TokenDetailPage() {
             <div className="flex flex-col gap-6">
               <Card>
                 <CardContent className="p-6">
-                  <h1 className="font-bold text-3xl text-gray-800 mb-2">{tokenData?.name}</h1>
+                  <h1 className="font-extrabold text-3xl text-gray-800 mb-2">{tokenData?.name}</h1>
 
                   <div className="border-t border-gray-200 pt-4 mb-4">
-                    <h2 className="font-semibold text-lg text-gray-800 mb-2">Descripción</h2>
-                    <p className="text-gray-600 leading-relaxed">{tokenData?.description}</p>
+                    <h2 className="font-extrabold text-lg text-gray-800 mb-2">Descripción</h2>
+                    <p className="text-gray-600 leading-relaxed font-normal">{tokenData?.description}</p>
                   </div>
 
                   <div className="border-t border-gray-200 pt-4">
                     <div className="flex items-center justify-between mb-4">
-                      <span className="text-gray-600">Precio</span>
-                      <span className="font-bold text-2xl text-gray-800">1 USDC</span>
+                      <span className="text-gray-600 font-normal">Precio</span>
+                      <span className="font-extrabold text-2xl text-gray-800">1 USDC</span>
                     </div>
 
                     <div className="mb-4">
-                      <label htmlFor="quantity" className="block text-sm font-medium text-gray-700 mb-2">
+                      <label htmlFor="quantity" className="block text-sm font-extrabold text-gray-700 mb-2">
                         Cantidad
                       </label>
                       <Input
@@ -212,17 +203,17 @@ export default function TokenDetailPage() {
                         min="1"
                         value={quantity}
                         onChange={(e) => setQuantity(Math.max(1, Number.parseInt(e.target.value) || 1))}
-                        className="w-full"
+                        className="w-full font-normal"
                       />
-                      <p className="text-sm text-gray-500 mt-1">Total: {quantity} USDC</p>
+                      <p className="text-sm text-gray-500 mt-1 font-normal">Total: {quantity} USDC</p>
                     </div>
 
                     {!isConnected ? (
-                      <p className="text-center text-gray-600 py-4">Conecta tu wallet para comprar</p>
+                      <p className="text-center text-gray-600 py-4 font-normal">Conecta tu wallet para comprar</p>
                     ) : (
                       <Transaction chainId={base.id} calls={contracts} onStatus={handleOnStatus}>
                         <TransactionButton
-                          className="w-full bg-red-500 hover:bg-red-600 text-white font-semibold py-6 text-lg"
+                          className="w-full bg-red-600 hover:bg-red-700 text-white font-extrabold py-6 text-lg"
                           text={`Comprar ${quantity > 1 ? `(${quantity})` : ""}`}
                         />
                         <TransactionStatus>
@@ -238,8 +229,8 @@ export default function TokenDetailPage() {
               {/* Contract Info */}
               <Card>
                 <CardContent className="p-6">
-                  <h3 className="font-semibold text-sm text-gray-600 mb-2">Información del Contrato</h3>
-                  <div className="space-y-2 text-sm">
+                  <h3 className="font-extrabold text-sm text-gray-600 mb-2">Información del Contrato</h3>
+                  <div className="space-y-2 text-sm font-normal">
                     <div>
                       <span className="text-gray-500">Contrato:</span>
                       <p className="font-mono text-xs text-gray-800 break-all">{contractAddress}</p>

@@ -1,18 +1,13 @@
 import type React from "react"
-import localFont from "next/font/local"
+import { Barlow_Condensed } from "next/font/google"
 import { MiniKitContextProvider } from "@/providers/MiniKitProvider"
 import { WagmiContextProvider } from "@/providers/WagmiProvider"
 import "./globals.css"
 
-const barlowCondensed = localFont({
-  src: "../public/fonts/BarlowCondensed-ExtraBold.ttf",
+const barlowCondensed = Barlow_Condensed({
+  subsets: ["latin"],
+  weight: ["400", "900"],
   variable: "--font-barlow",
-  display: "swap",
-})
-
-const plusJakarta = localFont({
-  src: "../public/fonts/PlusJakartaSans-VariableFont_wght.ttf",
-  variable: "--font-jakarta",
   display: "swap",
 })
 
@@ -50,7 +45,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className={`${barlowCondensed.variable} ${plusJakarta.variable}`}>
+    <html lang="en" className={barlowCondensed.variable}>
       <body>
         <WagmiContextProvider>
           <MiniKitContextProvider>{children}</MiniKitContextProvider>
