@@ -27,11 +27,11 @@ interface TokenMetadata {
 const ERC1155_ABI = [
   {
     inputs: [
+      { name: "to", type: "address" },
       { name: "tokenId", type: "uint256" },
       { name: "quantity", type: "uint256" },
-      { name: "recipient", type: "address" },
     ],
-    name: "purchase",
+    name: "mint",
     outputs: [],
     stateMutability: "nonpayable",
     type: "function",
@@ -74,8 +74,6 @@ export default function TokenDetailPage() {
   useEffect(() => {
     const fetchTokenMetadata = async () => {
       try {
-        console.log("[v0] Fetching metadata for contract:", contractAddress, "tokenId:", tokenId)
-
         const publicClient = createPublicClient({
           chain: base,
           transport: http(),
@@ -88,21 +86,15 @@ export default function TokenDetailPage() {
           args: [BigInt(tokenId)],
         })
 
-        console.log("[v0] Token URI:", tokenURI)
-
         if (tokenURI) {
           let metadataUrl = tokenURI.replace("{id}", tokenId)
           if (metadataUrl.startsWith("ar://")) {
             metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
           }
 
-          console.log("[v0] Fetching metadata from:", metadataUrl)
-
           const metadataResponse = await fetch(metadataUrl)
           if (metadataResponse.ok) {
             const metadata = await metadataResponse.json()
-
-            console.log("[v0] Metadata:", metadata)
 
             let imageUrl = metadata.image
             if (imageUrl?.startsWith("ipfs://")) {
@@ -121,14 +113,13 @@ export default function TokenDetailPage() {
           }
         }
 
-        // Fallback to placeholder data
         setTokenData({
           name: `Obra de Arte #${tokenId}`,
           description: "Obra de arte digital única de la colección oficial",
           image: "/abstract-digital-composition.png",
         })
       } catch (error) {
-        console.error("[v0] Error fetching token metadata:", error)
+        console.error("Error fetching token metadata:", error)
         setTokenData({
           name: `Obra de Arte #${tokenId}`,
           description: "Obra de arte digital única de la colección oficial",
@@ -144,12 +135,6 @@ export default function TokenDetailPage() {
 
   const usdcAmount = parseUnits((quantity * 1).toString(), 6)
 
-  console.log("[v0] Contract address:", contractAddress)
-  console.log("[v0] Token ID:", tokenId)
-  console.log("[v0] Quantity:", quantity)
-  console.log("[v0] USDC amount:", usdcAmount.toString())
-  console.log("[v0] User address:", address)
-
   const contracts = [
     {
       address: USDC_ADDRESS,
@@ -160,14 +145,13 @@ export default function TokenDetailPage() {
     {
       address: contractAddress,
       abi: ERC1155_ABI,
-      functionName: "purchase",
-      args: [BigInt(tokenId), BigInt(quantity), address],
+      functionName: "mint",
+      args: [address, BigInt(tokenId), BigInt(quantity)],
     },
   ]
 
   const handleOnStatus = (status: LifecycleStatus) => {
     console.log("[v0] Transaction status:", status)
-    console.log("[v0] Status details:", JSON.stringify(status, null, 2))
   }
 
   if (isLoading) {
@@ -198,10 +182,8 @@ export default function TokenDetailPage() {
           </button>
         </header>
 
-        {/* Token Detail */}
         <main className="container mx-auto px-4 py-8">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-6xl mx-auto">
-            {/* Image */}
             <div className="relative aspect-square rounded-lg overflow-hidden bg-white shadow-xl">
               <Image
                 src={tokenData?.image || "/placeholder.svg"}
@@ -212,7 +194,6 @@ export default function TokenDetailPage() {
               />
             </div>
 
-            {/* Details */}
             <div className="flex flex-col gap-6">
               <Card>
                 <CardContent className="p-6">
@@ -262,7 +243,6 @@ export default function TokenDetailPage() {
                 </CardContent>
               </Card>
 
-              {/* Contract Info */}
               <Card>
                 <CardContent className="p-6">
                   <h3 className="font-extrabold text-sm text-gray-600 mb-2">Información del Contrato</h3>
