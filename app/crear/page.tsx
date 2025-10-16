@@ -123,9 +123,8 @@ export default function CrearPage() {
 
   return (
     <div className="min-h-screen relative overflow-hidden">
-      {/* Background Image */}
       <div className="absolute inset-0 z-0">
-        <Image src="/images/fondos5.png" alt="Fondo" fill className="object-cover" priority />
+        <Image src="/images/fondos.png" alt="Fondo" fill className="object-cover" priority />
       </div>
 
       <header className="relative z-20 p-4">

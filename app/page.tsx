@@ -23,44 +23,49 @@ export default function Home() {
   return (
     <div className="min-h-screen relative overflow-hidden">
       {/* Background Image */}
-      <div className="absolute inset-0 z-0">
-        <Image src="/images/fondos.png" alt="Fondo colorido abstracto" fill className="object-cover" priority />
-      </div>
+      <Image src="/images/fondolanding.png" alt="Background" fill className="object-cover" priority />
 
       {/* Content */}
       <div className="relative z-10 flex flex-col items-center justify-center min-h-screen px-4">
-        {/* Logo */}
+        {/* Updated Logo */}
         <div className="mb-12">
           <Image
-            src="/images/feria-logo.png"
+            src="/images/logolanding.png"
             alt="Feria Nounish Logo"
             width={400}
-            height={200}
+            height={400}
             className="w-auto h-32 md:h-40 lg:h-48"
             priority
           />
         </div>
 
-        {/* Buttons */}
-        <div className="flex flex-col sm:flex-row gap-6 items-center">
+        {/* Smaller Buttons Side by Side */}
+        <div className="flex flex-row gap-4 items-center mb-8">
           <Link href="/galeria">
             <Button
-              size="lg"
-              className="bg-white text-black hover:bg-gray-100 font-semibold px-8 py-4 text-lg min-w-[140px] shadow-lg"
+              size="default"
+              className="bg-white text-black hover:bg-gray-100 font-semibold px-6 py-3 text-base min-w-[120px] shadow-lg"
             >
-              Galería
+              GALERÍA
             </Button>
           </Link>
 
           <Link href="/crear">
             <Button
-              size="lg"
-              className="bg-red-500 text-white hover:bg-red-600 font-semibold px-8 py-4 text-lg min-w-[140px] shadow-lg"
+              size="default"
+              className="font-semibold px-6 py-3 text-base min-w-[120px] shadow-lg text-white hover:opacity-90"
+              style={{ backgroundColor: "#FF0B00" }}
             >
-              Crear
+              CREAR
             </Button>
           </Link>
         </div>
+
+        <p className="text-white text-center text-sm md:text-base max-w-2xl px-4">
+          ¡DESCUBRE LA COLECCIÓN OFICIAL DE NFTS DE LOS ARTISTAS DE LA FERIA NOUNISH
+          <br />
+          2025 EN CALI COLOMBIA!
+        </p>
       </div>
     </div>
   )
