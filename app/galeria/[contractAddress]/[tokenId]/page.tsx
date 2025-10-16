@@ -27,12 +27,11 @@ interface TokenMetadata {
 const ERC1155_ABI = [
   {
     inputs: [
-      { name: "to", type: "address" },
-      { name: "id", type: "uint256" },
-      { name: "amount", type: "uint256" },
-      { name: "data", type: "bytes" },
+      { name: "tokenId", type: "uint256" },
+      { name: "quantity", type: "uint256" },
+      { name: "recipient", type: "address" },
     ],
-    name: "mint",
+    name: "purchase",
     outputs: [],
     stateMutability: "nonpayable",
     type: "function",
@@ -75,6 +74,8 @@ export default function TokenDetailPage() {
   useEffect(() => {
     const fetchTokenMetadata = async () => {
       try {
+        console.log("[v0] Fetching metadata for contract:", contractAddress, "tokenId:", tokenId)
+
         const publicClient = createPublicClient({
           chain: base,
           transport: http(),
@@ -87,15 +88,21 @@ export default function TokenDetailPage() {
           args: [BigInt(tokenId)],
         })
 
+        console.log("[v0] Token URI:", tokenURI)
+
         if (tokenURI) {
           let metadataUrl = tokenURI.replace("{id}", tokenId)
           if (metadataUrl.startsWith("ar://")) {
             metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
           }
 
+          console.log("[v0] Fetching metadata from:", metadataUrl)
+
           const metadataResponse = await fetch(metadataUrl)
           if (metadataResponse.ok) {
             const metadata = await metadataResponse.json()
+
+            console.log("[v0] Metadata:", metadata)
 
             let imageUrl = metadata.image
             if (imageUrl?.startsWith("ipfs://")) {
@@ -135,23 +142,32 @@ export default function TokenDetailPage() {
     fetchTokenMetadata()
   }, [contractAddress, tokenId])
 
+  const usdcAmount = parseUnits((quantity * 1).toString(), 6)
+
+  console.log("[v0] Contract address:", contractAddress)
+  console.log("[v0] Token ID:", tokenId)
+  console.log("[v0] Quantity:", quantity)
+  console.log("[v0] USDC amount:", usdcAmount.toString())
+  console.log("[v0] User address:", address)
+
   const contracts = [
     {
       address: USDC_ADDRESS,
       abi: ERC20_ABI,
       functionName: "approve",
-      args: [contractAddress, parseUnits((quantity * 1).toString(), 6)],
+      args: [contractAddress, usdcAmount],
     },
     {
       address: contractAddress,
       abi: ERC1155_ABI,
-      functionName: "mint",
-      args: [address, BigInt(tokenId), BigInt(quantity), "0x"],
+      functionName: "purchase",
+      args: [BigInt(tokenId), BigInt(quantity), address],
     },
   ]
 
   const handleOnStatus = (status: LifecycleStatus) => {
     console.log("[v0] Transaction status:", status)
+    console.log("[v0] Status details:", JSON.stringify(status, null, 2))
   }
 
   if (isLoading) {
