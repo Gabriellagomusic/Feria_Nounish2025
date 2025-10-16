@@ -5,11 +5,10 @@ import Image from "next/image"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
-import { createPublicClient, http } from "viem"
-import { base } from "viem/chains"
 import { ArrowLeft } from "lucide-react"
 import { useMiniKit } from "@coinbase/onchainkit/minikit"
 import { getName } from "@coinbase/onchainkit/identity"
+import { base } from "viem/chains"
 
 interface NFTMetadata {
   name: string
@@ -17,28 +16,7 @@ interface NFTMetadata {
   image: string
   contractAddress: string
   tokenId: string
-  balance: string
 }
-
-const ERC1155_ABI = [
-  {
-    inputs: [
-      { name: "account", type: "address" },
-      { name: "id", type: "uint256" },
-    ],
-    name: "balanceOf",
-    outputs: [{ name: "", type: "uint256" }],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    inputs: [{ name: "id", type: "uint256" }],
-    name: "uri",
-    outputs: [{ name: "", type: "string" }],
-    stateMutability: "view",
-    type: "function",
-  },
-] as const
 
 export default function PerfilPage() {
   const router = useRouter()
@@ -50,73 +28,79 @@ export default function PerfilPage() {
   useEffect(() => {
     const fetchUserData = async () => {
       if (!address) {
+        console.log("[v0] No wallet connected")
         setIsLoading(false)
         return
       }
 
+      console.log("[v0] Wallet connected:", address)
+
       try {
-        // Get basename or use wallet address
         const basename = await getName({ address, chain: base })
-        setUserName(basename || `${address.slice(0, 6)}...${address.slice(-4)}`)
+        const displayName = basename || `${address.slice(0, 6)}...${address.slice(-4)}`
+        setUserName(displayName)
+        console.log("[v0] User name:", displayName)
 
-        // Fetch user's NFTs
-        const publicClient = createPublicClient({
-          chain: base,
-          transport: http(),
-        })
+        console.log("[v0] Fetching NFTs from inprocess timeline...")
 
-        // Check balance for known contract
-        const contractAddress = "0x990b7de26fbf87624a0a8ee83b03759bd191de64"
-        const tokenId = BigInt(1)
+        // Try multiple possible API endpoints
+        const possibleEndpoints = [
+          `https://inprocess.fun/api/moment/timeline?address=${address}`,
+          `https://inprocess.fun/api/user/moments?address=${address}`,
+          `https://inprocess.fun/api/timeline/${address}`,
+        ]
 
-        const balance = await publicClient.readContract({
-          address: contractAddress as `0x${string}`,
-          abi: ERC1155_ABI,
-          functionName: "balanceOf",
-          args: [address as `0x${string}`, tokenId],
-        })
+        let fetchedNFTs: NFTMetadata[] = []
+        let apiSuccess = false
 
-        if (balance > 0n) {
-          // Fetch metadata
-          const tokenURI = await publicClient.readContract({
-            address: contractAddress as `0x${string}`,
-            abi: ERC1155_ABI,
-            functionName: "uri",
-            args: [tokenId],
-          })
+        for (const endpoint of possibleEndpoints) {
+          try {
+            console.log("[v0] Trying endpoint:", endpoint)
+            const response = await fetch(endpoint)
 
-          if (tokenURI) {
-            let metadataUrl = tokenURI.replace("{id}", "1")
-            if (metadataUrl.startsWith("ar://")) {
-              metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
-            }
+            if (response.ok) {
+              const data = await response.json()
+              console.log("[v0] API response:", data)
 
-            const metadataResponse = await fetch(metadataUrl)
-            if (metadataResponse.ok) {
-              const metadata = await metadataResponse.json()
-
-              let imageUrl = metadata.image
-              if (imageUrl?.startsWith("ipfs://")) {
-                imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-              } else if (imageUrl?.startsWith("ar://")) {
-                imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+              // Parse the response based on the structure
+              if (Array.isArray(data)) {
+                fetchedNFTs = data.map((item: any) => ({
+                  name: item.name || item.token?.name || "Obra de Arte",
+                  description: item.description || item.token?.description || "Obra de arte digital única",
+                  image: item.image || item.token?.image || "/placeholder.svg",
+                  contractAddress: item.contractAddress || item.contract?.address || "",
+                  tokenId: item.tokenId?.toString() || item.token?.id?.toString() || "1",
+                }))
+                apiSuccess = true
+                break
+              } else if (data.moments || data.tokens) {
+                const items = data.moments || data.tokens
+                fetchedNFTs = items.map((item: any) => ({
+                  name: item.name || item.token?.name || "Obra de Arte",
+                  description: item.description || item.token?.description || "Obra de arte digital única",
+                  image: item.image || item.token?.image || "/placeholder.svg",
+                  contractAddress: item.contractAddress || item.contract?.address || "",
+                  tokenId: item.tokenId?.toString() || item.token?.id?.toString() || "1",
+                }))
+                apiSuccess = true
+                break
               }
-
-              setNfts([
-                {
-                  name: metadata.name || "Obra de Arte #1",
-                  description: metadata.description || "Obra de arte digital única",
-                  image: imageUrl || "/placeholder.svg",
-                  contractAddress,
-                  tokenId: "1",
-                  balance: balance.toString(),
-                },
-              ])
             }
+          } catch (error) {
+            console.log("[v0] Endpoint failed:", endpoint, error)
+            continue
           }
         }
+
+        if (apiSuccess) {
+          console.log("[v0] Successfully fetched NFTs from API:", fetchedNFTs.length)
+          setNfts(fetchedNFTs)
+        } else {
+          console.log("[v0] All API endpoints failed, no NFTs found")
+          setNfts([])
+        }
       } catch (error) {
-        console.error("Error fetching user data:", error)
+        console.error("[v0] Error fetching user data:", error)
       } finally {
         setIsLoading(false)
       }
@@ -145,14 +129,18 @@ export default function PerfilPage() {
         </header>
 
         <main className="container mx-auto px-4 py-8">
-          {/* User Info */}
           <div className="max-w-2xl mx-auto mb-12 text-center">
             <div className="bg-white/20 backdrop-blur-md rounded-3xl p-8 border-2 border-white/30">
-              <h1 className="font-extrabold text-4xl text-white mb-4">MI PERFIL</h1>
               {address ? (
-                <p className="text-white text-xl font-semibold">{userName}</p>
+                <>
+                  <h1 className="font-extrabold text-4xl text-white mb-4">MI PERFIL</h1>
+                  <p className="text-white text-xl font-semibold">{userName || "Cargando..."}</p>
+                </>
               ) : (
-                <p className="text-white/80 text-lg">Conecta tu wallet para ver tu perfil</p>
+                <>
+                  <h1 className="font-extrabold text-4xl text-white mb-4">MI PERFIL</h1>
+                  <p className="text-white/80 text-lg">Conecta tu wallet para ver tu perfil</p>
+                </>
               )}
             </div>
           </div>
@@ -189,8 +177,7 @@ export default function PerfilPage() {
                         </div>
                         <div className="p-6 bg-white">
                           <h3 className="font-extrabold text-xl text-gray-800 mb-2">{nft.name}</h3>
-                          <p className="text-sm text-gray-600 line-clamp-2 mb-2">{nft.description}</p>
-                          <p className="text-xs text-gray-500">Cantidad: {nft.balance}</p>
+                          <p className="text-sm text-gray-600 line-clamp-2">{nft.description}</p>
                         </div>
                       </CardContent>
                     </Card>
