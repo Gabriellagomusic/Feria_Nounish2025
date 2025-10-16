@@ -8,7 +8,7 @@ import { useState, useEffect } from "react"
 import { useParams } from "next/navigation"
 import { createPublicClient, http, parseEther, encodeFunctionData, decodeErrorResult } from "viem"
 import { base } from "viem/chains"
-import { useAccount } from "wagmi"
+import { useAccount, useWriteContract } from "wagmi"
 import { ArrowLeft, Loader2 } from "lucide-react"
 import { useMiniKit } from "@coinbase/onchainkit/minikit"
 
@@ -66,6 +66,7 @@ export default function TokenDetailPage() {
   const tokenId = params.tokenId as string
   const { address, isConnected } = useAccount()
   const { sendTransaction, isReady } = useMiniKit()
+  const { writeContractAsync } = useWriteContract()
 
   const [tokenData, setTokenData] = useState<TokenMetadata | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -142,17 +143,13 @@ export default function TokenDetailPage() {
       return
     }
 
-    if (!isReady) {
-      setPurchaseError("MiniKit no está disponible. Abre esta app desde Farcaster o Base.")
-      return
-    }
-
     setIsPurchasing(true)
     setPurchaseError(null)
     setpurchaseSuccess(false)
 
     try {
       console.log("[v0] Iniciando compra...")
+      console.log("[v0] MiniKit disponible:", isReady)
       console.log("[v0] Contrato:", contractAddress)
       console.log("[v0] Token ID:", tokenId)
       console.log("[v0] Cantidad:", quantity)
@@ -237,22 +234,36 @@ export default function TokenDetailPage() {
         return
       }
 
-      console.log("[v0] Codificando datos de transacción...")
-      const data = encodeFunctionData({
-        abi: ZORA1155_ABI,
-        functionName: "mint",
-        args: mintArgs,
-      })
+      if (isReady) {
+        console.log("[v0] Usando MiniKit para enviar transacción...")
+        const data = encodeFunctionData({
+          abi: ZORA1155_ABI,
+          functionName: "mint",
+          args: mintArgs,
+        })
 
-      console.log("[v0] Enviando transacción con MiniKit...")
-      const txHash = await sendTransaction({
-        to: contractAddress,
-        data,
-        value: totalValue.toString(),
-        chainId: base.id,
-      })
+        const txHash = await sendTransaction({
+          to: contractAddress,
+          data,
+          value: totalValue.toString(),
+          chainId: base.id,
+        })
 
-      console.log("[v0] Transacción enviada:", txHash)
+        console.log("[v0] Transacción enviada con MiniKit:", txHash)
+      } else {
+        console.log("[v0] Usando wagmi para enviar transacción...")
+        const txHash = await writeContractAsync({
+          address: contractAddress,
+          abi: ZORA1155_ABI,
+          functionName: "mint",
+          args: mintArgs,
+          value: totalValue,
+          chainId: base.id,
+        })
+
+        console.log("[v0] Transacción enviada con wagmi:", txHash)
+      }
+
       setpurchaseSuccess(true)
       setPurchaseError(null)
 
