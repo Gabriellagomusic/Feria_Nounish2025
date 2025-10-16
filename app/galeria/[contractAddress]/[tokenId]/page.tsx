@@ -34,7 +34,7 @@ const ERC1155_ABI = [
     ],
     name: "mint",
     outputs: [],
-    stateMutability: "payable",
+    stateMutability: "nonpayable",
     type: "function",
   },
   {
@@ -42,6 +42,21 @@ const ERC1155_ABI = [
     name: "uri",
     outputs: [{ name: "", type: "string" }],
     stateMutability: "view",
+    type: "function",
+  },
+] as const
+
+const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as const
+
+const ERC20_ABI = [
+  {
+    inputs: [
+      { name: "spender", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    name: "approve",
+    outputs: [{ name: "", type: "bool" }],
+    stateMutability: "nonpayable",
     type: "function",
   },
 ] as const
@@ -122,11 +137,16 @@ export default function TokenDetailPage() {
 
   const contracts = [
     {
+      address: USDC_ADDRESS,
+      abi: ERC20_ABI,
+      functionName: "approve",
+      args: [contractAddress, parseUnits((quantity * 1).toString(), 6)],
+    },
+    {
       address: contractAddress,
       abi: ERC1155_ABI,
       functionName: "mint",
       args: [address, BigInt(tokenId), BigInt(quantity), "0x"],
-      value: parseUnits((quantity * 1).toString(), 6),
     },
   ]
 
