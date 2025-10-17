@@ -112,8 +112,11 @@ export default function PerfilPage() {
         }
 
         if (apiSuccess) {
-          console.log("[v0] Setting moments:", fetchedMoments.length)
-          setMoments(fetchedMoments)
+          const sortedMoments = fetchedMoments.sort((a, b) => {
+            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          })
+          console.log("[v0] Setting moments:", sortedMoments.length)
+          setMoments(sortedMoments)
         } else {
           console.log("[v0] No moments found from any API endpoint")
           setMoments([])
@@ -148,38 +151,22 @@ export default function PerfilPage() {
         </header>
 
         <main className="container mx-auto px-4 py-8">
-          <div className="max-w-2xl mx-auto mb-12 text-center">
-            <div className="bg-white/20 backdrop-blur-md rounded-3xl p-8 border-2 border-white/30">
-              {address ? (
-                <>
-                  <h1 className="font-extrabold text-4xl text-white mb-4">{userName || "Cargando..."}</h1>
-                  <p className="text-white/80 text-lg">Mi perfil de Feria Nounish</p>
-                </>
-              ) : (
-                <>
-                  <h1 className="font-extrabold text-4xl text-white mb-4">MI PERFIL</h1>
-                  <p className="text-white/80 text-lg">Conecta tu wallet para ver tu perfil</p>
-                </>
-              )}
-            </div>
+          <div className="max-w-6xl mx-auto mb-8">
+            <h1 className="font-extrabold text-4xl text-white text-center mb-2">
+              {address ? userName || "Cargando..." : "Conecta tu wallet"}
+            </h1>
           </div>
 
           <div className="max-w-6xl mx-auto">
-            <h2 className="font-extrabold text-3xl text-white mb-8 text-center">MIS MOMENTOS</h2>
+            <h2 className="font-extrabold text-3xl text-white mb-8 text-center">NFTs</h2>
 
             {isLoading ? (
               <div className="flex justify-center items-center min-h-[400px]">
-                <div className="text-center">
-                  <p className="text-white text-lg mb-2">Cargando momentos...</p>
-                  <p className="text-white/60 text-sm">Conectando con inprocess.fun</p>
-                </div>
+                <p className="text-white text-lg">Cargando...</p>
               </div>
             ) : !address ? (
               <div className="text-center py-16">
-                <div className="bg-white/20 backdrop-blur-md rounded-3xl p-8 border-2 border-white/30 max-w-md mx-auto">
-                  <p className="text-white text-lg mb-4">Conecta tu wallet para ver tus momentos</p>
-                  <p className="text-white/60 text-sm">Tus NFTs y creaciones de inprocess.fun aparecerán aquí</p>
-                </div>
+                <p className="text-white text-lg">Conecta tu wallet para ver tus NFTs</p>
               </div>
             ) : moments.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -217,15 +204,7 @@ export default function PerfilPage() {
               </div>
             ) : (
               <div className="text-center py-16">
-                <div className="bg-white/20 backdrop-blur-md rounded-3xl p-8 border-2 border-white/30 max-w-md mx-auto">
-                  <p className="text-white text-lg mb-4">Aún no tienes momentos en inprocess.fun</p>
-                  <p className="text-white/60 text-sm mb-6">Crea tu primer momento para verlo aparecer aquí</p>
-                  <Link href="/crear">
-                    <button className="bg-white text-black hover:bg-gray-100 font-extrabold px-8 py-3 rounded-full shadow-lg transition-all">
-                      CREAR MOMENTO
-                    </button>
-                  </Link>
-                </div>
+                <p className="text-white text-lg">No tienes NFTs todavía</p>
               </div>
             )}
           </div>
