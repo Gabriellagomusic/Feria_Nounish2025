@@ -6,9 +6,10 @@ import { useEffect } from "react"
 import { useMiniKit } from "@coinbase/onchainkit/minikit"
 import Link from "next/link"
 import { User } from "lucide-react"
+import { isWhitelisted } from "@/lib/whitelist"
 
 export default function Home() {
-  const { setFrameReady, isFrameReady } = useMiniKit()
+  const { setFrameReady, isFrameReady, address } = useMiniKit()
 
   useEffect(() => {
     console.log("[v0] Initializing MiniApp...")
@@ -21,21 +22,25 @@ export default function Home() {
     }
   }, [isFrameReady, setFrameReady])
 
+  const isUserWhitelisted = isWhitelisted(address)
+
   return (
     <div className="min-h-screen relative overflow-hidden">
       {/* Background Image */}
       <Image src="/images/fondolanding.png" alt="Background" fill className="object-cover" priority />
 
-      <div className="absolute top-4 right-4 z-20">
-        <Link href="/perfil">
-          <button
-            className="flex items-center justify-center w-12 h-12 rounded-full bg-white/20 backdrop-blur-md hover:bg-white/30 transition-all shadow-lg"
-            aria-label="Ver perfil"
-          >
-            <User className="w-6 h-6 text-white" />
-          </button>
-        </Link>
-      </div>
+      {isUserWhitelisted && (
+        <div className="absolute top-4 right-4 z-20">
+          <Link href="/perfil">
+            <button
+              className="flex items-center justify-center w-12 h-12 rounded-full bg-white/20 backdrop-blur-md hover:bg-white/30 transition-all shadow-lg"
+              aria-label="Ver perfil"
+            >
+              <User className="w-6 h-6 text-white" />
+            </button>
+          </Link>
+        </div>
+      )}
 
       {/* Content */}
       <div className="relative z-10 flex flex-col items-center justify-center min-h-screen px-4">
@@ -62,15 +67,17 @@ export default function Home() {
             </Button>
           </Link>
 
-          <Link href="/crear">
-            <Button
-              size="default"
-              className="font-semibold px-6 py-3 text-base min-w-[120px] shadow-lg text-white hover:opacity-90"
-              style={{ backgroundColor: "#FF0B00" }}
-            >
-              CREAR
-            </Button>
-          </Link>
+          {isUserWhitelisted && (
+            <Link href="/crear">
+              <Button
+                size="default"
+                className="font-semibold px-6 py-3 text-base min-w-[120px] shadow-lg text-white hover:opacity-90"
+                style={{ backgroundColor: "#FF0B00" }}
+              >
+                CREAR
+              </Button>
+            </Link>
+          )}
         </div>
 
         <p className="text-white text-center text-sm md:text-base max-w-2xl px-4">

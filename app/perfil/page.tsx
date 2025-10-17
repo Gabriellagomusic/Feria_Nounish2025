@@ -9,6 +9,7 @@ import { ArrowLeft } from "lucide-react"
 import { useMiniKit } from "@coinbase/onchainkit/minikit"
 import { getName } from "@coinbase/onchainkit/identity"
 import { base } from "viem/chains"
+import { isWhitelisted } from "@/lib/whitelist"
 
 interface InprocessMoment {
   id: string
@@ -28,7 +29,15 @@ export default function PerfilPage() {
   const [moments, setMoments] = useState<InprocessMoment[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
+  const isUserWhitelisted = isWhitelisted(address)
+
   useEffect(() => {
+    if (address && !isUserWhitelisted) {
+      console.log("[v0] User not whitelisted, redirecting to home")
+      router.push("/")
+      return
+    }
+
     const fetchUserProfile = async () => {
       if (!address) {
         console.log("[v0] No wallet connected")
@@ -46,7 +55,6 @@ export default function PerfilPage() {
 
         console.log("[v0] Fetching moments from inprocess.fun API...")
 
-        // Try multiple possible API endpoints for user moments
         const apiEndpoints = [
           `https://inprocess.fun/api/user/${address}/moments`,
           `https://inprocess.fun/api/moment/user/${address}`,
@@ -124,7 +132,7 @@ export default function PerfilPage() {
     }
 
     fetchUserProfile()
-  }, [address])
+  }, [address, isUserWhitelisted, router])
 
   return (
     <div className="min-h-screen relative overflow-hidden">
@@ -133,7 +141,6 @@ export default function PerfilPage() {
       </div>
 
       <div className="relative z-10">
-        {/* Header with back button */}
         <header className="p-4">
           <button
             onClick={() => router.back()}

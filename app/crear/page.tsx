@@ -9,6 +9,7 @@ import { uploadToArweave } from "@/app/actions/upload-to-arweave"
 import { uploadJson } from "@/app/actions/upload-json"
 import { useAccount } from "wagmi"
 import { ArrowLeft, Wallet, Check } from "lucide-react"
+import { isWhitelisted } from "@/lib/whitelist"
 
 export default function CrearPage() {
   const router = useRouter()
@@ -20,8 +21,16 @@ export default function CrearPage() {
 
   const { address, isConnected } = useAccount()
 
+  const isUserWhitelisted = isWhitelisted(address)
+
   const isFormValid = () => {
-    return tokenName.trim() !== "" && tokenDescription.trim() !== "" && selectedFile !== null && isConnected
+    return (
+      tokenName.trim() !== "" &&
+      tokenDescription.trim() !== "" &&
+      selectedFile !== null &&
+      isConnected &&
+      isUserWhitelisted
+    )
   }
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -51,6 +60,11 @@ export default function CrearPage() {
 
   const handleCreateMoment = async () => {
     if (!isFormValid()) {
+      return
+    }
+
+    if (!isUserWhitelisted) {
+      alert("Tu wallet no está autorizada para crear obras. Contacta al administrador.")
       return
     }
 
@@ -137,7 +151,6 @@ export default function CrearPage() {
         </button>
       </header>
 
-      {/* Content */}
       <div className="relative z-10 flex flex-col items-center justify-center px-4 py-8">
         <div className="w-full max-w-2xl space-y-6">
           <div className="space-y-4">
@@ -210,7 +223,7 @@ export default function CrearPage() {
             </span>
           </div>
 
-          <div className="text-center pt-4">
+          <div className="text-center pt-4 space-y-3">
             <Button
               size="lg"
               className={`font-bold px-12 py-6 text-xl min-w-[200px] transition-all ${
@@ -220,9 +233,24 @@ export default function CrearPage() {
               }`}
               onClick={handleCreateMoment}
               disabled={!isFormValid() || isLoading}
+              aria-disabled={!isFormValid() || isLoading}
+              aria-describedby={!isUserWhitelisted && isConnected ? "whitelist-help" : undefined}
             >
               {isLoading ? "Creando..." : "Crear obra"}
             </Button>
+
+            {isConnected && !isUserWhitelisted && (
+              <div
+                id="whitelist-help"
+                className="bg-white/20 backdrop-blur-md rounded-xl p-4 border-2 border-white/30"
+                role="status"
+                aria-live="polite"
+              >
+                <p className="text-white text-sm font-normal">
+                  Tu wallet no está en la lista permitida. Contacta al administrador para obtener acceso.
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>
