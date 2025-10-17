@@ -9,7 +9,6 @@ import { ArrowLeft } from "lucide-react"
 import { useAccount } from "wagmi"
 import { getName } from "@coinbase/onchainkit/identity"
 import { base } from "viem/chains"
-import { isWhitelisted } from "@/lib/whitelist"
 
 interface InprocessMoment {
   id: string
@@ -29,22 +28,11 @@ export default function PerfilPage() {
   const [moments, setMoments] = useState<InprocessMoment[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
-  const isUserWhitelisted = isWhitelisted(address)
-
   useEffect(() => {
-    console.log("[v0] Perfil - Wallet connected:", isConnected)
-    console.log("[v0] Perfil - Wallet address:", address)
-    console.log("[v0] Perfil - Is whitelisted:", isUserWhitelisted)
-  }, [address, isConnected, isUserWhitelisted])
-
-  useEffect(() => {
-    if (address && !isUserWhitelisted) {
-      console.log("[v0] User not whitelisted, redirecting to home")
-      router.push("/")
-      return
-    }
-
     const fetchUserProfile = async () => {
+      console.log("[v0] Wallet connected:", isConnected)
+      console.log("[v0] Wallet address:", address)
+
       if (!address) {
         console.log("[v0] No wallet connected")
         setIsLoading(false)
@@ -61,6 +49,7 @@ export default function PerfilPage() {
 
         console.log("[v0] Fetching moments from inprocess.fun API...")
 
+        // Try multiple possible API endpoints for user moments
         const apiEndpoints = [
           `https://inprocess.fun/api/user/${address}/moments`,
           `https://inprocess.fun/api/moment/user/${address}`,
@@ -138,7 +127,7 @@ export default function PerfilPage() {
     }
 
     fetchUserProfile()
-  }, [address, isUserWhitelisted, router])
+  }, [address, isConnected])
 
   return (
     <div className="min-h-screen relative overflow-hidden">
@@ -147,6 +136,7 @@ export default function PerfilPage() {
       </div>
 
       <div className="relative z-10">
+        {/* Header with back button */}
         <header className="p-4">
           <button
             onClick={() => router.back()}

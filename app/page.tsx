@@ -7,7 +7,6 @@ import { useMiniKit } from "@coinbase/onchainkit/minikit"
 import { useAccount } from "wagmi"
 import Link from "next/link"
 import { User } from "lucide-react"
-import { isWhitelisted } from "@/lib/whitelist"
 
 export default function Home() {
   const { setFrameReady, isFrameReady } = useMiniKit()
@@ -16,40 +15,31 @@ export default function Home() {
   useEffect(() => {
     console.log("[v0] Initializing MiniApp...")
     console.log("[v0] isFrameReady:", isFrameReady)
+    console.log("[v0] Wallet connected:", isConnected)
+    console.log("[v0] Wallet address:", address)
 
     if (!isFrameReady) {
       console.log("[v0] Calling setFrameReady()")
       setFrameReady()
       console.log("[v0] MiniApp frame ready called successfully")
     }
-  }, [isFrameReady, setFrameReady])
-
-  useEffect(() => {
-    console.log("[v0] Landing - Wallet connected:", isConnected)
-    console.log("[v0] Landing - Wallet address:", address)
-    console.log("[v0] Landing - Address lowercase:", address?.toLowerCase())
-    console.log("[v0] Landing - Is whitelisted:", isWhitelisted(address))
-  }, [address, isConnected])
-
-  const isUserWhitelisted = isWhitelisted(address)
+  }, [isFrameReady, setFrameReady, isConnected, address])
 
   return (
     <div className="min-h-screen relative overflow-hidden">
       {/* Background Image */}
       <Image src="/images/fondolanding.png" alt="Background" fill className="object-cover" priority />
 
-      {isUserWhitelisted && (
-        <div className="absolute top-4 right-4 z-20">
-          <Link href="/perfil">
-            <button
-              className="flex items-center justify-center w-12 h-12 rounded-full bg-white/20 backdrop-blur-md hover:bg-white/30 transition-all shadow-lg"
-              aria-label="Ver perfil"
-            >
-              <User className="w-6 h-6 text-white" />
-            </button>
-          </Link>
-        </div>
-      )}
+      <div className="absolute top-4 right-4 z-20">
+        <Link href="/perfil">
+          <button
+            className="flex items-center justify-center w-12 h-12 rounded-full bg-white/20 backdrop-blur-md hover:bg-white/30 transition-all shadow-lg"
+            aria-label="Ver perfil"
+          >
+            <User className="w-6 h-6 text-white" />
+          </button>
+        </Link>
+      </div>
 
       {/* Content */}
       <div className="relative z-10 flex flex-col items-center justify-center min-h-screen px-4">
@@ -76,17 +66,15 @@ export default function Home() {
             </Button>
           </Link>
 
-          {isUserWhitelisted && (
-            <Link href="/crear">
-              <Button
-                size="default"
-                className="font-semibold px-6 py-3 text-base min-w-[120px] shadow-lg text-white hover:opacity-90"
-                style={{ backgroundColor: "#FF0B00" }}
-              >
-                CREAR
-              </Button>
-            </Link>
-          )}
+          <Link href="/crear">
+            <Button
+              size="default"
+              className="font-semibold px-6 py-3 text-base min-w-[120px] shadow-lg text-white hover:opacity-90"
+              style={{ backgroundColor: "#FF0B00" }}
+            >
+              CREAR
+            </Button>
+          </Link>
         </div>
 
         <p className="text-white text-center text-sm md:text-base max-w-2xl px-4">
