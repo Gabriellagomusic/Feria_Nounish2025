@@ -28,19 +28,31 @@ export default function PerfilPage() {
   const [userName, setUserName] = useState<string>("")
   const [moments, setMoments] = useState<InprocessMoment[]>([])
   const [isLoading, setIsLoading] = useState(true)
-
-  const isUserWhitelisted = isWhitelisted(address)
+  const [isUserWhitelisted, setIsUserWhitelisted] = useState(false)
 
   useEffect(() => {
-    if (address && !isUserWhitelisted) {
+    console.log("[v0] Perfil - Wallet address:", address)
+    console.log("[v0] Perfil - Address lowercase:", address?.toLowerCase())
+    const whitelisted = isWhitelisted(address)
+    console.log("[v0] Perfil - Is whitelisted:", whitelisted)
+    setIsUserWhitelisted(whitelisted)
+
+    if (address && !whitelisted) {
       console.log("[v0] User not whitelisted, redirecting to home")
       router.push("/")
-      return
     }
+  }, [address, router])
 
+  useEffect(() => {
     const fetchUserProfile = async () => {
       if (!address) {
         console.log("[v0] No wallet connected")
+        setIsLoading(false)
+        return
+      }
+
+      if (!isUserWhitelisted) {
+        console.log("[v0] User not whitelisted, skipping profile fetch")
         setIsLoading(false)
         return
       }
@@ -132,7 +144,7 @@ export default function PerfilPage() {
     }
 
     fetchUserProfile()
-  }, [address, isUserWhitelisted, router])
+  }, [address, isUserWhitelisted])
 
   return (
     <div className="min-h-screen relative overflow-hidden">
@@ -233,6 +245,15 @@ export default function PerfilPage() {
               </div>
             )}
           </div>
+
+          {process.env.NODE_ENV === "development" && (
+            <div className="fixed bottom-4 right-4 bg-black/80 text-white p-4 rounded-lg text-xs max-w-md z-50">
+              <p className="font-bold mb-2">Debug Info:</p>
+              <p>Address: {address || "No conectada"}</p>
+              <p>Whitelisted: {isUserWhitelisted ? "Sí" : "No"}</p>
+              <p>Moments: {moments.length}</p>
+            </div>
+          )}
         </main>
       </div>
     </div>

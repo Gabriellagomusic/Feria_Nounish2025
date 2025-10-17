@@ -4,10 +4,10 @@ import type React from "react"
 import { Button } from "@/components/ui/button"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { uploadToArweave } from "@/app/actions/upload-to-arweave"
 import { uploadJson } from "@/app/actions/upload-json"
-import { useAccount } from "wagmi"
+import { useMiniKit } from "mini-kit"
 import { ArrowLeft, Wallet, Check } from "lucide-react"
 import { isWhitelisted } from "@/lib/whitelist"
 
@@ -18,18 +18,21 @@ export default function CrearPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [tokenName, setTokenName] = useState("")
   const [tokenDescription, setTokenDescription] = useState("")
+  const [isUserWhitelisted, setIsUserWhitelisted] = useState(false)
 
-  const { address, isConnected } = useAccount()
+  const { address, isReady } = useMiniKit()
 
-  const isUserWhitelisted = isWhitelisted(address)
+  useEffect(() => {
+    console.log("[v0] Crear - Wallet address:", address)
+    console.log("[v0] Crear - Address lowercase:", address?.toLowerCase())
+    const whitelisted = isWhitelisted(address)
+    console.log("[v0] Crear - Is whitelisted:", whitelisted)
+    setIsUserWhitelisted(whitelisted)
+  }, [address])
 
   const isFormValid = () => {
     return (
-      tokenName.trim() !== "" &&
-      tokenDescription.trim() !== "" &&
-      selectedFile !== null &&
-      isConnected &&
-      isUserWhitelisted
+      tokenName.trim() !== "" && tokenDescription.trim() !== "" && selectedFile !== null && address && isUserWhitelisted
     )
   }
 
@@ -208,18 +211,18 @@ export default function CrearPage() {
           <div
             className="flex items-center gap-3 p-4 rounded-xl bg-white/20 backdrop-blur-md border-2 border-white/30"
             aria-live="polite"
-            aria-label={isConnected ? "Wallet conectada" : "Wallet desconectada"}
+            aria-label={address ? "Wallet conectada" : "Wallet desconectada"}
           >
             <div className="relative">
               <Wallet className="w-6 h-6 text-white" />
-              {isConnected && (
+              {address && (
                 <div className="absolute -top-1 -right-1 bg-green-500 rounded-full p-0.5">
                   <Check className="w-3 h-3 text-white" />
                 </div>
               )}
             </div>
             <span className="text-white text-sm font-normal">
-              {isConnected ? "Wallet conectada" : "Conecta tu wallet"}
+              {address ? `Wallet: ${address.slice(0, 6)}...${address.slice(-4)}` : "Conecta tu wallet"}
             </span>
           </div>
 
@@ -234,12 +237,12 @@ export default function CrearPage() {
               onClick={handleCreateMoment}
               disabled={!isFormValid() || isLoading}
               aria-disabled={!isFormValid() || isLoading}
-              aria-describedby={!isUserWhitelisted && isConnected ? "whitelist-help" : undefined}
+              aria-describedby={!isUserWhitelisted && address ? "whitelist-help" : undefined}
             >
               {isLoading ? "Creando..." : "Crear obra"}
             </Button>
 
-            {isConnected && !isUserWhitelisted && (
+            {address && !isUserWhitelisted && (
               <div
                 id="whitelist-help"
                 className="bg-white/20 backdrop-blur-md rounded-xl p-4 border-2 border-white/30"
@@ -249,6 +252,15 @@ export default function CrearPage() {
                 <p className="text-white text-sm font-normal">
                   Tu wallet no está en la lista permitida. Contacta al administrador para obtener acceso.
                 </p>
+              </div>
+            )}
+
+            {process.env.NODE_ENV === "development" && (
+              <div className="bg-black/80 text-white p-4 rounded-lg text-xs">
+                <p className="font-bold mb-2">Debug Info:</p>
+                <p>Address: {address || "No conectada"}</p>
+                <p>Whitelisted: {isUserWhitelisted ? "Sí" : "No"}</p>
+                <p>MiniKit Ready: {isReady ? "Sí" : "No"}</p>
               </div>
             )}
           </div>
