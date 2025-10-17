@@ -2,15 +2,16 @@
 
 import { Button } from "@/components/ui/button"
 import Image from "next/image"
-import { useEffect, useState } from "react"
+import { useEffect } from "react"
 import { useMiniKit } from "@coinbase/onchainkit/minikit"
+import { useAccount } from "wagmi"
 import Link from "next/link"
 import { User } from "lucide-react"
 import { isWhitelisted } from "@/lib/whitelist"
 
 export default function Home() {
-  const { setFrameReady, isFrameReady, address } = useMiniKit()
-  const [isUserWhitelisted, setIsUserWhitelisted] = useState(false)
+  const { setFrameReady, isFrameReady } = useMiniKit()
+  const { address, isConnected } = useAccount()
 
   useEffect(() => {
     console.log("[v0] Initializing MiniApp...")
@@ -24,12 +25,13 @@ export default function Home() {
   }, [isFrameReady, setFrameReady])
 
   useEffect(() => {
+    console.log("[v0] Landing - Wallet connected:", isConnected)
     console.log("[v0] Landing - Wallet address:", address)
     console.log("[v0] Landing - Address lowercase:", address?.toLowerCase())
-    const whitelisted = isWhitelisted(address)
-    console.log("[v0] Landing - Is whitelisted:", whitelisted)
-    setIsUserWhitelisted(whitelisted)
-  }, [address])
+    console.log("[v0] Landing - Is whitelisted:", isWhitelisted(address))
+  }, [address, isConnected])
+
+  const isUserWhitelisted = isWhitelisted(address)
 
   return (
     <div className="min-h-screen relative overflow-hidden">
@@ -92,15 +94,6 @@ export default function Home() {
           <br />
           2025 EN CALI COLOMBIA!
         </p>
-
-        {process.env.NODE_ENV === "development" && (
-          <div className="fixed bottom-4 left-4 bg-black/80 text-white p-4 rounded-lg text-xs max-w-md z-50">
-            <p className="font-bold mb-2">Debug Info:</p>
-            <p>Address: {address || "No conectada"}</p>
-            <p>Whitelisted: {isUserWhitelisted ? "Sí" : "No"}</p>
-            <p>Frame Ready: {isFrameReady ? "Sí" : "No"}</p>
-          </div>
-        )}
       </div>
     </div>
   )

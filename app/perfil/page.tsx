@@ -6,7 +6,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import { ArrowLeft } from "lucide-react"
-import { useMiniKit } from "@coinbase/onchainkit/minikit"
+import { useAccount } from "wagmi"
 import { getName } from "@coinbase/onchainkit/identity"
 import { base } from "viem/chains"
 import { isWhitelisted } from "@/lib/whitelist"
@@ -24,35 +24,29 @@ interface InprocessMoment {
 
 export default function PerfilPage() {
   const router = useRouter()
-  const { address } = useMiniKit()
+  const { address, isConnected } = useAccount()
   const [userName, setUserName] = useState<string>("")
   const [moments, setMoments] = useState<InprocessMoment[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [isUserWhitelisted, setIsUserWhitelisted] = useState(false)
+
+  const isUserWhitelisted = isWhitelisted(address)
 
   useEffect(() => {
+    console.log("[v0] Perfil - Wallet connected:", isConnected)
     console.log("[v0] Perfil - Wallet address:", address)
-    console.log("[v0] Perfil - Address lowercase:", address?.toLowerCase())
-    const whitelisted = isWhitelisted(address)
-    console.log("[v0] Perfil - Is whitelisted:", whitelisted)
-    setIsUserWhitelisted(whitelisted)
+    console.log("[v0] Perfil - Is whitelisted:", isUserWhitelisted)
+  }, [address, isConnected, isUserWhitelisted])
 
-    if (address && !whitelisted) {
+  useEffect(() => {
+    if (address && !isUserWhitelisted) {
       console.log("[v0] User not whitelisted, redirecting to home")
       router.push("/")
+      return
     }
-  }, [address, router])
 
-  useEffect(() => {
     const fetchUserProfile = async () => {
       if (!address) {
         console.log("[v0] No wallet connected")
-        setIsLoading(false)
-        return
-      }
-
-      if (!isUserWhitelisted) {
-        console.log("[v0] User not whitelisted, skipping profile fetch")
         setIsLoading(false)
         return
       }
@@ -144,7 +138,7 @@ export default function PerfilPage() {
     }
 
     fetchUserProfile()
-  }, [address, isUserWhitelisted])
+  }, [address, isUserWhitelisted, router])
 
   return (
     <div className="min-h-screen relative overflow-hidden">
@@ -245,15 +239,6 @@ export default function PerfilPage() {
               </div>
             )}
           </div>
-
-          {process.env.NODE_ENV === "development" && (
-            <div className="fixed bottom-4 right-4 bg-black/80 text-white p-4 rounded-lg text-xs max-w-md z-50">
-              <p className="font-bold mb-2">Debug Info:</p>
-              <p>Address: {address || "No conectada"}</p>
-              <p>Whitelisted: {isUserWhitelisted ? "Sí" : "No"}</p>
-              <p>Moments: {moments.length}</p>
-            </div>
-          )}
         </main>
       </div>
     </div>
