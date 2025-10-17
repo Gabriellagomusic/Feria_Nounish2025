@@ -1,6 +1,6 @@
-// Whitelist de wallets autorizadas para crear y acceder a funciones premium
+// Whitelist de wallets autorizadas para crear
 const WHITELIST = new Set<string>([
-  "0x697c7720dc08f1eb1fde54420432efc6ad594244", // Wallet inicial en lowercase
+  "0x697C7720dc08F1eb1fde54420432eFC6aD594244", // Wallet inicial en lowercase
 ])
 
 /**
