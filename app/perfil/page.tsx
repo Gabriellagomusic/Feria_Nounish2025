@@ -21,12 +21,25 @@ interface InprocessMoment {
   creator: string
 }
 
+function getNounIdFromAddress(address: string): number {
+  // Simple hash function to generate a number from the address
+  let hash = 0
+  for (let i = 0; i < address.length; i++) {
+    const char = address.charCodeAt(i)
+    hash = (hash << 5) - hash + char
+    hash = hash & hash // Convert to 32bit integer
+  }
+  // Return a number between 0 and 999 (there are 1000+ Nouns)
+  return Math.abs(hash) % 1000
+}
+
 export default function PerfilPage() {
   const router = useRouter()
   const { address, isConnected } = useAccount()
   const [userName, setUserName] = useState<string>("")
   const [moments, setMoments] = useState<InprocessMoment[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [nounId, setNounId] = useState<number>(0)
 
   useEffect(() => {
     const fetchUserProfile = async () => {
@@ -38,6 +51,10 @@ export default function PerfilPage() {
         setIsLoading(false)
         return
       }
+
+      const generatedNounId = getNounIdFromAddress(address)
+      setNounId(generatedNounId)
+      console.log("[v0] Perfil - Generated Noun ID:", generatedNounId)
 
       console.log("[v0] Perfil - Fetching profile for address:", address)
 
@@ -155,6 +172,13 @@ export default function PerfilPage() {
 
         <main className="container mx-auto px-4 py-8">
           <div className="max-w-6xl mx-auto mb-12">
+            {address && (
+              <div className="flex flex-col items-center mb-6">
+                <div className="relative w-32 h-32 rounded-full overflow-hidden border-4 border-white shadow-2xl mb-4">
+                  <Image src={`https://noun.pics/${nounId}`} alt="Noun Avatar" fill className="object-cover" />
+                </div>
+              </div>
+            )}
             <h1 className="font-extrabold text-4xl text-white text-center">
               {address ? userName || "Cargando..." : "Conecta tu wallet"}
             </h1>
