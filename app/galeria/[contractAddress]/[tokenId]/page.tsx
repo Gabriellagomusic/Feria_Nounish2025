@@ -123,6 +123,16 @@ export default function TokenDetailPage() {
       if (!creator) return
 
       try {
+        if (contractAddress.toLowerCase() === "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5" && tokenId === "1") {
+          setArtistName("gabriellagomusic")
+          return
+        }
+
+        if (contractAddress.toLowerCase() === "0xfaa54c8258b419ab0411da8ddc1985f42f98f59b" && tokenId === "1") {
+          setArtistName("ferianounish")
+          return
+        }
+
         const displayName = await getDisplayName(creator)
         setArtistName(displayName)
       } catch (error) {
@@ -132,13 +142,20 @@ export default function TokenDetailPage() {
     }
 
     fetchArtistName()
-  }, [creator])
+  }, [creator, contractAddress, tokenId])
 
   if (isLoading) {
     return (
       <div className="min-h-screen relative overflow-hidden flex items-center justify-center">
         <div className="absolute inset-0 z-0">
-          <Image src="/images/fondo-token.png" alt="Fondo colorido abstracto" fill className="object-cover" priority />
+          <Image
+            src="/images/fondo-token.png"
+            alt="Fondo colorido abstracto"
+            fill
+            className="object-cover"
+            priority
+            unoptimized
+          />
         </div>
         <p className="relative z-10 text-white text-lg">Cargando...</p>
       </div>
@@ -148,7 +165,14 @@ export default function TokenDetailPage() {
   return (
     <div className="min-h-screen relative overflow-hidden">
       <div className="absolute inset-0 z-0">
-        <Image src="/images/fondo-token.png" alt="Fondo colorido abstracto" fill className="object-cover" priority />
+        <Image
+          src="/images/fondo-token.png"
+          alt="Fondo colorido abstracto"
+          fill
+          className="object-cover"
+          priority
+          unoptimized
+        />
       </div>
 
       <div className="relative z-10">

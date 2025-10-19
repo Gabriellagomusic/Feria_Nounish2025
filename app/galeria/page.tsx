@@ -60,11 +60,13 @@ export default function GaleriaPage() {
             contractAddress: "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5",
             tokenId: "1",
             artist: "0x697C7720dc08F1eb1fde54420432eFC6aD594244",
+            artistName: "gabriellagomusic",
           },
           {
             contractAddress: "0xfaa54c8258b419ab0411da8ddc1985f42f98f59b",
             tokenId: "1",
             artist: "0x697C7720dc08F1eb1fde54420432eFC6aD594244",
+            artistName: "ferianounish",
           },
         ]
 
@@ -94,7 +96,7 @@ export default function GaleriaPage() {
                   imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
                 }
 
-                const artistDisplay = await getDisplayName(config.artist)
+                const artistDisplay = config.artistName || (await getDisplayName(config.artist))
 
                 return {
                   name: metadata.name || `Obra de Arte #${config.tokenId}`,
@@ -108,7 +110,7 @@ export default function GaleriaPage() {
               }
             }
 
-            const artistDisplay = await getDisplayName(config.artist)
+            const artistDisplay = config.artistName || (await getDisplayName(config.artist))
             return {
               name: `Obra de Arte #${config.tokenId}`,
               description: "Obra de arte digital única de la colección oficial",
@@ -120,7 +122,7 @@ export default function GaleriaPage() {
             }
           } catch (error) {
             console.error(`Error fetching token ${config.contractAddress}/${config.tokenId}:`, error)
-            const artistDisplay = await getDisplayName(config.artist)
+            const artistDisplay = config.artistName || (await getDisplayName(config.artist))
             return {
               name: `Obra de Arte #${config.tokenId}`,
               description: "Obra de arte digital única de la colección oficial",
@@ -138,7 +140,6 @@ export default function GaleriaPage() {
       } catch (error) {
         console.error("Error fetching token metadata:", error)
         const fallbackArtist = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
-        const fallbackArtistDisplay = await getDisplayName(fallbackArtist)
 
         const fallbackData: TokenMetadata[] = [
           {
@@ -146,7 +147,7 @@ export default function GaleriaPage() {
             description: "Obra de arte digital única de la colección oficial",
             image: "/placeholder.svg",
             artist: fallbackArtist,
-            artistDisplay: fallbackArtistDisplay,
+            artistDisplay: "ferianounish",
             contractAddress: "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5",
             tokenId: "1",
           },
@@ -186,7 +187,7 @@ export default function GaleriaPage() {
   return (
     <div className="min-h-screen relative overflow-hidden">
       <div className="absolute inset-0 z-0">
-        <Image src="/images/fondo-galeria.png" alt="Fondo" fill className="object-cover" priority />
+        <Image src="/images/fondo-galeria.png" alt="Fondo" fill className="object-cover" priority unoptimized />
       </div>
 
       <div className="relative z-10">
