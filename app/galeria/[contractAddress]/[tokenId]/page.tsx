@@ -9,7 +9,7 @@ import { createPublicClient, http } from "viem"
 import { base } from "viem/chains"
 import { useAccount } from "wagmi"
 import { ArrowLeft } from "lucide-react"
-import { getName } from "@coinbase/onchainkit/identity"
+import { getDisplayName } from "@/lib/farcaster"
 
 interface TokenMetadata {
   name: string
@@ -123,29 +123,16 @@ export default function TokenDetailPage() {
       if (!creator) return
 
       try {
-        // Try to get Basename from OnchainKit
-        const basename = await getName({ address: creator as `0x${string}`, chain: base })
-
-        if (basename) {
-          setArtistName(basename)
-        } else {
-          // If no Basename, use formatted address
-          setArtistName(formatAddress(creator))
-        }
+        const displayName = await getDisplayName(creator)
+        setArtistName(displayName)
       } catch (error) {
         console.error("Error fetching artist name:", error)
-        // Fallback to formatted address
-        setArtistName(formatAddress(creator))
+        setArtistName(`${creator.slice(0, 6)}...${creator.slice(-4)}`)
       }
     }
 
     fetchArtistName()
   }, [creator])
-
-  const formatAddress = (addr: string) => {
-    if (addr.length < 10) return addr
-    return `${addr.slice(0, 6)}...${addr.slice(-4)}`
-  }
 
   if (isLoading) {
     return (

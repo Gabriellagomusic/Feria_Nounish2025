@@ -8,12 +8,14 @@ import { useEffect, useState, useMemo } from "react"
 import { createPublicClient, http } from "viem"
 import { base } from "viem/chains"
 import { ArrowLeft, Search } from "lucide-react"
+import { getDisplayName } from "@/lib/farcaster"
 
 interface TokenMetadata {
   name: string
   description: string
   image: string
   artist: string
+  artistDisplay: string
   contractAddress: string
   tokenId: string
 }
@@ -78,6 +80,7 @@ export default function GaleriaPage() {
             }
 
             const creatorAddress = metadata.creator || "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5"
+            const artistDisplay = await getDisplayName(creatorAddress)
 
             const tokenData: TokenMetadata[] = [
               {
@@ -85,6 +88,7 @@ export default function GaleriaPage() {
                 description: metadata.description || "Obra de arte digital única",
                 image: imageUrl || "/abstract-digital-composition.png",
                 artist: creatorAddress,
+                artistDisplay: artistDisplay,
                 contractAddress: "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5",
                 tokenId: "1",
               },
@@ -96,12 +100,16 @@ export default function GaleriaPage() {
           }
         }
 
+        const fallbackArtist = "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5"
+        const fallbackArtistDisplay = await getDisplayName(fallbackArtist)
+
         const fallbackData: TokenMetadata[] = [
           {
             name: "Obra de Arte #1",
             description: "Obra de arte digital única de la colección oficial",
             image: "/abstract-digital-composition.png",
-            artist: "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5",
+            artist: fallbackArtist,
+            artistDisplay: fallbackArtistDisplay,
             contractAddress: "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5",
             tokenId: "1",
           },
@@ -109,12 +117,16 @@ export default function GaleriaPage() {
         setTokens(shuffleArray(fallbackData))
       } catch (error) {
         console.error("Error fetching token metadata:", error)
+        const fallbackArtist = "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5"
+        const fallbackArtistDisplay = await getDisplayName(fallbackArtist)
+
         const fallbackData: TokenMetadata[] = [
           {
             name: "Obra de Arte #1",
             description: "Obra de arte digital única de la colección oficial",
             image: "/abstract-digital-composition.png",
-            artist: "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5",
+            artist: fallbackArtist,
+            artistDisplay: fallbackArtistDisplay,
             contractAddress: "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5",
             tokenId: "1",
           },
@@ -135,7 +147,8 @@ export default function GaleriaPage() {
       filtered = filtered.filter(
         (token) =>
           token.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          token.artist.toLowerCase().includes(searchQuery.toLowerCase()),
+          token.artist.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          token.artistDisplay.toLowerCase().includes(searchQuery.toLowerCase()),
       )
     }
 
@@ -240,7 +253,7 @@ export default function GaleriaPage() {
                       <div className="p-6 bg-white">
                         <h3 className="font-extrabold text-xl text-gray-800 mb-2">{token.name}</h3>
                         <p className="text-sm text-gray-600 line-clamp-2 mb-2">{token.description}</p>
-                        <p className="text-xs text-gray-500">Por: {token.artist}</p>
+                        <p className="text-xs text-gray-500">Por: {token.artistDisplay}</p>
                       </div>
                     </CardContent>
                   </Card>

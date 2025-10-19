@@ -7,8 +7,7 @@ import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import { ArrowLeft } from "lucide-react"
 import { useAccount } from "wagmi"
-import { getName } from "@coinbase/onchainkit/identity"
-import { base } from "viem/chains"
+import { getDisplayName } from "@/lib/farcaster"
 import { getNounIdFromAddress, getNounAvatarUrl } from "@/lib/noun-avatar"
 
 interface InprocessMoment {
@@ -45,8 +44,7 @@ export default function PerfilPage() {
       console.log("[v0] Perfil - Fetching profile for address:", address)
 
       try {
-        const basename = await getName({ address, chain: base })
-        const displayName = basename || `${address.slice(0, 6)}...${address.slice(-4)}`
+        const displayName = await getDisplayName(address)
         setUserName(displayName)
         console.log("[v0] Perfil - Display name:", displayName)
 
