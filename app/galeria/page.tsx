@@ -79,7 +79,7 @@ export default function GaleriaPage() {
               imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
             }
 
-            const creatorAddress = metadata.creator || "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5"
+            const creatorAddress = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
             const artistDisplay = await getDisplayName(creatorAddress)
 
             const tokenData: TokenMetadata[] = [
@@ -100,7 +100,7 @@ export default function GaleriaPage() {
           }
         }
 
-        const fallbackArtist = "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5"
+        const fallbackArtist = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
         const fallbackArtistDisplay = await getDisplayName(fallbackArtist)
 
         const fallbackData: TokenMetadata[] = [
@@ -117,7 +117,7 @@ export default function GaleriaPage() {
         setTokens(shuffleArray(fallbackData))
       } catch (error) {
         console.error("Error fetching token metadata:", error)
-        const fallbackArtist = "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5"
+        const fallbackArtist = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
         const fallbackArtistDisplay = await getDisplayName(fallbackArtist)
 
         const fallbackData: TokenMetadata[] = [

@@ -90,13 +90,13 @@ export default function TokenDetailPage() {
               image: imageUrl || "/placeholder.svg",
               creator: metadata.creator,
             })
-            setCreator(metadata.creator || contractAddress)
+            setCreator("0x697C7720dc08F1eb1fde54420432eFC6aD594244")
             setIsLoading(false)
             return
           }
         }
 
-        setCreator(contractAddress)
+        setCreator("0x697C7720dc08F1eb1fde54420432eFC6aD594244")
         setTokenData({
           name: `Obra de Arte #${tokenId}`,
           description: "Obra de arte digital única de la colección oficial",
@@ -104,7 +104,7 @@ export default function TokenDetailPage() {
         })
       } catch (error) {
         console.error("Error fetching token metadata:", error)
-        setCreator(contractAddress)
+        setCreator("0x697C7720dc08F1eb1fde54420432eFC6aD594244")
         setTokenData({
           name: `Obra de Arte #${tokenId}`,
           description: "Obra de arte digital única de la colección oficial",
