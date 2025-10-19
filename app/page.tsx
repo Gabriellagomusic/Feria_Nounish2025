@@ -6,7 +6,7 @@ import { useEffect } from "react"
 import { useMiniKit } from "@coinbase/onchainkit/minikit"
 import { useAccount } from "wagmi"
 import Link from "next/link"
-import { User } from "lucide-react"
+import { getNounAvatarUrl } from "@/lib/noun-avatar"
 
 export default function Home() {
   const { setFrameReady, isFrameReady } = useMiniKit()
@@ -33,10 +33,16 @@ export default function Home() {
       <div className="absolute top-4 right-4 z-20">
         <Link href="/perfil">
           <button
-            className="flex items-center justify-center w-12 h-12 rounded-full bg-white/20 backdrop-blur-md hover:bg-white/30 transition-all shadow-lg"
+            className="flex items-center justify-center w-12 h-12 rounded-full bg-white/20 backdrop-blur-md hover:bg-white/30 transition-all shadow-lg overflow-hidden border-2 border-white/40"
             aria-label="Ver perfil"
           >
-            <User className="w-6 h-6 text-white" />
+            <Image
+              src={getNounAvatarUrl(address) || "/placeholder.svg"}
+              alt="Profile Noun"
+              width={48}
+              height={48}
+              className="w-full h-full object-cover"
+            />
           </button>
         </Link>
       </div>
