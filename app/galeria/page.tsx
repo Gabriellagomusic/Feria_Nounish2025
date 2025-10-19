@@ -55,66 +55,86 @@ export default function GaleriaPage() {
           transport: http(),
         })
 
-        const tokenURI = await publicClient.readContract({
-          address: "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5",
-          abi: ERC1155_ABI,
-          functionName: "uri",
-          args: [BigInt(1)],
-        })
-
-        if (tokenURI) {
-          let metadataUrl = tokenURI.replace("{id}", "1")
-          if (metadataUrl.startsWith("ar://")) {
-            metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
-          }
-
-          const metadataResponse = await fetch(metadataUrl)
-          if (metadataResponse.ok) {
-            const metadata = await metadataResponse.json()
-
-            let imageUrl = metadata.image
-            if (imageUrl?.startsWith("ipfs://")) {
-              imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-            } else if (imageUrl?.startsWith("ar://")) {
-              imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
-            }
-
-            const creatorAddress = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
-            const artistDisplay = await getDisplayName(creatorAddress)
-
-            const tokenData: TokenMetadata[] = [
-              {
-                name: metadata.name || "Obra de Arte #1",
-                description: metadata.description || "Obra de arte digital única",
-                image: imageUrl || "/abstract-digital-composition.png",
-                artist: creatorAddress,
-                artistDisplay: artistDisplay,
-                contractAddress: "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5",
-                tokenId: "1",
-              },
-            ]
-
-            setTokens(shuffleArray(tokenData))
-            setIsLoading(false)
-            return
-          }
-        }
-
-        const fallbackArtist = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
-        const fallbackArtistDisplay = await getDisplayName(fallbackArtist)
-
-        const fallbackData: TokenMetadata[] = [
+        const tokenConfigs = [
           {
-            name: "Obra de Arte #1",
-            description: "Obra de arte digital única de la colección oficial",
-            image: "/abstract-digital-composition.png",
-            artist: fallbackArtist,
-            artistDisplay: fallbackArtistDisplay,
             contractAddress: "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5",
             tokenId: "1",
+            artist: "0x697C7720dc08F1eb1fde54420432eFC6aD594244",
+          },
+          {
+            contractAddress: "0xfaa54c8258b419ab0411da8ddc1985f42f98f59b",
+            tokenId: "1",
+            artist: "0x697C7720dc08F1eb1fde54420432eFC6aD594244",
           },
         ]
-        setTokens(shuffleArray(fallbackData))
+
+        const tokenDataPromises = tokenConfigs.map(async (config) => {
+          try {
+            const tokenURI = await publicClient.readContract({
+              address: config.contractAddress as `0x${string}`,
+              abi: ERC1155_ABI,
+              functionName: "uri",
+              args: [BigInt(config.tokenId)],
+            })
+
+            if (tokenURI) {
+              let metadataUrl = tokenURI.replace("{id}", config.tokenId)
+              if (metadataUrl.startsWith("ar://")) {
+                metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
+              }
+
+              const metadataResponse = await fetch(metadataUrl)
+              if (metadataResponse.ok) {
+                const metadata = await metadataResponse.json()
+
+                let imageUrl = metadata.image
+                if (imageUrl?.startsWith("ipfs://")) {
+                  imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+                } else if (imageUrl?.startsWith("ar://")) {
+                  imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+                }
+
+                const artistDisplay = await getDisplayName(config.artist)
+
+                return {
+                  name: metadata.name || `Obra de Arte #${config.tokenId}`,
+                  description: metadata.description || "Obra de arte digital única",
+                  image: imageUrl || "/placeholder.svg",
+                  artist: config.artist,
+                  artistDisplay: artistDisplay,
+                  contractAddress: config.contractAddress,
+                  tokenId: config.tokenId,
+                }
+              }
+            }
+
+            const artistDisplay = await getDisplayName(config.artist)
+            return {
+              name: `Obra de Arte #${config.tokenId}`,
+              description: "Obra de arte digital única de la colección oficial",
+              image: "/placeholder.svg",
+              artist: config.artist,
+              artistDisplay: artistDisplay,
+              contractAddress: config.contractAddress,
+              tokenId: config.tokenId,
+            }
+          } catch (error) {
+            console.error(`Error fetching token ${config.contractAddress}/${config.tokenId}:`, error)
+            const artistDisplay = await getDisplayName(config.artist)
+            return {
+              name: `Obra de Arte #${config.tokenId}`,
+              description: "Obra de arte digital única de la colección oficial",
+              image: "/placeholder.svg",
+              artist: config.artist,
+              artistDisplay: artistDisplay,
+              contractAddress: config.contractAddress,
+              tokenId: config.tokenId,
+            }
+          }
+        })
+
+        const tokenData = await Promise.all(tokenDataPromises)
+        setTokens(shuffleArray(tokenData))
       } catch (error) {
         console.error("Error fetching token metadata:", error)
         const fallbackArtist = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
@@ -124,7 +144,7 @@ export default function GaleriaPage() {
           {
             name: "Obra de Arte #1",
             description: "Obra de arte digital única de la colección oficial",
-            image: "/abstract-digital-composition.png",
+            image: "/placeholder.svg",
             artist: fallbackArtist,
             artistDisplay: fallbackArtistDisplay,
             contractAddress: "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5",
