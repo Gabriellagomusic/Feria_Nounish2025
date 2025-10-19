@@ -1,27 +1,21 @@
 "use client"
 import { Card, CardContent } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { useState, useEffect } from "react"
 import { useParams } from "next/navigation"
-import {
-  Transaction,
-  TransactionButton,
-  TransactionStatus,
-  TransactionStatusLabel,
-  TransactionStatusAction,
-} from "@coinbase/onchainkit/transaction"
-import type { LifecycleStatus } from "@coinbase/onchainkit/transaction"
-import { createPublicClient, http, parseUnits } from "viem"
+import { createPublicClient, http } from "viem"
 import { base } from "viem/chains"
 import { useAccount } from "wagmi"
 import { ArrowLeft } from "lucide-react"
+import { getName } from "@coinbase/onchainkit/identity"
 
 interface TokenMetadata {
   name: string
   description: string
   image: string
+  creator?: string
 }
 
 const ERC1155_ABI = [
@@ -45,21 +39,6 @@ const ERC1155_ABI = [
   },
 ] as const
 
-const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as const
-
-const ERC20_ABI = [
-  {
-    inputs: [
-      { name: "spender", type: "address" },
-      { name: "amount", type: "uint256" },
-    ],
-    name: "approve",
-    outputs: [{ name: "", type: "bool" }],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-] as const
-
 export default function TokenDetailPage() {
   const router = useRouter()
   const params = useParams()
@@ -70,6 +49,8 @@ export default function TokenDetailPage() {
   const [tokenData, setTokenData] = useState<TokenMetadata | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [quantity, setQuantity] = useState(1)
+  const [creator, setCreator] = useState<string>("")
+  const [artistName, setArtistName] = useState<string>("")
 
   useEffect(() => {
     const fetchTokenMetadata = async () => {
@@ -107,12 +88,15 @@ export default function TokenDetailPage() {
               name: metadata.name || `Obra de Arte #${tokenId}`,
               description: metadata.description || "Obra de arte digital única",
               image: imageUrl || "/placeholder.svg",
+              creator: metadata.creator,
             })
+            setCreator(metadata.creator || contractAddress)
             setIsLoading(false)
             return
           }
         }
 
+        setCreator(contractAddress)
         setTokenData({
           name: `Obra de Arte #${tokenId}`,
           description: "Obra de arte digital única de la colección oficial",
@@ -120,6 +104,7 @@ export default function TokenDetailPage() {
         })
       } catch (error) {
         console.error("Error fetching token metadata:", error)
+        setCreator(contractAddress)
         setTokenData({
           name: `Obra de Arte #${tokenId}`,
           description: "Obra de arte digital única de la colección oficial",
@@ -133,25 +118,33 @@ export default function TokenDetailPage() {
     fetchTokenMetadata()
   }, [contractAddress, tokenId])
 
-  const usdcAmount = parseUnits((quantity * 1).toString(), 6)
+  useEffect(() => {
+    const fetchArtistName = async () => {
+      if (!creator) return
 
-  const contracts = [
-    {
-      address: USDC_ADDRESS,
-      abi: ERC20_ABI,
-      functionName: "approve",
-      args: [contractAddress, usdcAmount],
-    },
-    {
-      address: contractAddress,
-      abi: ERC1155_ABI,
-      functionName: "mint",
-      args: [address, BigInt(tokenId), BigInt(quantity)],
-    },
-  ]
+      try {
+        // Try to get Basename from OnchainKit
+        const basename = await getName({ address: creator as `0x${string}`, chain: base })
 
-  const handleOnStatus = (status: LifecycleStatus) => {
-    console.log("[v0] Transaction status:", status)
+        if (basename) {
+          setArtistName(basename)
+        } else {
+          // If no Basename, use formatted address
+          setArtistName(formatAddress(creator))
+        }
+      } catch (error) {
+        console.error("Error fetching artist name:", error)
+        // Fallback to formatted address
+        setArtistName(formatAddress(creator))
+      }
+    }
+
+    fetchArtistName()
+  }, [creator])
+
+  const formatAddress = (addr: string) => {
+    if (addr.length < 10) return addr
+    return `${addr.slice(0, 6)}...${addr.slice(-4)}`
   }
 
   if (isLoading) {
@@ -199,46 +192,20 @@ export default function TokenDetailPage() {
                 <CardContent className="p-6">
                   <h1 className="font-extrabold text-3xl text-gray-800 mb-2">{tokenData?.name}</h1>
 
+                  <p className="text-sm text-gray-500 font-normal mb-4">por: {artistName || "Cargando..."}</p>
+
                   <div className="border-t border-gray-200 pt-4 mb-4">
                     <h2 className="font-extrabold text-lg text-gray-800 mb-2">Descripción</h2>
                     <p className="text-gray-600 leading-relaxed font-normal">{tokenData?.description}</p>
                   </div>
 
-                  <div className="border-t border-gray-200 pt-4">
-                    <div className="flex items-center justify-between mb-4">
-                      <span className="text-gray-600 font-normal">Precio</span>
-                      <span className="font-extrabold text-2xl text-gray-800">1 USDC</span>
-                    </div>
-
-                    <div className="mb-4">
-                      <label htmlFor="quantity" className="block text-sm font-extrabold text-gray-700 mb-2">
-                        Cantidad
-                      </label>
-                      <Input
-                        id="quantity"
-                        type="number"
-                        min="1"
-                        value={quantity}
-                        onChange={(e) => setQuantity(Math.max(1, Number.parseInt(e.target.value) || 1))}
-                        className="w-full font-normal"
-                      />
-                      <p className="text-sm text-gray-500 mt-1 font-normal">Total: {quantity} USDC</p>
-                    </div>
-
-                    {!isConnected ? (
-                      <p className="text-center text-gray-600 py-4 font-normal">Conecta tu wallet para comprar</p>
-                    ) : (
-                      <Transaction chainId={base.id} calls={contracts} onStatus={handleOnStatus}>
-                        <TransactionButton
-                          className="w-full bg-red-600 hover:bg-red-700 text-white font-extrabold py-6 text-lg"
-                          text={`Comprar ${quantity > 1 ? `(${quantity})` : ""}`}
-                        />
-                        <TransactionStatus>
-                          <TransactionStatusLabel />
-                          <TransactionStatusAction />
-                        </TransactionStatus>
-                      </Transaction>
-                    )}
+                  <div className="border-t border-gray-200 pt-4 shadow-sm">
+                    <Button
+                      disabled
+                      className="w-full bg-gray-500 text-white font-extrabold py-6 text-base cursor-not-allowed opacity-60"
+                    >
+                      Collection Drops November 1st!
+                    </Button>
                   </div>
                 </CardContent>
               </Card>

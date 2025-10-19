@@ -77,12 +77,14 @@ export default function GaleriaPage() {
               imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
             }
 
+            const creatorAddress = metadata.creator || "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5"
+
             const tokenData: TokenMetadata[] = [
               {
                 name: metadata.name || "Obra de Arte #1",
                 description: metadata.description || "Obra de arte digital única",
                 image: imageUrl || "/abstract-digital-composition.png",
-                artist: "0xABCD...1234",
+                artist: creatorAddress,
                 contractAddress: "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5",
                 tokenId: "1",
               },
@@ -99,7 +101,7 @@ export default function GaleriaPage() {
             name: "Obra de Arte #1",
             description: "Obra de arte digital única de la colección oficial",
             image: "/abstract-digital-composition.png",
-            artist: "0xABCD...1234",
+            artist: "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5",
             contractAddress: "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5",
             tokenId: "1",
           },
@@ -112,7 +114,7 @@ export default function GaleriaPage() {
             name: "Obra de Arte #1",
             description: "Obra de arte digital única de la colección oficial",
             image: "/abstract-digital-composition.png",
-            artist: "0xABCD...1234",
+            artist: "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5",
             contractAddress: "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5",
             tokenId: "1",
           },
