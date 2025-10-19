@@ -54,7 +54,7 @@ export default function GaleriaPage() {
         })
 
         const tokenURI = await publicClient.readContract({
-          address: "0x990b7de26fbf87624a0a8ee83b03759bd191de64",
+          address: "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5",
           abi: ERC1155_ABI,
           functionName: "uri",
           args: [BigInt(1)],
@@ -82,8 +82,8 @@ export default function GaleriaPage() {
                 name: metadata.name || "Obra de Arte #1",
                 description: metadata.description || "Obra de arte digital única",
                 image: imageUrl || "/abstract-digital-composition.png",
-                artist: "0xABCD...1234", // Placeholder - will be replaced with basename
-                contractAddress: "0x990b7de26fbf87624a0a8ee83b03759bd191de64",
+                artist: "0xABCD...1234",
+                contractAddress: "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5",
                 tokenId: "1",
               },
             ]
@@ -94,14 +94,13 @@ export default function GaleriaPage() {
           }
         }
 
-        // Fallback
         const fallbackData: TokenMetadata[] = [
           {
             name: "Obra de Arte #1",
             description: "Obra de arte digital única de la colección oficial",
             image: "/abstract-digital-composition.png",
             artist: "0xABCD...1234",
-            contractAddress: "0x990b7de26fbf87624a0a8ee83b03759bd191de64",
+            contractAddress: "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5",
             tokenId: "1",
           },
         ]
@@ -114,7 +113,7 @@ export default function GaleriaPage() {
             description: "Obra de arte digital única de la colección oficial",
             image: "/abstract-digital-composition.png",
             artist: "0xABCD...1234",
-            contractAddress: "0x990b7de26fbf87624a0a8ee83b03759bd191de64",
+            contractAddress: "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5",
             tokenId: "1",
           },
         ]
