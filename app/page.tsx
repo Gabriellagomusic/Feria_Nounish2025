@@ -13,6 +13,7 @@ export default function Home() {
   const { address, isConnected } = useAccount()
   const [isWhitelisted, setIsWhitelisted] = useState(false)
   const [isCheckingWhitelist, setIsCheckingWhitelist] = useState(true)
+  const [profilePicture, setProfilePicture] = useState<string | null>(null)
 
   useEffect(() => {
     console.log("[v0] Initializing MiniApp...")
@@ -53,6 +54,34 @@ export default function Home() {
     checkWhitelist()
   }, [address])
 
+  useEffect(() => {
+    const fetchProfilePicture = async () => {
+      if (!address) {
+        setProfilePicture(null)
+        return
+      }
+
+      try {
+        console.log("[v0] Fetching Farcaster profile picture for:", address)
+        const response = await fetch(`/api/farcaster/pfp?address=${address}`)
+        const data = await response.json()
+
+        if (data.pfpUrl) {
+          console.log("[v0] Farcaster pfp found:", data.pfpUrl)
+          setProfilePicture(data.pfpUrl)
+        } else {
+          console.log("[v0] No Farcaster pfp found, using Noun avatar")
+          setProfilePicture(getNounAvatarUrl(address))
+        }
+      } catch (error) {
+        console.error("[v0] Error fetching profile picture:", error)
+        setProfilePicture(getNounAvatarUrl(address))
+      }
+    }
+
+    fetchProfilePicture()
+  }, [address])
+
   return (
     <div className="min-h-screen relative overflow-hidden">
       {/* Background Image */}
@@ -66,8 +95,8 @@ export default function Home() {
               aria-label="Ver perfil"
             >
               <Image
-                src={getNounAvatarUrl(address) || "/placeholder.svg"}
-                alt="Profile Noun"
+                src={profilePicture || getNounAvatarUrl(address) || "/placeholder.svg"}
+                alt="Profile"
                 width={48}
                 height={48}
                 className="w-full h-full object-cover"
