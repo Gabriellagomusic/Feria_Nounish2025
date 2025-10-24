@@ -18,17 +18,17 @@ export function createServerSupabaseClient() {
   })
 }
 
-// Types for the "Feria Nounish - Artistas" table
+// Types for the "FeriaNounish-Artistas" table
 export interface Artist {
   "Wallet Artista": string
 }
 
-// Helper functions to interact with the "Feria Nounish - Artistas" table
+// Helper functions to interact with the "FeriaNounish-Artistas" table
 export async function getArtistByWallet(walletAddress: string): Promise<Artist | null> {
   const supabase = createServerSupabaseClient()
 
   const { data, error } = await supabase
-    .from("Feria Nounish - Artistas")
+    .from("FeriaNounish-Artistas")
     .select("*")
     .eq("Wallet Artista", walletAddress)
     .single()
@@ -44,7 +44,7 @@ export async function getArtistByWallet(walletAddress: string): Promise<Artist |
 export async function getAllArtists(): Promise<Artist[]> {
   const supabase = createServerSupabaseClient()
 
-  const { data, error } = await supabase.from("Feria Nounish - Artistas").select("*")
+  const { data, error } = await supabase.from("FeriaNounish-Artistas").select("*")
 
   if (error) {
     console.error("Error fetching artists:", error)
@@ -58,7 +58,7 @@ export async function createOrUpdateArtist(walletAddress: string): Promise<Artis
   const supabase = createServerSupabaseClient()
 
   const { data, error } = await supabase
-    .from("Feria Nounish - Artistas")
+    .from("FeriaNounish-Artistas")
     .upsert(
       {
         "Wallet Artista": walletAddress,
