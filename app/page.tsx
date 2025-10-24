@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 import Image from "next/image"
 import { useEffect, useState } from "react"
 import { useMiniKit } from "@coinbase/onchainkit/minikit"
-import { useAccount } from "wagmi"
+import { useAccount, useConnect } from "wagmi"
 import Link from "next/link"
 import { getNounAvatarUrl } from "@/lib/noun-avatar"
 import { getFarcasterProfilePic } from "@/lib/farcaster"
@@ -12,13 +12,39 @@ import { getFarcasterProfilePic } from "@/lib/farcaster"
 export default function Home() {
   const { setFrameReady, isFrameReady } = useMiniKit()
   const { address, isConnected } = useAccount()
+  const { connect, connectors } = useConnect()
   const [isWhitelisted, setIsWhitelisted] = useState(false)
   const [profilePicUrl, setProfilePicUrl] = useState<string | null>(null)
   const [isCheckingWhitelist, setIsCheckingWhitelist] = useState(true)
 
   useEffect(() => {
+    console.log("[v0] Initializing MiniApp...")
+    console.log("[v0] isFrameReady:", isFrameReady)
+    console.log("[v0] Wallet connected:", isConnected)
+    console.log("[v0] Wallet address:", address)
+
+    if (!isFrameReady) {
+      console.log("[v0] Calling setFrameReady()")
+      setFrameReady()
+      console.log("[v0] MiniApp frame ready called successfully")
+    }
+
+    // Auto-connect to Farcaster connector when frame is ready and wallet is not connected
+    if (isFrameReady && !isConnected && connectors.length > 0) {
+      const farcasterConnector = connectors[0] // Farcaster connector should be the first one
+      console.log("[v0] Auto-connecting to Farcaster connector...")
+      console.log(
+        "[v0] Available connectors:",
+        connectors.map((c) => c.name),
+      )
+      connect({ connector: farcasterConnector })
+    }
+  }, [isFrameReady, setFrameReady, isConnected, address, connect, connectors])
+
+  useEffect(() => {
     const checkWhitelist = async () => {
       if (!address) {
+        console.log("[v0] Landing - No address, skipping whitelist check")
         setIsWhitelisted(false)
         setIsCheckingWhitelist(false)
         return
@@ -27,7 +53,16 @@ export default function Home() {
       try {
         console.log("[v0] Landing - Checking whitelist for:", address)
         const response = await fetch(`/api/whitelist/check?address=${address}`)
+
+        if (!response.ok) {
+          console.error("[v0] Landing - Whitelist API error:", response.status, response.statusText)
+          setIsWhitelisted(false)
+          setIsCheckingWhitelist(false)
+          return
+        }
+
         const data = await response.json()
+        console.log("[v0] Landing - Whitelist API response:", data)
         setIsWhitelisted(data.isWhitelisted)
         console.log("[v0] Landing - Whitelist status:", data.isWhitelisted)
       } catch (error) {
@@ -61,19 +96,6 @@ export default function Home() {
 
     fetchProfilePic()
   }, [address])
-
-  useEffect(() => {
-    console.log("[v0] Initializing MiniApp...")
-    console.log("[v0] isFrameReady:", isFrameReady)
-    console.log("[v0] Wallet connected:", isConnected)
-    console.log("[v0] Wallet address:", address)
-
-    if (!isFrameReady) {
-      console.log("[v0] Calling setFrameReady()")
-      setFrameReady()
-      console.log("[v0] MiniApp frame ready called successfully")
-    }
-  }, [isFrameReady, setFrameReady, isConnected, address])
 
   return (
     <div className="min-h-screen relative overflow-hidden">
