@@ -18,24 +18,19 @@ export function createServerSupabaseClient() {
   })
 }
 
-// Types for the Artistas table
+// Types for the "Feria Nounish - Artistas" table
 export interface Artist {
-  id?: number
-  wallet_address: string
-  farcaster_username?: string
-  display_name: string
-  created_at?: string
-  updated_at?: string
+  "Wallet Artista": string
 }
 
-// Helper functions to interact with the Artistas table
+// Helper functions to interact with the "Feria Nounish - Artistas" table
 export async function getArtistByWallet(walletAddress: string): Promise<Artist | null> {
   const supabase = createServerSupabaseClient()
 
   const { data, error } = await supabase
-    .from("artistas")
+    .from("Feria Nounish - Artistas")
     .select("*")
-    .eq("wallet_address", walletAddress.toLowerCase())
+    .eq("Wallet Artista", walletAddress)
     .single()
 
   if (error) {
@@ -49,7 +44,7 @@ export async function getArtistByWallet(walletAddress: string): Promise<Artist |
 export async function getAllArtists(): Promise<Artist[]> {
   const supabase = createServerSupabaseClient()
 
-  const { data, error } = await supabase.from("artistas").select("*").order("created_at", { ascending: false })
+  const { data, error } = await supabase.from("Feria Nounish - Artistas").select("*")
 
   if (error) {
     console.error("Error fetching artists:", error)
@@ -59,20 +54,17 @@ export async function getAllArtists(): Promise<Artist[]> {
   return data || []
 }
 
-export async function createOrUpdateArtist(artist: Artist): Promise<Artist | null> {
+export async function createOrUpdateArtist(walletAddress: string): Promise<Artist | null> {
   const supabase = createServerSupabaseClient()
 
   const { data, error } = await supabase
-    .from("artistas")
+    .from("Feria Nounish - Artistas")
     .upsert(
       {
-        wallet_address: artist.wallet_address.toLowerCase(),
-        farcaster_username: artist.farcaster_username,
-        display_name: artist.display_name,
-        updated_at: new Date().toISOString(),
+        "Wallet Artista": walletAddress,
       },
       {
-        onConflict: "wallet_address",
+        onConflict: "Wallet Artista",
       },
     )
     .select()
