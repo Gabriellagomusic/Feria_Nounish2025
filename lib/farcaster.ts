@@ -19,6 +19,26 @@ export async function getFarcasterUsername(address: string): Promise<string | nu
 }
 
 /**
+ * Fetches Farcaster profile picture from wallet address using server-side API
+ */
+export async function getFarcasterProfilePic(address: string): Promise<string | null> {
+  try {
+    const response = await fetch(`/api/farcaster/profile-pic?address=${address}`)
+
+    if (!response.ok) {
+      console.log("[v0] Farcaster profile pic API error:", response.status)
+      return null
+    }
+
+    const data = await response.json()
+    return data.profilePicUrl || null
+  } catch (error) {
+    console.error("[v0] Error fetching Farcaster profile pic:", error)
+    return null
+  }
+}
+
+/**
  * Formats address to display format (0x1234...5678)
  */
 export function formatAddress(address: string): string {

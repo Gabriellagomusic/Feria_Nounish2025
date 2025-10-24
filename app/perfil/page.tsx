@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import { ArrowLeft } from "lucide-react"
 import { useAccount } from "wagmi"
-import { getDisplayName } from "@/lib/farcaster"
+import { getDisplayName, getFarcasterProfilePic } from "@/lib/farcaster"
 import { getNounIdFromAddress, getNounAvatarUrl } from "@/lib/noun-avatar"
 
 interface InprocessMoment {
@@ -25,9 +25,9 @@ export default function PerfilPage() {
   const router = useRouter()
   const { address, isConnected } = useAccount()
   const [userName, setUserName] = useState<string>("")
+  const [profilePicUrl, setProfilePicUrl] = useState<string | null>(null)
   const [moments, setMoments] = useState<InprocessMoment[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [profilePicture, setProfilePicture] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchUserProfile = async () => {
@@ -45,23 +45,9 @@ export default function PerfilPage() {
       console.log("[v0] Perfil - Fetching profile for address:", address)
 
       try {
-        console.log("[v0] Perfil - Fetching Farcaster PFP...")
-        try {
-          const pfpResponse = await fetch(`/api/farcaster/pfp?address=${address}`)
-          const pfpData = await pfpResponse.json()
-          console.log("[v0] Perfil - PFP data:", pfpData)
-
-          if (pfpData.pfpUrl) {
-            setProfilePicture(pfpData.pfpUrl)
-            console.log("[v0] Perfil - Using Farcaster PFP:", pfpData.pfpUrl)
-          } else {
-            console.log("[v0] Perfil - No Farcaster PFP found, using Noun avatar")
-            setProfilePicture(getNounAvatarUrl(address))
-          }
-        } catch (error) {
-          console.error("[v0] Perfil - Error fetching PFP:", error)
-          setProfilePicture(getNounAvatarUrl(address))
-        }
+        const picUrl = await getFarcasterProfilePic(address)
+        setProfilePicUrl(picUrl)
+        console.log("[v0] Perfil - Profile pic URL:", picUrl)
 
         const displayName = await getDisplayName(address)
         setUserName(displayName)
@@ -179,8 +165,8 @@ export default function PerfilPage() {
               <div className="flex flex-col items-center mb-6">
                 <div className="relative w-32 h-32 rounded-full overflow-hidden border-4 border-white shadow-2xl mb-4">
                   <Image
-                    src={profilePicture || getNounAvatarUrl(address) || "/placeholder.svg"}
-                    alt="Profile Picture"
+                    src={profilePicUrl || getNounAvatarUrl(address) || "/placeholder.svg"}
+                    alt="Profile Avatar"
                     fill
                     className="object-cover"
                   />

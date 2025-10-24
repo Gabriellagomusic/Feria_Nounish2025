@@ -7,12 +7,60 @@ import { useMiniKit } from "@coinbase/onchainkit/minikit"
 import { useAccount } from "wagmi"
 import Link from "next/link"
 import { getNounAvatarUrl } from "@/lib/noun-avatar"
+import { getFarcasterProfilePic } from "@/lib/farcaster"
 
 export default function Home() {
   const { setFrameReady, isFrameReady } = useMiniKit()
   const { address, isConnected } = useAccount()
   const [isWhitelisted, setIsWhitelisted] = useState(false)
+  const [profilePicUrl, setProfilePicUrl] = useState<string | null>(null)
   const [isCheckingWhitelist, setIsCheckingWhitelist] = useState(true)
+
+  useEffect(() => {
+    const checkWhitelist = async () => {
+      if (!address) {
+        setIsWhitelisted(false)
+        setIsCheckingWhitelist(false)
+        return
+      }
+
+      try {
+        console.log("[v0] Landing - Checking whitelist for:", address)
+        const response = await fetch(`/api/whitelist/check?address=${address}`)
+        const data = await response.json()
+        setIsWhitelisted(data.isWhitelisted)
+        console.log("[v0] Landing - Whitelist status:", data.isWhitelisted)
+      } catch (error) {
+        console.error("[v0] Landing - Error checking whitelist:", error)
+        setIsWhitelisted(false)
+      } finally {
+        setIsCheckingWhitelist(false)
+      }
+    }
+
+    checkWhitelist()
+  }, [address])
+
+  useEffect(() => {
+    const fetchProfilePic = async () => {
+      if (!address) {
+        setProfilePicUrl(null)
+        return
+      }
+
+      try {
+        console.log("[v0] Landing - Fetching Farcaster profile pic for:", address)
+        const picUrl = await getFarcasterProfilePic(address)
+        setProfilePicUrl(picUrl)
+        console.log("[v0] Landing - Profile pic URL:", picUrl)
+      } catch (error) {
+        console.error("[v0] Landing - Error fetching profile pic:", error)
+        setProfilePicUrl(null)
+      }
+    }
+
+    fetchProfilePic()
+  }, [address])
 
   useEffect(() => {
     console.log("[v0] Initializing MiniApp...")
@@ -27,32 +75,6 @@ export default function Home() {
     }
   }, [isFrameReady, setFrameReady, isConnected, address])
 
-  useEffect(() => {
-    const checkWhitelist = async () => {
-      if (!address) {
-        setIsWhitelisted(false)
-        setIsCheckingWhitelist(false)
-        return
-      }
-
-      try {
-        console.log("[v0] Checking whitelist for address:", address)
-        const response = await fetch(`/api/whitelist/check?address=${address}`)
-        const data = await response.json()
-
-        console.log("[v0] Whitelist response:", data)
-        setIsWhitelisted(data.isWhitelisted || false)
-      } catch (error) {
-        console.error("[v0] Error checking whitelist:", error)
-        setIsWhitelisted(false)
-      } finally {
-        setIsCheckingWhitelist(false)
-      }
-    }
-
-    checkWhitelist()
-  }, [address])
-
   return (
     <div className="min-h-screen relative overflow-hidden">
       {/* Background Image */}
@@ -66,8 +88,8 @@ export default function Home() {
               aria-label="Ver perfil"
             >
               <Image
-                src={getNounAvatarUrl(address) || "/placeholder.svg"}
-                alt="Profile Noun"
+                src={profilePicUrl || getNounAvatarUrl(address) || "/placeholder.svg"}
+                alt="Profile"
                 width={48}
                 height={48}
                 className="w-full h-full object-cover"
@@ -91,8 +113,13 @@ export default function Home() {
           />
         </div>
 
-        {!isCheckingWhitelist && (
-          <div className={`flex flex-row gap-4 items-center mb-8 ${!isWhitelisted ? "justify-center" : ""}`}>
+        {isCheckingWhitelist ? (
+          <div className="flex justify-center items-center mb-8">
+            <p className="text-white text-sm">Cargando...</p>
+          </div>
+        ) : isWhitelisted ? (
+          // Whitelisted: Show both buttons side by side
+          <div className="flex flex-row gap-4 items-center mb-8">
             <Link href="/galeria">
               <Button
                 size="default"
@@ -102,17 +129,27 @@ export default function Home() {
               </Button>
             </Link>
 
-            {isWhitelisted && (
-              <Link href="/crear">
-                <Button
-                  size="default"
-                  className="font-semibold px-6 py-3 text-base min-w-[120px] shadow-lg text-white hover:opacity-90"
-                  style={{ backgroundColor: "#FF0B00" }}
-                >
-                  CREAR
-                </Button>
-              </Link>
-            )}
+            <Link href="/crear">
+              <Button
+                size="default"
+                className="font-semibold px-6 py-3 text-base min-w-[120px] shadow-lg text-white hover:opacity-90"
+                style={{ backgroundColor: "#FF0B00" }}
+              >
+                CREAR
+              </Button>
+            </Link>
+          </div>
+        ) : (
+          // Not whitelisted: Show only Galería button centered
+          <div className="flex justify-center items-center mb-8">
+            <Link href="/galeria">
+              <Button
+                size="default"
+                className="bg-white text-black hover:bg-gray-100 font-semibold px-6 py-3 text-base min-w-[120px] shadow-lg"
+              >
+                GALERÍA
+              </Button>
+            </Link>
           </div>
         )}
 
