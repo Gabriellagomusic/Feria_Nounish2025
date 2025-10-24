@@ -2,7 +2,6 @@ import type React from "react"
 import { Barlow_Condensed } from "next/font/google"
 import { MiniKitContextProvider } from "@/providers/MiniKitProvider"
 import { WagmiContextProvider } from "@/providers/WagmiProvider"
-import { AutoConnectWrapper } from "@/components/AutoConnectWrapper"
 import "./globals.css"
 
 const barlowCondensed = Barlow_Condensed({
@@ -49,9 +48,7 @@ export default function RootLayout({
     <html lang="en" className={barlowCondensed.variable}>
       <body>
         <WagmiContextProvider>
-          <MiniKitContextProvider>
-            <AutoConnectWrapper>{children}</AutoConnectWrapper>
-          </MiniKitContextProvider>
+          <MiniKitContextProvider>{children}</MiniKitContextProvider>
         </WagmiContextProvider>
       </body>
     </html>
