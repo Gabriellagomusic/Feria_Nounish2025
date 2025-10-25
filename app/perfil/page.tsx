@@ -1,24 +1,31 @@
 "use client"
 
 import { Card, CardContent } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 import Image from "next/image"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, Plus } from "lucide-react"
 import { useAccount } from "wagmi"
 import { getDisplayName, getFarcasterProfilePic } from "@/lib/farcaster"
-import { getNounIdFromAddress, getNounAvatarUrl } from "@/lib/noun-avatar"
+import { getNounAvatarUrl } from "@/lib/noun-avatar"
 
 interface InprocessMoment {
-  id: string
-  name: string
-  description: string
-  image: string
-  contractAddress: string
+  address: string
   tokenId: string
+  chainId: number
+  id: string
+  uri: string
+  admin: string
   createdAt: string
-  creator: string
+  username: string
+  hidden: boolean
+  metadata?: {
+    name: string
+    description: string
+    image: string
+  }
 }
 
 export default function PerfilPage() {
@@ -40,10 +47,6 @@ export default function PerfilPage() {
         return
       }
 
-      console.log("[v0] Perfil - Generated Noun ID:", getNounIdFromAddress(address))
-
-      console.log("[v0] Perfil - Fetching profile for address:", address)
-
       try {
         const picUrl = await getFarcasterProfilePic(address)
         setProfilePicUrl(picUrl)
@@ -53,81 +56,71 @@ export default function PerfilPage() {
         setUserName(displayName)
         console.log("[v0] Perfil - Display name:", displayName)
 
-        console.log("[v0] Perfil - Fetching tokens from inprocess.fun API...")
+        console.log("[v0] Perfil - Fetching tokens from Inprocess Timeline API...")
+        const timelineUrl = `https://inprocess.fun/api/timeline?artist=${address}&chainId=8453&limit=100&latest=true`
+        console.log("[v0] Perfil - API URL:", timelineUrl)
 
-        const apiEndpoints = [
-          `https://inprocess.fun/api/timeline?address=${address}`,
-          `https://inprocess.fun/api/tokens?owner=${address}`,
-          `https://inprocess.fun/api/nfts?wallet=${address}`,
-          `https://inprocess.fun/api/user/${address}/tokens`,
-        ]
+        const response = await fetch(timelineUrl)
+        console.log("[v0] Perfil - Response status:", response.status)
 
-        let fetchedMoments: InprocessMoment[] = []
-        let apiSuccess = false
+        if (response.ok) {
+          const data = await response.json()
+          console.log("[v0] Perfil - API response:", JSON.stringify(data).substring(0, 500))
 
-        for (const endpoint of apiEndpoints) {
-          try {
-            console.log("[v0] Perfil - Trying API endpoint:", endpoint)
-            const response = await fetch(endpoint, {
-              method: "GET",
-              headers: {
-                "Content-Type": "application/json",
-              },
-            })
+          if (data.status === "success" && data.moments && Array.isArray(data.moments)) {
+            console.log("[v0] Perfil - Found moments:", data.moments.length)
 
-            console.log("[v0] Perfil - Response status:", response.status)
+            const momentsWithMetadata = await Promise.all(
+              data.moments.map(async (moment: InprocessMoment) => {
+                try {
+                  let metadataUrl = moment.uri
+                  if (metadataUrl.startsWith("ar://")) {
+                    metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
+                  }
 
-            if (response.ok) {
-              const data = await response.json()
-              console.log("[v0] Perfil - API response data:", JSON.stringify(data).substring(0, 200))
+                  const metadataResponse = await fetch(metadataUrl)
+                  if (metadataResponse.ok) {
+                    const metadata = await metadataResponse.json()
 
-              let momentsArray: any[] = []
+                    let imageUrl = metadata.image
+                    if (imageUrl?.startsWith("ipfs://")) {
+                      imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+                    } else if (imageUrl?.startsWith("ar://")) {
+                      imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+                    }
 
-              if (Array.isArray(data)) {
-                momentsArray = data
-              } else if (data.moments && Array.isArray(data.moments)) {
-                momentsArray = data.moments
-              } else if (data.data && Array.isArray(data.data)) {
-                momentsArray = data.data
-              } else if (data.tokens && Array.isArray(data.tokens)) {
-                momentsArray = data.tokens
-              } else if (data.nfts && Array.isArray(data.nfts)) {
-                momentsArray = data.nfts
-              }
+                    return {
+                      ...moment,
+                      metadata: {
+                        name: metadata.name || "Sin título",
+                        description: metadata.description || "",
+                        image: imageUrl || "/placeholder.svg",
+                      },
+                    }
+                  }
+                } catch (error) {
+                  console.error("[v0] Perfil - Error fetching metadata for moment:", moment.id, error)
+                }
 
-              console.log("[v0] Perfil - Parsed array length:", momentsArray.length)
+                return {
+                  ...moment,
+                  metadata: {
+                    name: "Sin título",
+                    description: "",
+                    image: "/placeholder.svg",
+                  },
+                }
+              }),
+            )
 
-              if (momentsArray.length > 0) {
-                fetchedMoments = momentsArray.map((item: any) => ({
-                  id: item.id || item._id || `${item.contractAddress}-${item.tokenId}`,
-                  name: item.name || item.title || "Sin título",
-                  description: item.description || "",
-                  image: item.image || item.imageUrl || item.media || "/placeholder.svg",
-                  contractAddress: item.contractAddress || item.contract?.address || "",
-                  tokenId: item.tokenId?.toString() || item.token?.id?.toString() || "1",
-                  createdAt: item.createdAt || item.timestamp || new Date().toISOString(),
-                  creator: item.creator || address,
-                }))
-
-                console.log("[v0] Perfil - Successfully parsed tokens:", fetchedMoments.length)
-                apiSuccess = true
-                break
-              }
-            }
-          } catch (error) {
-            console.log("[v0] Perfil - Error with endpoint:", endpoint, error)
-            continue
+            setMoments(momentsWithMetadata)
+            console.log("[v0] Perfil - Successfully loaded moments with metadata")
+          } else {
+            console.log("[v0] Perfil - No moments found in response")
+            setMoments([])
           }
-        }
-
-        if (apiSuccess) {
-          const sortedMoments = fetchedMoments.sort((a, b) => {
-            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-          })
-          console.log("[v0] Perfil - Setting tokens:", sortedMoments.length)
-          setMoments(sortedMoments)
         } else {
-          console.log("[v0] Perfil - No tokens found from any API endpoint")
+          console.error("[v0] Perfil - API error:", response.status, response.statusText)
           setMoments([])
         }
       } catch (error) {
@@ -141,6 +134,12 @@ export default function PerfilPage() {
     fetchUserProfile()
   }, [address, isConnected])
 
+  const handleAddToGallery = async (moment: InprocessMoment) => {
+    console.log("[v0] Perfil - Adding to gallery:", moment.address, moment.tokenId)
+    // TODO: Implement add to gallery functionality
+    alert(`Agregar ${moment.metadata?.name || "token"} a la galería (funcionalidad pendiente)`)
+  }
+
   return (
     <div className="min-h-screen relative overflow-hidden">
       <div className="absolute inset-0 z-0">
@@ -148,7 +147,6 @@ export default function PerfilPage() {
       </div>
 
       <div className="relative z-10">
-        {/* Header with back button */}
         <header className="p-4">
           <button
             onClick={() => router.back()}
@@ -190,35 +188,39 @@ export default function PerfilPage() {
             ) : moments.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {moments.map((moment) => (
-                  <Link
+                  <Card
                     key={moment.id}
-                    href={`/galeria/${moment.contractAddress}/${moment.tokenId}`}
-                    className="group block"
+                    className="overflow-hidden transition-all duration-300 hover:shadow-2xl hover:-translate-y-2"
                   >
-                    <Card className="overflow-hidden transition-all duration-300 hover:shadow-2xl hover:-translate-y-2">
-                      <CardContent className="p-0">
+                    <CardContent className="p-0">
+                      <Link href={`/galeria/${moment.address}/${moment.tokenId}`} className="block">
                         <div className="relative aspect-square overflow-hidden bg-gray-100">
                           <Image
-                            src={moment.image || "/placeholder.svg"}
-                            alt={moment.name}
+                            src={moment.metadata?.image || "/placeholder.svg"}
+                            alt={moment.metadata?.name || "NFT"}
                             fill
-                            className="object-cover transition-transform duration-300 group-hover:scale-105"
+                            className="object-cover transition-transform duration-300 hover:scale-105"
                           />
                         </div>
-                        <div className="p-6 bg-white">
-                          <h3 className="font-extrabold text-xl text-gray-800 mb-2">{moment.name}</h3>
-                          <p className="text-sm text-gray-600 line-clamp-2 mb-2">{moment.description}</p>
-                          <p className="text-xs text-gray-500">
-                            {new Date(moment.createdAt).toLocaleDateString("es-ES", {
-                              year: "numeric",
-                              month: "long",
-                              day: "numeric",
-                            })}
-                          </p>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </Link>
+                      </Link>
+                      <div className="p-6 bg-white">
+                        <h3 className="font-extrabold text-xl text-gray-800 mb-2">
+                          {moment.metadata?.name || "Sin título"}
+                        </h3>
+                        <p className="text-sm text-gray-600 line-clamp-2 mb-2">{moment.metadata?.description || ""}</p>
+                        <p className="text-xs text-gray-500 mb-4">Por: {moment.username || userName}</p>
+
+                        <Button
+                          onClick={() => handleAddToGallery(moment)}
+                          className="w-full bg-[#FF0B00] hover:bg-[#CC0900] text-white font-semibold"
+                          size="sm"
+                        >
+                          <Plus className="w-4 h-4 mr-2" />
+                          Agregar a Galería
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
                 ))}
               </div>
             ) : (

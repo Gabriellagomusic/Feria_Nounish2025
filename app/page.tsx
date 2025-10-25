@@ -31,7 +31,7 @@ export default function Home() {
 
     // Auto-connect to Farcaster connector when frame is ready and wallet is not connected
     if (isFrameReady && !isConnected && connectors.length > 0) {
-      const farcasterConnector = connectors[0] // Farcaster connector should be the first one
+      const farcasterConnector = connectors[0]
       console.log("[v0] Auto-connecting to Farcaster connector...")
       console.log(
         "[v0] Available connectors:",
@@ -63,6 +63,7 @@ export default function Home() {
 
         const data = await response.json()
         console.log("[v0] Landing - Whitelist API response:", data)
+        console.log("[v0] Landing - Total artists in database:", data.totalArtists)
         setIsWhitelisted(data.isWhitelisted)
         console.log("[v0] Landing - Whitelist status:", data.isWhitelisted)
       } catch (error) {
@@ -99,10 +100,9 @@ export default function Home() {
 
   return (
     <div className="min-h-screen relative overflow-hidden">
-      {/* Background Image */}
       <Image src="/images/fondolanding.png" alt="Background" fill className="object-cover" priority unoptimized />
 
-      {isWhitelisted && (
+      {isWhitelisted && address && (
         <div className="absolute top-4 right-4 z-20">
           <Link href="/perfil">
             <button
@@ -121,9 +121,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* Content */}
       <div className="relative z-10 flex flex-col items-center justify-center min-h-screen px-4">
-        {/* Updated Logo */}
         <div className="mb-12">
           <Image
             src="/images/logolanding.png"
@@ -140,7 +138,6 @@ export default function Home() {
             <p className="text-white text-sm">Cargando...</p>
           </div>
         ) : isWhitelisted ? (
-          // Whitelisted: Show both buttons side by side
           <div className="flex flex-row gap-4 items-center mb-8">
             <Link href="/galeria">
               <Button
@@ -162,7 +159,6 @@ export default function Home() {
             </Link>
           </div>
         ) : (
-          // Not whitelisted: Show only Galería button centered
           <div className="flex justify-center items-center mb-8">
             <Link href="/galeria">
               <Button
