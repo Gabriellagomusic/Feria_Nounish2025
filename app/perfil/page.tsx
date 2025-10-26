@@ -38,20 +38,23 @@ export default function PerfilPage() {
 
   useEffect(() => {
     const fetchUserProfile = async () => {
+      console.log("[v0] Perfil - Starting fetchUserProfile")
       console.log("[v0] Perfil - Wallet connected:", isConnected)
       console.log("[v0] Perfil - Wallet address:", address)
 
       if (!address) {
-        console.log("[v0] Perfil - No wallet connected")
+        console.log("[v0] Perfil - No wallet connected, stopping")
         setIsLoading(false)
         return
       }
 
       try {
+        console.log("[v0] Perfil - Fetching Farcaster profile pic...")
         const picUrl = await getFarcasterProfilePic(address)
         setProfilePicUrl(picUrl)
         console.log("[v0] Perfil - Profile pic URL:", picUrl)
 
+        console.log("[v0] Perfil - Fetching display name...")
         const displayName = await getDisplayName(address)
         setUserName(displayName)
         console.log("[v0] Perfil - Display name:", displayName)
@@ -62,71 +65,113 @@ export default function PerfilPage() {
 
         const response = await fetch(timelineUrl)
         console.log("[v0] Perfil - Response status:", response.status)
+        console.log("[v0] Perfil - Response ok:", response.ok)
+        console.log("[v0] Perfil - Response headers:", Object.fromEntries(response.headers.entries()))
 
-        if (response.ok) {
-          const data = await response.json()
-          console.log("[v0] Perfil - API response:", JSON.stringify(data).substring(0, 500))
-
-          if (data.status === "success" && data.moments && Array.isArray(data.moments)) {
-            console.log("[v0] Perfil - Found moments:", data.moments.length)
-
-            const momentsWithMetadata = await Promise.all(
-              data.moments.map(async (moment: InprocessMoment) => {
-                try {
-                  let metadataUrl = moment.uri
-                  if (metadataUrl.startsWith("ar://")) {
-                    metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
-                  }
-
-                  const metadataResponse = await fetch(metadataUrl)
-                  if (metadataResponse.ok) {
-                    const metadata = await metadataResponse.json()
-
-                    let imageUrl = metadata.image
-                    if (imageUrl?.startsWith("ipfs://")) {
-                      imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-                    } else if (imageUrl?.startsWith("ar://")) {
-                      imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
-                    }
-
-                    return {
-                      ...moment,
-                      metadata: {
-                        name: metadata.name || "Sin título",
-                        description: metadata.description || "",
-                        image: imageUrl || "/placeholder.svg",
-                      },
-                    }
-                  }
-                } catch (error) {
-                  console.error("[v0] Perfil - Error fetching metadata for moment:", moment.id, error)
-                }
-
-                return {
-                  ...moment,
-                  metadata: {
-                    name: "Sin título",
-                    description: "",
-                    image: "/placeholder.svg",
-                  },
-                }
-              }),
-            )
-
-            setMoments(momentsWithMetadata)
-            console.log("[v0] Perfil - Successfully loaded moments with metadata")
-          } else {
-            console.log("[v0] Perfil - No moments found in response")
-            setMoments([])
-          }
-        } else {
+        if (!response.ok) {
           console.error("[v0] Perfil - API error:", response.status, response.statusText)
+          const errorText = await response.text()
+          console.error("[v0] Perfil - Error response body:", errorText)
+          setMoments([])
+          setIsLoading(false)
+          return
+        }
+
+        const responseText = await response.text()
+        console.log("[v0] Perfil - Raw response (first 1000 chars):", responseText.substring(0, 1000))
+
+        let data
+        try {
+          data = JSON.parse(responseText)
+          console.log("[v0] Perfil - Parsed data keys:", Object.keys(data))
+          console.log("[v0] Perfil - Data status:", data.status)
+          console.log("[v0] Perfil - Data moments type:", typeof data.moments)
+          console.log("[v0] Perfil - Data moments is array:", Array.isArray(data.moments))
+          if (data.moments) {
+            console.log("[v0] Perfil - Moments length:", data.moments.length)
+            if (data.moments.length > 0) {
+              console.log("[v0] Perfil - First moment:", JSON.stringify(data.moments[0]))
+            }
+          }
+        } catch (parseError) {
+          console.error("[v0] Perfil - JSON parse error:", parseError)
+          console.error("[v0] Perfil - Failed to parse response:", responseText)
+          setMoments([])
+          setIsLoading(false)
+          return
+        }
+
+        if (data && data.moments && Array.isArray(data.moments) && data.moments.length > 0) {
+          console.log("[v0] Perfil - Processing", data.moments.length, "moments...")
+
+          const momentsWithMetadata = await Promise.all(
+            data.moments.map(async (moment: InprocessMoment, index: number) => {
+              console.log(`[v0] Perfil - Processing moment ${index + 1}/${data.moments.length}:`, moment.id)
+              try {
+                let metadataUrl = moment.uri
+                console.log(`[v0] Perfil - Original URI:`, metadataUrl)
+
+                if (metadataUrl.startsWith("ar://")) {
+                  metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
+                  console.log(`[v0] Perfil - Converted to Arweave URL:`, metadataUrl)
+                }
+
+                console.log(`[v0] Perfil - Fetching metadata from:`, metadataUrl)
+                const metadataResponse = await fetch(metadataUrl)
+                console.log(`[v0] Perfil - Metadata response status:`, metadataResponse.status)
+
+                if (metadataResponse.ok) {
+                  const metadata = await metadataResponse.json()
+                  console.log(`[v0] Perfil - Metadata:`, JSON.stringify(metadata).substring(0, 200))
+
+                  let imageUrl = metadata.image
+                  if (imageUrl?.startsWith("ipfs://")) {
+                    imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+                  } else if (imageUrl?.startsWith("ar://")) {
+                    imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+                  }
+
+                  return {
+                    ...moment,
+                    metadata: {
+                      name: metadata.name || "Sin título",
+                      description: metadata.description || "",
+                      image: imageUrl || "/placeholder.svg",
+                    },
+                  }
+                }
+              } catch (error) {
+                console.error(`[v0] Perfil - Error fetching metadata for moment ${moment.id}:`, error)
+              }
+
+              return {
+                ...moment,
+                metadata: {
+                  name: "Sin título",
+                  description: "",
+                  image: "/placeholder.svg",
+                },
+              }
+            }),
+          )
+
+          console.log("[v0] Perfil - Setting moments state with", momentsWithMetadata.length, "items")
+          setMoments(momentsWithMetadata)
+          console.log("[v0] Perfil - Successfully loaded moments with metadata")
+        } else {
+          console.log("[v0] Perfil - No moments found or invalid data structure")
+          console.log("[v0] Perfil - Data:", JSON.stringify(data).substring(0, 500))
           setMoments([])
         }
       } catch (error) {
-        console.error("[v0] Perfil - Error fetching user profile:", error)
+        console.error("[v0] Perfil - Error in fetchUserProfile:", error)
+        if (error instanceof Error) {
+          console.error("[v0] Perfil - Error message:", error.message)
+          console.error("[v0] Perfil - Error stack:", error.stack)
+        }
         setMoments([])
       } finally {
+        console.log("[v0] Perfil - Setting isLoading to false")
         setIsLoading(false)
       }
     }
