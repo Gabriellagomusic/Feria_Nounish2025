@@ -67,89 +67,84 @@ export default function PerfilPage() {
         // Fetch timeline - ONLY moments created by this artist
         console.log("[v0] Perfil - Step 2: Calling getTimeline with artist filter...")
         console.log("[v0] Perfil - Artist address:", address)
-        console.log("[v0] Perfil - Parameters:", {
-          page: 1,
-          limit: 100,
-          latest: true,
-          artist: address,
-          chainId: 8453,
-          hidden: false,
-        })
 
         const timelineData = await getTimeline(1, 100, true, address, 8453, false)
 
         console.log("[v0] Perfil - Step 3: Timeline data received!")
         console.log("[v0] Perfil - Timeline status:", timelineData.status)
-        console.log("[v0] Perfil - Moments count:", timelineData.moments?.length || 0)
-        console.log("[v0] Perfil - Total count:", timelineData.pagination?.total_count || 0)
+        console.log("[v0] Perfil - Moments count (before filtering):", timelineData.moments?.length || 0)
 
         if (timelineData.moments && timelineData.moments.length > 0) {
-          console.log("[v0] Perfil - Verifying artist filter:")
-          timelineData.moments.forEach((moment, index) => {
-            console.log(
-              `[v0] Perfil - Moment ${index + 1} admin:`,
-              moment.admin,
-              "matches:",
-              moment.admin.toLowerCase() === address.toLowerCase(),
-            )
+          console.log("[v0] Perfil - Filtering moments by artist address...")
+
+          const filteredMoments = timelineData.moments.filter((moment) => {
+            const matches = moment.admin.toLowerCase() === address.toLowerCase()
+            console.log(`[v0] Perfil - Moment ${moment.id} admin: ${moment.admin} - matches: ${matches}`)
+            return matches
           })
-        }
 
-        if (timelineData.moments && timelineData.moments.length > 0) {
-          console.log("[v0] Perfil - Step 4: Processing moments...")
+          console.log("[v0] Perfil - Moments count (after filtering):", filteredMoments.length)
+          console.log("[v0] Perfil - Filtered out:", timelineData.moments.length - filteredMoments.length, "moments")
 
-          const momentsWithMetadata = await Promise.all(
-            timelineData.moments.map(async (moment, index) => {
-              console.log(`[v0] Perfil - Processing moment ${index + 1}/${timelineData.moments.length}`)
+          if (filteredMoments.length > 0) {
+            console.log("[v0] Perfil - Step 4: Processing filtered moments...")
 
-              try {
-                let metadataUrl = moment.uri
+            const momentsWithMetadata = await Promise.all(
+              filteredMoments.map(async (moment, index) => {
+                console.log(`[v0] Perfil - Processing moment ${index + 1}/${filteredMoments.length}`)
 
-                // Convert ar:// to https://
-                if (metadataUrl.startsWith("ar://")) {
-                  metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
-                }
+                try {
+                  let metadataUrl = moment.uri
 
-                const metadataResponse = await fetch(metadataUrl)
-
-                if (metadataResponse.ok) {
-                  const metadata = await metadataResponse.json()
-
-                  let imageUrl = metadata.image
-                  if (imageUrl?.startsWith("ipfs://")) {
-                    imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-                  } else if (imageUrl?.startsWith("ar://")) {
-                    imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+                  // Convert ar:// to https://
+                  if (metadataUrl.startsWith("ar://")) {
+                    metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
                   }
 
-                  return {
-                    ...moment,
-                    metadata: {
-                      name: metadata.name || "Sin título",
-                      description: metadata.description || "",
-                      image: imageUrl || "/placeholder.svg",
-                    },
+                  const metadataResponse = await fetch(metadataUrl)
+
+                  if (metadataResponse.ok) {
+                    const metadata = await metadataResponse.json()
+
+                    let imageUrl = metadata.image
+                    if (imageUrl?.startsWith("ipfs://")) {
+                      imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+                    } else if (imageUrl?.startsWith("ar://")) {
+                      imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+                    }
+
+                    return {
+                      ...moment,
+                      metadata: {
+                        name: metadata.name || "Sin título",
+                        description: metadata.description || "",
+                        image: imageUrl || "/placeholder.svg",
+                      },
+                    }
                   }
+                } catch (error) {
+                  console.error(`[v0] Perfil - Error processing moment ${index + 1}:`, error)
                 }
-              } catch (error) {
-                console.error(`[v0] Perfil - Error processing moment ${index + 1}:`, error)
-              }
 
-              return {
-                ...moment,
-                metadata: {
-                  name: "Sin título",
-                  description: "",
-                  image: "/placeholder.svg",
-                },
-              }
-            }),
-          )
+                return {
+                  ...moment,
+                  metadata: {
+                    name: "Sin título",
+                    description: "",
+                    image: "/placeholder.svg",
+                  },
+                }
+              }),
+            )
 
-          console.log("[v0] Perfil - Step 5: Setting moments state with", momentsWithMetadata.length, "items")
-          setMoments(momentsWithMetadata)
+            console.log("[v0] Perfil - Step 5: Setting moments state with", momentsWithMetadata.length, "items")
+            setMoments(momentsWithMetadata)
+          } else {
+            console.log("[v0] Perfil - No moments found for this artist after filtering")
+            setMoments([])
+          }
         } else {
-          console.log("[v0] Perfil - No moments found for this artist")
+          console.log("[v0] Perfil - No moments returned from API")
           setMoments([])
         }
 
