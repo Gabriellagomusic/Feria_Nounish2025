@@ -41,7 +41,7 @@ export async function getTimeline(
 
   console.log("[v0] getTimeline - Fetching with params:", params.toString())
 
-  const url = `https://inprocess.fun/api/timeline?${params}`
+  const url = `/api/inprocess/timeline?${params}`
   console.log("[v0] getTimeline - URL:", url)
 
   const response = await fetch(url)
