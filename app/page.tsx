@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button"
 import Image from "next/image"
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { useMiniKit } from "@coinbase/onchainkit/minikit"
 import { useAccount, useConnect } from "wagmi"
 import Link from "next/link"
@@ -13,69 +13,29 @@ export default function Home() {
   const { setFrameReady, isFrameReady } = useMiniKit()
   const { address, isConnected } = useAccount()
   const { connect, connectors } = useConnect()
-  const [isWhitelisted, setIsWhitelisted] = useState(false)
   const [profilePicUrl, setProfilePicUrl] = useState<string | null>(null)
-  const [isCheckingWhitelist, setIsCheckingWhitelist] = useState(true)
+
+  const frameReadyCalledRef = useRef(false)
+  const connectAttemptedRef = useRef(false)
 
   useEffect(() => {
-    console.log("[v0] Initializing MiniApp...")
-    console.log("[v0] isFrameReady:", isFrameReady)
-    console.log("[v0] Wallet connected:", isConnected)
-    console.log("[v0] Wallet address:", address)
-
-    if (!isFrameReady) {
-      console.log("[v0] Calling setFrameReady()")
+    if (!isFrameReady && !frameReadyCalledRef.current) {
+      console.log("[v0] Calling setFrameReady() once")
+      frameReadyCalledRef.current = true
       setFrameReady()
-      console.log("[v0] MiniApp frame ready called successfully")
     }
-
-    // Auto-connect to Farcaster connector when frame is ready and wallet is not connected
-    if (isFrameReady && !isConnected && connectors.length > 0) {
-      const farcasterConnector = connectors[0]
-      console.log("[v0] Auto-connecting to Farcaster connector...")
-      console.log(
-        "[v0] Available connectors:",
-        connectors.map((c) => c.name),
-      )
-      connect({ connector: farcasterConnector })
-    }
-  }, [isFrameReady, setFrameReady, isConnected, address, connect, connectors])
+  }, [isFrameReady, setFrameReady])
 
   useEffect(() => {
-    const checkWhitelist = async () => {
-      if (!address) {
-        console.log("[v0] Landing - No address, skipping whitelist check")
-        setIsWhitelisted(false)
-        setIsCheckingWhitelist(false)
-        return
-      }
-
-      try {
-        console.log("[v0] Landing - Checking whitelist for:", address)
-        const response = await fetch(`/api/whitelist/check?address=${address}`)
-
-        if (!response.ok) {
-          console.error("[v0] Landing - Whitelist API error:", response.status, response.statusText)
-          setIsWhitelisted(false)
-          setIsCheckingWhitelist(false)
-          return
-        }
-
-        const data = await response.json()
-        console.log("[v0] Landing - Whitelist API response:", data)
-        console.log("[v0] Landing - Total artists in database:", data.totalArtists)
-        setIsWhitelisted(data.isWhitelisted)
-        console.log("[v0] Landing - Whitelist status:", data.isWhitelisted)
-      } catch (error) {
-        console.error("[v0] Landing - Error checking whitelist:", error)
-        setIsWhitelisted(false)
-      } finally {
-        setIsCheckingWhitelist(false)
+    if (isFrameReady && !isConnected && !connectAttemptedRef.current && connectors.length > 0) {
+      const farcasterConnector = connectors.find((c) => c.name === "Farcaster")
+      if (farcasterConnector) {
+        console.log("[v0] Auto-connecting to Farcaster connector once")
+        connectAttemptedRef.current = true
+        connect({ connector: farcasterConnector })
       }
     }
-
-    checkWhitelist()
-  }, [address])
+  }, [isFrameReady, isConnected, connectors, connect])
 
   useEffect(() => {
     const fetchProfilePic = async () => {
@@ -102,7 +62,7 @@ export default function Home() {
     <div className="min-h-screen relative overflow-hidden">
       <Image src="/images/fondolanding.png" alt="Background" fill className="object-cover" priority unoptimized />
 
-      {isWhitelisted && address && (
+      {address && (
         <div className="absolute top-4 right-4 z-20">
           <Link href="/perfil">
             <button
@@ -133,43 +93,26 @@ export default function Home() {
           />
         </div>
 
-        {isCheckingWhitelist ? (
-          <div className="flex justify-center items-center mb-8">
-            <p className="text-white text-sm">Cargando...</p>
-          </div>
-        ) : isWhitelisted ? (
-          <div className="flex flex-row gap-4 items-center mb-8">
-            <Link href="/galeria">
-              <Button
-                size="default"
-                className="bg-white text-black hover:bg-gray-100 font-semibold px-6 py-3 text-base min-w-[120px] shadow-lg"
-              >
-                GALERÍA
-              </Button>
-            </Link>
+        <div className="flex flex-row gap-4 items-center mb-8">
+          <Link href="/galeria">
+            <Button
+              size="default"
+              className="bg-white text-black hover:bg-gray-100 font-semibold px-6 py-3 text-base min-w-[120px] shadow-lg"
+            >
+              GALERÍA
+            </Button>
+          </Link>
 
-            <Link href="/crear">
-              <Button
-                size="default"
-                className="font-semibold px-6 py-3 text-base min-w-[120px] shadow-lg text-white hover:opacity-90"
-                style={{ backgroundColor: "#FF0B00" }}
-              >
-                CREAR
-              </Button>
-            </Link>
-          </div>
-        ) : (
-          <div className="flex justify-center items-center mb-8">
-            <Link href="/galeria">
-              <Button
-                size="default"
-                className="bg-white text-black hover:bg-gray-100 font-semibold px-6 py-3 text-base min-w-[120px] shadow-lg"
-              >
-                GALERÍA
-              </Button>
-            </Link>
-          </div>
-        )}
+          <Link href="/crear">
+            <Button
+              size="default"
+              className="font-semibold px-6 py-3 text-base min-w-[120px] shadow-lg text-white hover:opacity-90"
+              style={{ backgroundColor: "#FF0B00" }}
+            >
+              CREAR
+            </Button>
+          </Link>
+        </div>
 
         <p className="text-white text-center text-sm md:text-base max-w-2xl px-4">
           ¡DESCUBRE LA COLECCIÓN OFICIAL DE NFTS DE LOS ARTISTAS DE LA FERIA NOUNISH
