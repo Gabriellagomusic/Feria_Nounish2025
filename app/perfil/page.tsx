@@ -5,9 +5,9 @@ import { Button } from "@/components/ui/button"
 import Image from "next/image"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { ArrowLeft, Plus } from "lucide-react"
-import { useAccount } from "wagmi"
+import { useAccount, useConnect } from "wagmi"
 import { getDisplayName, getFarcasterProfilePic } from "@/lib/farcaster"
 import { getNounAvatarUrl } from "@/lib/noun-avatar"
 
@@ -31,22 +31,47 @@ interface InprocessMoment {
 export default function PerfilPage() {
   const router = useRouter()
   const { address, isConnected } = useAccount()
+  const { connect, connectors } = useConnect()
   const [userName, setUserName] = useState<string>("")
   const [profilePicUrl, setProfilePicUrl] = useState<string | null>(null)
   const [moments, setMoments] = useState<InprocessMoment[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
+  const hasAttemptedConnect = useRef(false)
+  const hasFetchedData = useRef(false)
+
   useEffect(() => {
+    if (!hasAttemptedConnect.current && !isConnected) {
+      console.log("[v0] Perfil - Wallet not connected, attempting auto-connect...")
+      const farcasterConnector = connectors.find((c) => c.id === "farcaster")
+
+      if (farcasterConnector) {
+        console.log("[v0] Perfil - Found Farcaster connector, connecting...")
+        connect({ connector: farcasterConnector })
+        hasAttemptedConnect.current = true
+      } else {
+        console.log("[v0] Perfil - No Farcaster connector found")
+      }
+    } else if (isConnected) {
+      console.log("[v0] Perfil - Wallet already connected:", address)
+    }
+  }, [isConnected, connect, connectors, address])
+
+  useEffect(() => {
+    if (!isConnected || !address || hasFetchedData.current) {
+      if (!isConnected) {
+        console.log("[v0] Perfil - Waiting for wallet connection...")
+        setIsLoading(true)
+      }
+      return
+    }
+
     const fetchUserProfile = async () => {
       console.log("[v0] Perfil - Starting fetchUserProfile")
       console.log("[v0] Perfil - Wallet connected:", isConnected)
       console.log("[v0] Perfil - Wallet address:", address)
 
-      if (!address) {
-        console.log("[v0] Perfil - No wallet connected, stopping")
-        setIsLoading(false)
-        return
-      }
+      hasFetchedData.current = true
 
       try {
         console.log("[v0] Perfil - Fetching Farcaster profile pic...")
@@ -66,7 +91,6 @@ export default function PerfilPage() {
         const response = await fetch(timelineUrl)
         console.log("[v0] Perfil - Response status:", response.status)
         console.log("[v0] Perfil - Response ok:", response.ok)
-        console.log("[v0] Perfil - Response headers:", Object.fromEntries(response.headers.entries()))
 
         if (!response.ok) {
           console.error("[v0] Perfil - API error:", response.status, response.statusText)
@@ -78,24 +102,19 @@ export default function PerfilPage() {
         }
 
         const responseText = await response.text()
-        console.log("[v0] Perfil - Raw response (first 1000 chars):", responseText.substring(0, 1000))
+        console.log("[v0] Perfil - Raw response (first 500 chars):", responseText.substring(0, 500))
 
         let data
         try {
           data = JSON.parse(responseText)
-          console.log("[v0] Perfil - Parsed data keys:", Object.keys(data))
-          console.log("[v0] Perfil - Data status:", data.status)
-          console.log("[v0] Perfil - Data moments type:", typeof data.moments)
-          console.log("[v0] Perfil - Data moments is array:", Array.isArray(data.moments))
-          if (data.moments) {
-            console.log("[v0] Perfil - Moments length:", data.moments.length)
-            if (data.moments.length > 0) {
-              console.log("[v0] Perfil - First moment:", JSON.stringify(data.moments[0]))
-            }
+          console.log("[v0] Perfil - Parsed data status:", data.status)
+          console.log("[v0] Perfil - Moments array length:", data.moments?.length || 0)
+
+          if (data.moments && data.moments.length > 0) {
+            console.log("[v0] Perfil - First moment sample:", JSON.stringify(data.moments[0]))
           }
         } catch (parseError) {
           console.error("[v0] Perfil - JSON parse error:", parseError)
-          console.error("[v0] Perfil - Failed to parse response:", responseText)
           setMoments([])
           setIsLoading(false)
           return
@@ -106,23 +125,20 @@ export default function PerfilPage() {
 
           const momentsWithMetadata = await Promise.all(
             data.moments.map(async (moment: InprocessMoment, index: number) => {
-              console.log(`[v0] Perfil - Processing moment ${index + 1}/${data.moments.length}:`, moment.id)
+              console.log(`[v0] Perfil - Processing moment ${index + 1}:`, moment.id)
               try {
                 let metadataUrl = moment.uri
-                console.log(`[v0] Perfil - Original URI:`, metadataUrl)
 
                 if (metadataUrl.startsWith("ar://")) {
                   metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
-                  console.log(`[v0] Perfil - Converted to Arweave URL:`, metadataUrl)
                 }
 
                 console.log(`[v0] Perfil - Fetching metadata from:`, metadataUrl)
                 const metadataResponse = await fetch(metadataUrl)
-                console.log(`[v0] Perfil - Metadata response status:`, metadataResponse.status)
 
                 if (metadataResponse.ok) {
                   const metadata = await metadataResponse.json()
-                  console.log(`[v0] Perfil - Metadata:`, JSON.stringify(metadata).substring(0, 200))
+                  console.log(`[v0] Perfil - Got metadata for:`, metadata.name)
 
                   let imageUrl = metadata.image
                   if (imageUrl?.startsWith("ipfs://")) {
@@ -157,21 +173,19 @@ export default function PerfilPage() {
 
           console.log("[v0] Perfil - Setting moments state with", momentsWithMetadata.length, "items")
           setMoments(momentsWithMetadata)
-          console.log("[v0] Perfil - Successfully loaded moments with metadata")
+          console.log("[v0] Perfil - Successfully loaded moments")
         } else {
-          console.log("[v0] Perfil - No moments found or invalid data structure")
-          console.log("[v0] Perfil - Data:", JSON.stringify(data).substring(0, 500))
+          console.log("[v0] Perfil - No moments found in response")
           setMoments([])
         }
       } catch (error) {
         console.error("[v0] Perfil - Error in fetchUserProfile:", error)
         if (error instanceof Error) {
-          console.error("[v0] Perfil - Error message:", error.message)
-          console.error("[v0] Perfil - Error stack:", error.stack)
+          console.error("[v0] Perfil - Error details:", error.message)
         }
         setMoments([])
       } finally {
-        console.log("[v0] Perfil - Setting isLoading to false")
+        console.log("[v0] Perfil - Fetch complete, setting isLoading to false")
         setIsLoading(false)
       }
     }
