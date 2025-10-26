@@ -3,7 +3,6 @@
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Image from "next/image"
-import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import { ArrowLeft, Plus } from "lucide-react"
@@ -41,9 +40,13 @@ export default function PerfilPage() {
     console.log("[v0] Perfil - useEffect - address:", address)
     console.log("[v0] Perfil - useEffect - isConnected:", isConnected)
 
-    // For testing, use a hardcoded address if no wallet is connected
-    const testAddress = address || "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb"
-    console.log("[v0] Perfil - Using address:", testAddress)
+    if (!address) {
+      console.log("[v0] Perfil - No address available, skipping fetch")
+      setIsLoading(false)
+      return
+    }
+
+    console.log("[v0] Perfil - Using address:", address)
 
     const fetchData = async () => {
       try {
@@ -53,44 +56,51 @@ export default function PerfilPage() {
 
         // Fetch profile info
         console.log("[v0] Perfil - Step 1: Fetching profile info...")
-        const picUrl = await getFarcasterProfilePic(testAddress)
+        const picUrl = await getFarcasterProfilePic(address)
         console.log("[v0] Perfil - Profile pic URL:", picUrl)
         setProfilePicUrl(picUrl)
 
-        const displayName = await getDisplayName(testAddress)
+        const displayName = await getDisplayName(address)
         console.log("[v0] Perfil - Display name:", displayName)
         setUserName(displayName)
 
-        // Fetch timeline
-        console.log("[v0] Perfil - Step 2: Calling getTimeline...")
+        // Fetch timeline - ONLY moments created by this artist
+        console.log("[v0] Perfil - Step 2: Calling getTimeline with artist filter...")
+        console.log("[v0] Perfil - Artist address:", address)
         console.log("[v0] Perfil - Parameters:", {
           page: 1,
           limit: 100,
           latest: true,
-          artist: testAddress,
+          artist: address,
           chainId: 8453,
           hidden: false,
         })
 
-        const timelineData = await getTimeline(1, 100, true, testAddress, 8453, false)
+        const timelineData = await getTimeline(1, 100, true, address, 8453, false)
 
         console.log("[v0] Perfil - Step 3: Timeline data received!")
         console.log("[v0] Perfil - Timeline status:", timelineData.status)
         console.log("[v0] Perfil - Moments count:", timelineData.moments?.length || 0)
         console.log("[v0] Perfil - Total count:", timelineData.pagination?.total_count || 0)
-        console.log("[v0] Perfil - Full timeline data:", JSON.stringify(timelineData, null, 2))
+
+        if (timelineData.moments && timelineData.moments.length > 0) {
+          console.log("[v0] Perfil - Verifying artist filter:")
+          timelineData.moments.forEach((moment, index) => {
+            console.log(
+              `[v0] Perfil - Moment ${index + 1} admin:`,
+              moment.admin,
+              "matches:",
+              moment.admin.toLowerCase() === address.toLowerCase(),
+            )
+          })
+        }
 
         if (timelineData.moments && timelineData.moments.length > 0) {
           console.log("[v0] Perfil - Step 4: Processing moments...")
 
-          // Process first moment as a test
-          const firstMoment = timelineData.moments[0]
-          console.log("[v0] Perfil - First moment:", JSON.stringify(firstMoment, null, 2))
-
           const momentsWithMetadata = await Promise.all(
             timelineData.moments.map(async (moment, index) => {
               console.log(`[v0] Perfil - Processing moment ${index + 1}/${timelineData.moments.length}`)
-              console.log(`[v0] Perfil - Moment ${index + 1} URI:`, moment.uri)
 
               try {
                 let metadataUrl = moment.uri
@@ -98,16 +108,12 @@ export default function PerfilPage() {
                 // Convert ar:// to https://
                 if (metadataUrl.startsWith("ar://")) {
                   metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
-                  console.log(`[v0] Perfil - Converted AR URL:`, metadataUrl)
                 }
 
-                console.log(`[v0] Perfil - Fetching metadata from:`, metadataUrl)
                 const metadataResponse = await fetch(metadataUrl)
-                console.log(`[v0] Perfil - Metadata response status:`, metadataResponse.status)
 
                 if (metadataResponse.ok) {
                   const metadata = await metadataResponse.json()
-                  console.log(`[v0] Perfil - Metadata:`, JSON.stringify(metadata, null, 2))
 
                   let imageUrl = metadata.image
                   if (imageUrl?.startsWith("ipfs://")) {
@@ -115,8 +121,6 @@ export default function PerfilPage() {
                   } else if (imageUrl?.startsWith("ar://")) {
                     imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
                   }
-
-                  console.log(`[v0] Perfil - Final image URL:`, imageUrl)
 
                   return {
                     ...moment,
@@ -126,8 +130,6 @@ export default function PerfilPage() {
                       image: imageUrl || "/placeholder.svg",
                     },
                   }
-                } else {
-                  console.error(`[v0] Perfil - Failed to fetch metadata:`, metadataResponse.status)
                 }
               } catch (error) {
                 console.error(`[v0] Perfil - Error processing moment ${index + 1}:`, error)
@@ -147,7 +149,7 @@ export default function PerfilPage() {
           console.log("[v0] Perfil - Step 5: Setting moments state with", momentsWithMetadata.length, "items")
           setMoments(momentsWithMetadata)
         } else {
-          console.log("[v0] Perfil - No moments found in response")
+          console.log("[v0] Perfil - No moments found for this artist")
           setMoments([])
         }
 
@@ -235,16 +237,14 @@ export default function PerfilPage() {
                     className="overflow-hidden transition-all duration-300 hover:shadow-2xl hover:-translate-y-2"
                   >
                     <CardContent className="p-0">
-                      <Link href={`/galeria/${moment.address}/${moment.tokenId}`} className="block">
-                        <div className="relative aspect-square overflow-hidden bg-gray-100">
-                          <Image
-                            src={moment.metadata?.image || "/placeholder.svg"}
-                            alt={moment.metadata?.name || "NFT"}
-                            fill
-                            className="object-cover transition-transform duration-300 hover:scale-105"
-                          />
-                        </div>
-                      </Link>
+                      <div className="relative aspect-square overflow-hidden bg-gray-100">
+                        <Image
+                          src={moment.metadata?.image || "/placeholder.svg"}
+                          alt={moment.metadata?.name || "NFT"}
+                          fill
+                          className="object-cover"
+                        />
+                      </div>
                       <div className="p-6 bg-white">
                         <h3 className="font-extrabold text-xl text-gray-800 mb-2">
                           {moment.metadata?.name || "Sin título"}
@@ -270,8 +270,8 @@ export default function PerfilPage() {
                 <p className="text-white text-lg mb-2">No tienes NFTs todavía</p>
                 <p className="text-white/70 text-sm">
                   {address
-                    ? `Buscando NFTs para: ${address.slice(0, 6)}...${address.slice(-4)}`
-                    : "Usando dirección de prueba"}
+                    ? `Buscando NFTs creados por: ${address.slice(0, 6)}...${address.slice(-4)}`
+                    : "Conecta tu wallet para ver tus NFTs"}
                 </p>
               </div>
             )}
