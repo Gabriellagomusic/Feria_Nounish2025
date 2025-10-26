@@ -92,6 +92,7 @@ export default function PerfilPage() {
             const momentsWithMetadata = await Promise.all(
               filteredMoments.map(async (moment, index) => {
                 console.log(`[v0] Perfil - Processing moment ${index + 1}/${filteredMoments.length}`)
+                console.log(`[v0] Perfil - Moment URI:`, moment.uri)
 
                 try {
                   let metadataUrl = moment.uri
@@ -99,18 +100,40 @@ export default function PerfilPage() {
                   // Convert ar:// to https://
                   if (metadataUrl.startsWith("ar://")) {
                     metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
+                    console.log(`[v0] Perfil - Converted Arweave URL:`, metadataUrl)
+                  } else if (metadataUrl.startsWith("ipfs://")) {
+                    metadataUrl = metadataUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+                    console.log(`[v0] Perfil - Converted IPFS URL:`, metadataUrl)
                   }
 
-                  const metadataResponse = await fetch(metadataUrl)
+                  console.log(`[v0] Perfil - Fetching metadata from:`, metadataUrl)
+
+                  // Add timeout to metadata fetch
+                  const controller = new AbortController()
+                  const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
+
+                  const metadataResponse = await fetch(metadataUrl, {
+                    signal: controller.signal,
+                  })
+                  clearTimeout(timeoutId)
+
+                  console.log(`[v0] Perfil - Metadata response status:`, metadataResponse.status)
 
                   if (metadataResponse.ok) {
                     const metadata = await metadataResponse.json()
+                    console.log(`[v0] Perfil - Metadata received:`, {
+                      name: metadata.name,
+                      hasImage: !!metadata.image,
+                      imagePrefix: metadata.image?.substring(0, 20),
+                    })
 
                     let imageUrl = metadata.image
                     if (imageUrl?.startsWith("ipfs://")) {
                       imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+                      console.log(`[v0] Perfil - Converted image IPFS URL:`, imageUrl)
                     } else if (imageUrl?.startsWith("ar://")) {
                       imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+                      console.log(`[v0] Perfil - Converted image Arweave URL:`, imageUrl)
                     }
 
                     return {
@@ -118,20 +141,27 @@ export default function PerfilPage() {
                       metadata: {
                         name: metadata.name || "Sin título",
                         description: metadata.description || "",
-                        image: imageUrl || "/placeholder.svg",
+                        image: imageUrl || "/placeholder.svg?height=400&width=400",
                       },
                     }
+                  } else {
+                    console.error(`[v0] Perfil - Metadata fetch failed with status:`, metadataResponse.status)
                   }
                 } catch (error) {
-                  console.error(`[v0] Perfil - Error processing moment ${index + 1}:`, error)
+                  if (error instanceof Error && error.name === "AbortError") {
+                    console.error(`[v0] Perfil - Metadata fetch timeout for moment ${index + 1}`)
+                  } else {
+                    console.error(`[v0] Perfil - Error processing moment ${index + 1}:`, error)
+                  }
                 }
 
+                console.log(`[v0] Perfil - Using fallback metadata for moment ${index + 1}`)
                 return {
                   ...moment,
                   metadata: {
                     name: "Sin título",
                     description: "",
-                    image: "/placeholder.svg",
+                    image: "/placeholder.svg?height=400&width=400",
                   },
                 }
               }),
