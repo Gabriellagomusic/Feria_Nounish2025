@@ -11,8 +11,6 @@ import { getDisplayName, getFarcasterProfilePic } from "@/lib/farcaster"
 import { getNounAvatarUrl } from "@/lib/noun-avatar"
 import { getTimeline, type Moment } from "@/lib/inprocess"
 
-console.log("[v0] ===== PERFIL PAGE MODULE LOADED =====")
-
 interface MomentWithMetadata extends Moment {
   metadata?: {
     name: string
@@ -22,118 +20,90 @@ interface MomentWithMetadata extends Moment {
 }
 
 export default function PerfilPage() {
-  console.log("[v0] ===== PERFIL COMPONENT RENDERING =====")
-
   const router = useRouter()
   const { address, isConnected } = useAccount()
-
-  console.log("[v0] Perfil - Component render - address:", address, "isConnected:", isConnected)
 
   const [userName, setUserName] = useState<string>("")
   const [profilePicUrl, setProfilePicUrl] = useState<string | null>(null)
   const [moments, setMoments] = useState<MomentWithMetadata[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [debugInfo, setDebugInfo] = useState<string[]>([])
+
+  const addDebug = (message: string) => {
+    console.log(`[v0] ${message}`)
+    setDebugInfo((prev) => [...prev, message])
+  }
 
   useEffect(() => {
-    console.log("[v0] ===== PERFIL USEEFFECT TRIGGERED =====")
-    console.log("[v0] Perfil - useEffect - address:", address)
-    console.log("[v0] Perfil - useEffect - isConnected:", isConnected)
+    addDebug(`=== PERFIL USEEFFECT START ===`)
+    addDebug(`Address: ${address || "undefined"}`)
+    addDebug(`IsConnected: ${isConnected}`)
 
     if (!address) {
-      console.log("[v0] Perfil - No address available, skipping fetch")
+      addDebug("No address, skipping fetch")
       setIsLoading(false)
       return
     }
 
-    console.log("[v0] Perfil - Using address:", address)
-
     const fetchData = async () => {
       try {
-        console.log("[v0] Perfil - Starting fetchData...")
         setIsLoading(true)
         setError(null)
+        setDebugInfo([]) // Clear previous debug info
 
-        // Fetch profile info
-        console.log("[v0] Perfil - Step 1: Fetching profile info...")
+        addDebug("Fetching profile info...")
         const picUrl = await getFarcasterProfilePic(address)
-        console.log("[v0] Perfil - Profile pic URL:", picUrl)
         setProfilePicUrl(picUrl)
 
         const displayName = await getDisplayName(address)
-        console.log("[v0] Perfil - Display name:", displayName)
         setUserName(displayName)
+        addDebug(`Display name: ${displayName}`)
 
-        // Fetch timeline - ONLY moments created by this artist
-        console.log("[v0] Perfil - Step 2: Calling getTimeline with artist filter...")
-        console.log("[v0] Perfil - Artist address:", address)
-
+        addDebug(`Calling getTimeline with artist: ${address}`)
         const timelineData = await getTimeline(1, 100, true, address, 8453, false)
 
-        console.log("[v0] Perfil - Step 3: Timeline data received!")
-        console.log("[v0] Perfil - Timeline status:", timelineData.status)
-        console.log("[v0] Perfil - Moments count (before filtering):", timelineData.moments?.length || 0)
+        addDebug(`Timeline received: ${timelineData.moments?.length || 0} moments`)
 
         if (timelineData.moments && timelineData.moments.length > 0) {
-          console.log("[v0] Perfil - Filtering moments by artist address...")
-
-          const filteredMoments = timelineData.moments.filter((moment) => {
-            const matches = moment.admin.toLowerCase() === address.toLowerCase()
-            console.log(`[v0] Perfil - Moment ${moment.id} admin: ${moment.admin} - matches: ${matches}`)
-            return matches
+          timelineData.moments.forEach((moment, i) => {
+            addDebug(
+              `Moment ${i + 1}: admin=${moment.admin.toLowerCase()}, matches=${moment.admin.toLowerCase() === address.toLowerCase()}`,
+            )
           })
 
-          console.log("[v0] Perfil - Moments count (after filtering):", filteredMoments.length)
-          console.log("[v0] Perfil - Filtered out:", timelineData.moments.length - filteredMoments.length, "moments")
+          const filteredMoments = timelineData.moments.filter((moment) => {
+            return moment.admin.toLowerCase() === address.toLowerCase()
+          })
+
+          addDebug(`After filtering: ${filteredMoments.length} moments match artist`)
 
           if (filteredMoments.length > 0) {
-            console.log("[v0] Perfil - Step 4: Processing filtered moments...")
-
             const momentsWithMetadata = await Promise.all(
-              filteredMoments.map(async (moment, index) => {
-                console.log(`[v0] Perfil - Processing moment ${index + 1}/${filteredMoments.length}`)
-                console.log(`[v0] Perfil - Moment URI:`, moment.uri)
-
+              filteredMoments.map(async (moment) => {
                 try {
                   let metadataUrl = moment.uri
 
-                  // Convert ar:// to https://
                   if (metadataUrl.startsWith("ar://")) {
                     metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
-                    console.log(`[v0] Perfil - Converted Arweave URL:`, metadataUrl)
                   } else if (metadataUrl.startsWith("ipfs://")) {
                     metadataUrl = metadataUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-                    console.log(`[v0] Perfil - Converted IPFS URL:`, metadataUrl)
                   }
 
-                  console.log(`[v0] Perfil - Fetching metadata from:`, metadataUrl)
-
-                  // Add timeout to metadata fetch
                   const controller = new AbortController()
-                  const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
+                  const timeoutId = setTimeout(() => controller.abort(), 10000)
 
-                  const metadataResponse = await fetch(metadataUrl, {
-                    signal: controller.signal,
-                  })
+                  const metadataResponse = await fetch(metadataUrl, { signal: controller.signal })
                   clearTimeout(timeoutId)
-
-                  console.log(`[v0] Perfil - Metadata response status:`, metadataResponse.status)
 
                   if (metadataResponse.ok) {
                     const metadata = await metadataResponse.json()
-                    console.log(`[v0] Perfil - Metadata received:`, {
-                      name: metadata.name,
-                      hasImage: !!metadata.image,
-                      imagePrefix: metadata.image?.substring(0, 20),
-                    })
 
                     let imageUrl = metadata.image
                     if (imageUrl?.startsWith("ipfs://")) {
                       imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-                      console.log(`[v0] Perfil - Converted image IPFS URL:`, imageUrl)
                     } else if (imageUrl?.startsWith("ar://")) {
                       imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
-                      console.log(`[v0] Perfil - Converted image Arweave URL:`, imageUrl)
                     }
 
                     return {
@@ -144,18 +114,11 @@ export default function PerfilPage() {
                         image: imageUrl || "/placeholder.svg?height=400&width=400",
                       },
                     }
-                  } else {
-                    console.error(`[v0] Perfil - Metadata fetch failed with status:`, metadataResponse.status)
                   }
                 } catch (error) {
-                  if (error instanceof Error && error.name === "AbortError") {
-                    console.error(`[v0] Perfil - Metadata fetch timeout for moment ${index + 1}`)
-                  } else {
-                    console.error(`[v0] Perfil - Error processing moment ${index + 1}:`, error)
-                  }
+                  addDebug(`Metadata fetch failed: ${error instanceof Error ? error.message : "Unknown"}`)
                 }
 
-                console.log(`[v0] Perfil - Using fallback metadata for moment ${index + 1}`)
                 return {
                   ...moment,
                   metadata: {
@@ -167,41 +130,31 @@ export default function PerfilPage() {
               }),
             )
 
-            console.log("[v0] Perfil - Step 5: Setting moments state with", momentsWithMetadata.length, "items")
+            addDebug(`Setting ${momentsWithMetadata.length} moments with metadata`)
             setMoments(momentsWithMetadata)
           } else {
-            console.log("[v0] Perfil - No moments found for this artist after filtering")
+            addDebug("No moments match this artist after filtering")
             setMoments([])
           }
         } else {
-          console.log("[v0] Perfil - No moments returned from API")
+          addDebug("No moments returned from API")
           setMoments([])
         }
-
-        console.log("[v0] Perfil - fetchData completed successfully!")
       } catch (error) {
-        console.error("[v0] Perfil - ERROR in fetchData:", error)
-        console.error("[v0] Perfil - Error stack:", error instanceof Error ? error.stack : "No stack")
-        setError(error instanceof Error ? error.message : "Unknown error")
+        const errorMsg = error instanceof Error ? error.message : "Unknown error"
+        addDebug(`ERROR: ${errorMsg}`)
+        setError(errorMsg)
         setMoments([])
       } finally {
-        console.log("[v0] Perfil - Setting isLoading to false")
         setIsLoading(false)
+        addDebug("=== FETCH COMPLETE ===")
       }
     }
 
     fetchData()
   }, [address, isConnected])
 
-  console.log("[v0] Perfil - Render state:", {
-    isLoading,
-    momentsCount: moments.length,
-    hasAddress: !!address,
-    error,
-  })
-
   const handleAddToGallery = async (moment: MomentWithMetadata) => {
-    console.log("[v0] Perfil - Adding to gallery:", moment.address, moment.tokenId)
     alert(`Agregar ${moment.metadata?.name || "token"} a la galería (funcionalidad pendiente)`)
   }
 
@@ -222,6 +175,21 @@ export default function PerfilPage() {
           </button>
         </header>
 
+        {debugInfo.length > 0 && (
+          <div className="container mx-auto px-4 mb-4">
+            <details className="bg-black/80 text-white p-4 rounded-lg text-xs max-w-4xl mx-auto">
+              <summary className="cursor-pointer font-bold mb-2">Debug Info (Click to expand)</summary>
+              <div className="space-y-1 max-h-96 overflow-y-auto">
+                {debugInfo.map((info, i) => (
+                  <div key={i} className="font-mono">
+                    {info}
+                  </div>
+                ))}
+              </div>
+            </details>
+          </div>
+        )}
+
         <main className="container mx-auto px-4 py-8">
           <div className="max-w-6xl mx-auto mb-12">
             {address && (
@@ -239,6 +207,9 @@ export default function PerfilPage() {
             <h1 className="font-extrabold text-4xl text-white text-center">
               {address ? userName || "Cargando..." : "Conecta tu wallet"}
             </h1>
+            <p className="text-center text-white/70 mt-2 text-sm">
+              {isConnected ? `Conectado: ${address?.slice(0, 6)}...${address?.slice(-4)}` : "No conectado"}
+            </p>
           </div>
 
           <div className="max-w-6xl mx-auto">
