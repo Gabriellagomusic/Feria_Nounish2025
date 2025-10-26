@@ -82,41 +82,70 @@ export default function PerfilPage() {
             const momentsWithMetadata = await Promise.all(
               filteredMoments.map(async (moment) => {
                 try {
+                  addDebug(`\n--- Fetching metadata for moment ${moment.id} ---`)
+                  addDebug(`Original URI: ${moment.uri}`)
+
                   let metadataUrl = moment.uri
 
                   if (metadataUrl.startsWith("ar://")) {
                     metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
+                    addDebug(`Converted to Arweave URL: ${metadataUrl}`)
                   } else if (metadataUrl.startsWith("ipfs://")) {
                     metadataUrl = metadataUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+                    addDebug(`Converted to IPFS URL: ${metadataUrl}`)
+                  } else {
+                    addDebug(`Using URL as-is: ${metadataUrl}`)
                   }
 
                   const controller = new AbortController()
                   const timeoutId = setTimeout(() => controller.abort(), 10000)
 
+                  addDebug(`Fetching from: ${metadataUrl}`)
                   const metadataResponse = await fetch(metadataUrl, { signal: controller.signal })
                   clearTimeout(timeoutId)
 
+                  addDebug(`Response status: ${metadataResponse.status}`)
+                  addDebug(`Response ok: ${metadataResponse.ok}`)
+                  addDebug(`Content-Type: ${metadataResponse.headers.get("content-type")}`)
+
                   if (metadataResponse.ok) {
-                    const metadata = await metadataResponse.json()
+                    const responseText = await metadataResponse.text()
+                    addDebug(`Response length: ${responseText.length} characters`)
+                    addDebug(`First 200 chars: ${responseText.substring(0, 200)}`)
 
-                    let imageUrl = metadata.image
-                    if (imageUrl?.startsWith("ipfs://")) {
-                      imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-                    } else if (imageUrl?.startsWith("ar://")) {
-                      imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
-                    }
+                    try {
+                      const metadata = JSON.parse(responseText)
+                      addDebug(`Successfully parsed JSON metadata`)
+                      addDebug(`Metadata name: ${metadata.name || "N/A"}`)
+                      addDebug(`Metadata image: ${metadata.image || "N/A"}`)
 
-                    return {
-                      ...moment,
-                      metadata: {
-                        name: metadata.name || "Sin título",
-                        description: metadata.description || "",
-                        image: imageUrl || "/placeholder.svg?height=400&width=400",
-                      },
+                      let imageUrl = metadata.image
+                      if (imageUrl?.startsWith("ipfs://")) {
+                        imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+                      } else if (imageUrl?.startsWith("ar://")) {
+                        imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+                      }
+
+                      return {
+                        ...moment,
+                        metadata: {
+                          name: metadata.name || "Sin título",
+                          description: metadata.description || "",
+                          image: imageUrl || "/placeholder.svg?height=400&width=400",
+                        },
+                      }
+                    } catch (parseError) {
+                      addDebug(`JSON parse error: ${parseError instanceof Error ? parseError.message : "Unknown"}`)
+                      addDebug(`Failed to parse response as JSON`)
                     }
+                  } else {
+                    addDebug(`Response not OK: ${metadataResponse.status} ${metadataResponse.statusText}`)
                   }
                 } catch (error) {
-                  addDebug(`Metadata fetch failed: ${error instanceof Error ? error.message : "Unknown"}`)
+                  addDebug(`Metadata fetch error: ${error instanceof Error ? error.message : "Unknown"}`)
+                  if (error instanceof Error && error.name === "AbortError") {
+                    addDebug(`Request timed out after 10 seconds`)
+                  }
                 }
 
                 return {
