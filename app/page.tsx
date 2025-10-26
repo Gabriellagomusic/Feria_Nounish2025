@@ -62,24 +62,24 @@ export default function Home() {
     <div className="min-h-screen relative overflow-hidden">
       <Image src="/images/fondolanding.png" alt="Background" fill className="object-cover" priority unoptimized />
 
-      {address && (
-        <div className="absolute top-4 right-4 z-20">
-          <Link href="/perfil">
-            <button
-              className="flex items-center justify-center w-12 h-12 rounded-full bg-white/20 backdrop-blur-md hover:bg-white/30 transition-all shadow-lg overflow-hidden border-2 border-white/40"
-              aria-label="Ver perfil"
-            >
-              <Image
-                src={profilePicUrl || getNounAvatarUrl(address) || "/placeholder.svg"}
-                alt="Profile"
-                width={48}
-                height={48}
-                className="w-full h-full object-cover"
-              />
-            </button>
-          </Link>
-        </div>
-      )}
+      <div className="absolute top-4 right-4 z-20">
+        <Link href="/perfil">
+          <button
+            className="flex items-center justify-center w-12 h-12 rounded-full bg-white/20 backdrop-blur-md hover:bg-white/30 transition-all shadow-lg overflow-hidden border-2 border-white/40"
+            aria-label="Ver perfil"
+          >
+            <Image
+              src={
+                profilePicUrl || (address ? getNounAvatarUrl(address) : getNounAvatarUrl("0x0")) || "/placeholder.svg"
+              }
+              alt="Profile"
+              width={48}
+              height={48}
+              className="w-full h-full object-cover"
+            />
+          </button>
+        </Link>
+      </div>
 
       <div className="relative z-10 flex flex-col items-center justify-center min-h-screen px-4">
         <div className="mb-12">

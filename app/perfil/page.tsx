@@ -36,6 +36,7 @@ export default function PerfilPage() {
   const [profilePicUrl, setProfilePicUrl] = useState<string | null>(null)
   const [moments, setMoments] = useState<InprocessMoment[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [connectionError, setConnectionError] = useState<string | null>(null)
 
   const hasAttemptedConnect = useRef(false)
   const lastFetchedAddress = useRef<string | null>(null)
@@ -45,14 +46,35 @@ export default function PerfilPage() {
 
     if (!hasAttemptedConnect.current && !isConnected) {
       console.log("[v0] Perfil - Attempting auto-connect...")
-      const farcasterConnector = connectors.find((c) => c.id === "farcaster")
+      console.log(
+        "[v0] Perfil - Available connectors:",
+        connectors.map((c) => c.id),
+      )
 
-      if (farcasterConnector) {
-        console.log("[v0] Perfil - Found Farcaster connector, connecting...")
-        connect({ connector: farcasterConnector })
+      const farcasterConnector = connectors.find((c) => c.id === "farcaster")
+      const injectedConnector = connectors.find((c) => c.id === "injected")
+
+      const connectorToUse = farcasterConnector || injectedConnector
+
+      if (connectorToUse) {
+        console.log("[v0] Perfil - Using connector:", connectorToUse.id)
+        connect(
+          { connector: connectorToUse },
+          {
+            onSuccess: (data) => {
+              console.log("[v0] Perfil - Connection successful:", data)
+              setConnectionError(null)
+            },
+            onError: (error) => {
+              console.error("[v0] Perfil - Connection error:", error)
+              setConnectionError(error.message)
+            },
+          },
+        )
         hasAttemptedConnect.current = true
       } else {
-        console.log("[v0] Perfil - No Farcaster connector found")
+        console.log("[v0] Perfil - No connectors found")
+        setConnectionError("No wallet connectors available")
       }
     }
   }, [isConnected, connect, connectors])
@@ -254,7 +276,19 @@ export default function PerfilPage() {
               </div>
             ) : !address ? (
               <div className="text-center py-16">
-                <p className="text-white text-lg">Conecta tu wallet para ver tus NFTs</p>
+                <p className="text-white text-lg mb-4">Conecta tu wallet para ver tus NFTs</p>
+                {connectionError && <p className="text-red-300 text-sm">Error: {connectionError}</p>}
+                <Button
+                  onClick={() => {
+                    const connector = connectors.find((c) => c.id === "injected")
+                    if (connector) {
+                      connect({ connector })
+                    }
+                  }}
+                  className="mt-4 bg-white/20 hover:bg-white/30 text-white"
+                >
+                  Conectar Wallet Manualmente
+                </Button>
               </div>
             ) : moments.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
