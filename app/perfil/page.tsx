@@ -11,12 +11,9 @@ import { getDisplayName, getFarcasterProfilePic } from "@/lib/farcaster"
 import { getNounAvatarUrl } from "@/lib/noun-avatar"
 import { getTimeline, type Moment } from "@/lib/inprocess"
 
-interface MomentWithMetadata extends Moment {
-  metadata?: {
-    name: string
-    description: string
-    image: string
-  }
+interface MomentWithImage extends Moment {
+  imageUrl: string
+  title: string
 }
 
 export default function PerfilPage() {
@@ -25,7 +22,7 @@ export default function PerfilPage() {
 
   const [userName, setUserName] = useState<string>("")
   const [profilePicUrl, setProfilePicUrl] = useState<string | null>(null)
-  const [moments, setMoments] = useState<MomentWithMetadata[]>([])
+  const [moments, setMoments] = useState<MomentWithImage[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [debugInfo, setDebugInfo] = useState<string[]>([])
@@ -33,6 +30,15 @@ export default function PerfilPage() {
   const addDebug = (message: string) => {
     console.log(`[v0] ${message}`)
     setDebugInfo((prev) => [...prev, message])
+  }
+
+  const convertToGatewayUrl = (uri: string): string => {
+    if (uri.startsWith("ar://")) {
+      return uri.replace("ar://", "https://arweave.net/")
+    } else if (uri.startsWith("ipfs://")) {
+      return uri.replace("ipfs://", "https://ipfs.io/ipfs/")
+    }
+    return uri
   }
 
   useEffect(() => {
@@ -66,105 +72,16 @@ export default function PerfilPage() {
         addDebug(`Timeline received: ${timelineData.moments?.length || 0} moments`)
 
         if (timelineData.moments && timelineData.moments.length > 0) {
-          timelineData.moments.forEach((moment, i) => {
-            addDebug(
-              `Moment ${i + 1}: admin=${moment.admin.toLowerCase()}, matches=${moment.admin.toLowerCase() === address.toLowerCase()}`,
-            )
-          })
-
-          const filteredMoments = timelineData.moments.filter((moment) => {
-            return moment.admin.toLowerCase() === address.toLowerCase()
-          })
+          const filteredMoments = timelineData.moments
+            .filter((moment) => moment.admin.toLowerCase() === address.toLowerCase())
+            .map((moment) => ({
+              ...moment,
+              imageUrl: convertToGatewayUrl(moment.uri),
+              title: `Moment #${moment.tokenId}`,
+            }))
 
           addDebug(`After filtering: ${filteredMoments.length} moments match artist`)
-
-          if (filteredMoments.length > 0) {
-            const momentsWithMetadata = await Promise.all(
-              filteredMoments.map(async (moment) => {
-                try {
-                  addDebug(`\n--- Fetching metadata for moment ${moment.id} ---`)
-                  addDebug(`Original URI: ${moment.uri}`)
-
-                  let metadataUrl = moment.uri
-
-                  if (metadataUrl.startsWith("ar://")) {
-                    metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
-                    addDebug(`Converted to Arweave URL: ${metadataUrl}`)
-                  } else if (metadataUrl.startsWith("ipfs://")) {
-                    metadataUrl = metadataUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-                    addDebug(`Converted to IPFS URL: ${metadataUrl}`)
-                  } else {
-                    addDebug(`Using URL as-is: ${metadataUrl}`)
-                  }
-
-                  const controller = new AbortController()
-                  const timeoutId = setTimeout(() => controller.abort(), 10000)
-
-                  addDebug(`Fetching from: ${metadataUrl}`)
-                  const metadataResponse = await fetch(metadataUrl, { signal: controller.signal })
-                  clearTimeout(timeoutId)
-
-                  addDebug(`Response status: ${metadataResponse.status}`)
-                  addDebug(`Response ok: ${metadataResponse.ok}`)
-                  addDebug(`Content-Type: ${metadataResponse.headers.get("content-type")}`)
-
-                  if (metadataResponse.ok) {
-                    const responseText = await metadataResponse.text()
-                    addDebug(`Response length: ${responseText.length} characters`)
-                    addDebug(`First 200 chars: ${responseText.substring(0, 200)}`)
-
-                    try {
-                      const metadata = JSON.parse(responseText)
-                      addDebug(`Successfully parsed JSON metadata`)
-                      addDebug(`Metadata name: ${metadata.name || "N/A"}`)
-                      addDebug(`Metadata image: ${metadata.image || "N/A"}`)
-
-                      let imageUrl = metadata.image
-                      if (imageUrl?.startsWith("ipfs://")) {
-                        imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-                      } else if (imageUrl?.startsWith("ar://")) {
-                        imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
-                      }
-
-                      return {
-                        ...moment,
-                        metadata: {
-                          name: metadata.name || "Sin título",
-                          description: metadata.description || "",
-                          image: imageUrl || "/placeholder.svg?height=400&width=400",
-                        },
-                      }
-                    } catch (parseError) {
-                      addDebug(`JSON parse error: ${parseError instanceof Error ? parseError.message : "Unknown"}`)
-                      addDebug(`Failed to parse response as JSON`)
-                    }
-                  } else {
-                    addDebug(`Response not OK: ${metadataResponse.status} ${metadataResponse.statusText}`)
-                  }
-                } catch (error) {
-                  addDebug(`Metadata fetch error: ${error instanceof Error ? error.message : "Unknown"}`)
-                  if (error instanceof Error && error.name === "AbortError") {
-                    addDebug(`Request timed out after 10 seconds`)
-                  }
-                }
-
-                return {
-                  ...moment,
-                  metadata: {
-                    name: "Sin título",
-                    description: "",
-                    image: "/placeholder.svg?height=400&width=400",
-                  },
-                }
-              }),
-            )
-
-            addDebug(`Setting ${momentsWithMetadata.length} moments with metadata`)
-            setMoments(momentsWithMetadata)
-          } else {
-            addDebug("No moments match this artist after filtering")
-            setMoments([])
-          }
+          setMoments(filteredMoments)
         } else {
           addDebug("No moments returned from API")
           setMoments([])
@@ -183,8 +100,8 @@ export default function PerfilPage() {
     fetchData()
   }, [address, isConnected])
 
-  const handleAddToGallery = async (moment: MomentWithMetadata) => {
-    alert(`Agregar ${moment.metadata?.name || "token"} a la galería (funcionalidad pendiente)`)
+  const handleAddToGallery = async (moment: MomentWithImage) => {
+    alert(`Agregar ${moment.title} a la galería (funcionalidad pendiente)`)
   }
 
   return (
@@ -264,17 +181,15 @@ export default function PerfilPage() {
                     <CardContent className="p-0">
                       <div className="relative aspect-square overflow-hidden bg-gray-100">
                         <Image
-                          src={moment.metadata?.image || "/placeholder.svg"}
-                          alt={moment.metadata?.name || "NFT"}
+                          src={moment.imageUrl || "/placeholder.svg"}
+                          alt={moment.title}
                           fill
                           className="object-cover"
+                          unoptimized
                         />
                       </div>
                       <div className="p-6 bg-white">
-                        <h3 className="font-extrabold text-xl text-gray-800 mb-2">
-                          {moment.metadata?.name || "Sin título"}
-                        </h3>
-                        <p className="text-sm text-gray-600 line-clamp-2 mb-2">{moment.metadata?.description || ""}</p>
+                        <h3 className="font-extrabold text-xl text-gray-800 mb-2">{moment.title}</h3>
                         <p className="text-xs text-gray-500 mb-4">Por: {moment.username || userName}</p>
 
                         <Button
