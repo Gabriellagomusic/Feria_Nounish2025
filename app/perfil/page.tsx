@@ -12,6 +12,8 @@ import { getDisplayName, getFarcasterProfilePic } from "@/lib/farcaster"
 import { getNounAvatarUrl } from "@/lib/noun-avatar"
 import { getTimeline, type Moment } from "@/lib/inprocess"
 
+console.log("[v0] ===== PERFIL PAGE MODULE LOADED =====")
+
 interface MomentWithMetadata extends Moment {
   metadata?: {
     name: string
@@ -21,63 +23,91 @@ interface MomentWithMetadata extends Moment {
 }
 
 export default function PerfilPage() {
+  console.log("[v0] ===== PERFIL COMPONENT RENDERING =====")
+
   const router = useRouter()
-  const { address } = useAccount()
+  const { address, isConnected } = useAccount()
+
+  console.log("[v0] Perfil - Component render - address:", address, "isConnected:", isConnected)
+
   const [userName, setUserName] = useState<string>("")
   const [profilePicUrl, setProfilePicUrl] = useState<string | null>(null)
   const [moments, setMoments] = useState<MomentWithMetadata[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    console.log("[v0] Perfil - Mount/Update - address:", address)
+    console.log("[v0] ===== PERFIL USEEFFECT TRIGGERED =====")
+    console.log("[v0] Perfil - useEffect - address:", address)
+    console.log("[v0] Perfil - useEffect - isConnected:", isConnected)
 
-    if (!address) {
-      console.log("[v0] Perfil - No address available")
-      setIsLoading(false)
-      return
-    }
+    // For testing, use a hardcoded address if no wallet is connected
+    const testAddress = address || "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb"
+    console.log("[v0] Perfil - Using address:", testAddress)
 
-    console.log("[v0] Perfil - Fetching data for address:", address)
-
-    const fetchUserProfile = async () => {
-      setIsLoading(true)
-
+    const fetchData = async () => {
       try {
+        console.log("[v0] Perfil - Starting fetchData...")
+        setIsLoading(true)
+        setError(null)
+
         // Fetch profile info
-        console.log("[v0] Perfil - Fetching profile info...")
-        const [picUrl, displayName] = await Promise.all([getFarcasterProfilePic(address), getDisplayName(address)])
-
+        console.log("[v0] Perfil - Step 1: Fetching profile info...")
+        const picUrl = await getFarcasterProfilePic(testAddress)
+        console.log("[v0] Perfil - Profile pic URL:", picUrl)
         setProfilePicUrl(picUrl)
+
+        const displayName = await getDisplayName(testAddress)
+        console.log("[v0] Perfil - Display name:", displayName)
         setUserName(displayName)
-        console.log("[v0] Perfil - Profile loaded:", displayName)
 
-        console.log("[v0] Perfil - Fetching timeline...")
-        const timelineData = await getTimeline(1, 100, true, address, 8453, false)
-
-        console.log("[v0] Perfil - Timeline response:", {
-          status: timelineData.status,
-          momentsCount: timelineData.moments.length,
-          totalCount: timelineData.pagination.total_count,
+        // Fetch timeline
+        console.log("[v0] Perfil - Step 2: Calling getTimeline...")
+        console.log("[v0] Perfil - Parameters:", {
+          page: 1,
+          limit: 100,
+          latest: true,
+          artist: testAddress,
+          chainId: 8453,
+          hidden: false,
         })
 
+        const timelineData = await getTimeline(1, 100, true, testAddress, 8453, false)
+
+        console.log("[v0] Perfil - Step 3: Timeline data received!")
+        console.log("[v0] Perfil - Timeline status:", timelineData.status)
+        console.log("[v0] Perfil - Moments count:", timelineData.moments?.length || 0)
+        console.log("[v0] Perfil - Total count:", timelineData.pagination?.total_count || 0)
+        console.log("[v0] Perfil - Full timeline data:", JSON.stringify(timelineData, null, 2))
+
         if (timelineData.moments && timelineData.moments.length > 0) {
-          console.log("[v0] Perfil - Processing", timelineData.moments.length, "moments...")
+          console.log("[v0] Perfil - Step 4: Processing moments...")
+
+          // Process first moment as a test
+          const firstMoment = timelineData.moments[0]
+          console.log("[v0] Perfil - First moment:", JSON.stringify(firstMoment, null, 2))
 
           const momentsWithMetadata = await Promise.all(
             timelineData.moments.map(async (moment, index) => {
-              console.log(`[v0] Perfil - Processing moment ${index + 1}:`, moment.id)
+              console.log(`[v0] Perfil - Processing moment ${index + 1}/${timelineData.moments.length}`)
+              console.log(`[v0] Perfil - Moment ${index + 1} URI:`, moment.uri)
+
               try {
                 let metadataUrl = moment.uri
 
                 // Convert ar:// to https://
                 if (metadataUrl.startsWith("ar://")) {
                   metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
+                  console.log(`[v0] Perfil - Converted AR URL:`, metadataUrl)
                 }
 
+                console.log(`[v0] Perfil - Fetching metadata from:`, metadataUrl)
                 const metadataResponse = await fetch(metadataUrl)
+                console.log(`[v0] Perfil - Metadata response status:`, metadataResponse.status)
 
                 if (metadataResponse.ok) {
                   const metadata = await metadataResponse.json()
+                  console.log(`[v0] Perfil - Metadata:`, JSON.stringify(metadata, null, 2))
 
                   let imageUrl = metadata.image
                   if (imageUrl?.startsWith("ipfs://")) {
@@ -85,6 +115,8 @@ export default function PerfilPage() {
                   } else if (imageUrl?.startsWith("ar://")) {
                     imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
                   }
+
+                  console.log(`[v0] Perfil - Final image URL:`, imageUrl)
 
                   return {
                     ...moment,
@@ -94,9 +126,11 @@ export default function PerfilPage() {
                       image: imageUrl || "/placeholder.svg",
                     },
                   }
+                } else {
+                  console.error(`[v0] Perfil - Failed to fetch metadata:`, metadataResponse.status)
                 }
               } catch (error) {
-                console.error(`[v0] Perfil - Error fetching metadata:`, error)
+                console.error(`[v0] Perfil - Error processing moment ${index + 1}:`, error)
               }
 
               return {
@@ -110,22 +144,34 @@ export default function PerfilPage() {
             }),
           )
 
-          console.log("[v0] Perfil - Successfully loaded", momentsWithMetadata.length, "moments")
+          console.log("[v0] Perfil - Step 5: Setting moments state with", momentsWithMetadata.length, "items")
           setMoments(momentsWithMetadata)
         } else {
-          console.log("[v0] Perfil - No moments found")
+          console.log("[v0] Perfil - No moments found in response")
           setMoments([])
         }
+
+        console.log("[v0] Perfil - fetchData completed successfully!")
       } catch (error) {
-        console.error("[v0] Perfil - Error fetching profile:", error)
+        console.error("[v0] Perfil - ERROR in fetchData:", error)
+        console.error("[v0] Perfil - Error stack:", error instanceof Error ? error.stack : "No stack")
+        setError(error instanceof Error ? error.message : "Unknown error")
         setMoments([])
       } finally {
+        console.log("[v0] Perfil - Setting isLoading to false")
         setIsLoading(false)
       }
     }
 
-    fetchUserProfile()
-  }, [address])
+    fetchData()
+  }, [address, isConnected])
+
+  console.log("[v0] Perfil - Render state:", {
+    isLoading,
+    momentsCount: moments.length,
+    hasAddress: !!address,
+    error,
+  })
 
   const handleAddToGallery = async (moment: MomentWithMetadata) => {
     console.log("[v0] Perfil - Adding to gallery:", moment.address, moment.tokenId)
@@ -169,13 +215,17 @@ export default function PerfilPage() {
           </div>
 
           <div className="max-w-6xl mx-auto">
+            {error && (
+              <div className="text-center py-8 mb-4">
+                <div className="bg-red-500/20 border border-red-500 rounded-lg p-4">
+                  <p className="text-white font-semibold">Error: {error}</p>
+                </div>
+              </div>
+            )}
+
             {isLoading ? (
               <div className="flex justify-center items-center min-h-[400px]">
                 <p className="text-white text-lg">Cargando...</p>
-              </div>
-            ) : !address ? (
-              <div className="text-center py-16">
-                <p className="text-white text-lg mb-4">Conecta tu wallet para ver tus NFTs</p>
               </div>
             ) : moments.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -217,7 +267,12 @@ export default function PerfilPage() {
               </div>
             ) : (
               <div className="text-center py-16">
-                <p className="text-white text-lg">No tienes NFTs todavía</p>
+                <p className="text-white text-lg mb-2">No tienes NFTs todavía</p>
+                <p className="text-white/70 text-sm">
+                  {address
+                    ? `Buscando NFTs para: ${address.slice(0, 6)}...${address.slice(-4)}`
+                    : "Usando dirección de prueba"}
+                </p>
               </div>
             )}
           </div>
