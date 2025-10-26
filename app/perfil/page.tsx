@@ -38,11 +38,13 @@ export default function PerfilPage() {
   const [isLoading, setIsLoading] = useState(true)
 
   const hasAttemptedConnect = useRef(false)
-  const hasFetchedData = useRef(false)
+  const lastFetchedAddress = useRef<string | null>(null)
 
   useEffect(() => {
+    console.log("[v0] Perfil - Mount/Update - isConnected:", isConnected, "address:", address)
+
     if (!hasAttemptedConnect.current && !isConnected) {
-      console.log("[v0] Perfil - Wallet not connected, attempting auto-connect...")
+      console.log("[v0] Perfil - Attempting auto-connect...")
       const farcasterConnector = connectors.find((c) => c.id === "farcaster")
 
       if (farcasterConnector) {
@@ -52,26 +54,29 @@ export default function PerfilPage() {
       } else {
         console.log("[v0] Perfil - No Farcaster connector found")
       }
-    } else if (isConnected) {
-      console.log("[v0] Perfil - Wallet already connected:", address)
     }
-  }, [isConnected, connect, connectors, address])
+  }, [isConnected, connect, connectors])
 
   useEffect(() => {
-    if (!isConnected || !address || hasFetchedData.current) {
-      if (!isConnected) {
-        console.log("[v0] Perfil - Waiting for wallet connection...")
-        setIsLoading(true)
-      }
+    console.log("[v0] Perfil - Fetch effect triggered")
+    console.log("[v0] Perfil - isConnected:", isConnected, "address:", address)
+    console.log("[v0] Perfil - lastFetchedAddress:", lastFetchedAddress.current)
+
+    if (!isConnected || !address) {
+      console.log("[v0] Perfil - Waiting for wallet connection...")
+      setIsLoading(true)
+      return
+    }
+
+    if (lastFetchedAddress.current === address) {
+      console.log("[v0] Perfil - Already fetched data for this address, skipping")
       return
     }
 
     const fetchUserProfile = async () => {
-      console.log("[v0] Perfil - Starting fetchUserProfile")
-      console.log("[v0] Perfil - Wallet connected:", isConnected)
-      console.log("[v0] Perfil - Wallet address:", address)
-
-      hasFetchedData.current = true
+      console.log("[v0] Perfil - Starting fetchUserProfile for address:", address)
+      lastFetchedAddress.current = address
+      setIsLoading(true)
 
       try {
         console.log("[v0] Perfil - Fetching Farcaster profile pic...")
@@ -107,11 +112,15 @@ export default function PerfilPage() {
         let data
         try {
           data = JSON.parse(responseText)
-          console.log("[v0] Perfil - Parsed data status:", data.status)
-          console.log("[v0] Perfil - Moments array length:", data.moments?.length || 0)
+          console.log("[v0] Perfil - Parsed data:", {
+            status: data.status,
+            momentsCount: data.moments?.length || 0,
+            hasMoments: !!data.moments,
+            isArray: Array.isArray(data.moments),
+          })
 
           if (data.moments && data.moments.length > 0) {
-            console.log("[v0] Perfil - First moment sample:", JSON.stringify(data.moments[0]))
+            console.log("[v0] Perfil - First moment sample:", JSON.stringify(data.moments[0], null, 2))
           }
         } catch (parseError) {
           console.error("[v0] Perfil - JSON parse error:", parseError)
@@ -125,7 +134,7 @@ export default function PerfilPage() {
 
           const momentsWithMetadata = await Promise.all(
             data.moments.map(async (moment: InprocessMoment, index: number) => {
-              console.log(`[v0] Perfil - Processing moment ${index + 1}:`, moment.id)
+              console.log(`[v0] Perfil - Processing moment ${index + 1}/${data.moments.length}:`, moment.id)
               try {
                 let metadataUrl = moment.uri
 
@@ -138,7 +147,7 @@ export default function PerfilPage() {
 
                 if (metadataResponse.ok) {
                   const metadata = await metadataResponse.json()
-                  console.log(`[v0] Perfil - Got metadata for:`, metadata.name)
+                  console.log(`[v0] Perfil - Got metadata:`, metadata.name)
 
                   let imageUrl = metadata.image
                   if (imageUrl?.startsWith("ipfs://")) {
@@ -155,6 +164,8 @@ export default function PerfilPage() {
                       image: imageUrl || "/placeholder.svg",
                     },
                   }
+                } else {
+                  console.error(`[v0] Perfil - Metadata fetch failed:`, metadataResponse.status)
                 }
               } catch (error) {
                 console.error(`[v0] Perfil - Error fetching metadata for moment ${moment.id}:`, error)
@@ -175,13 +186,14 @@ export default function PerfilPage() {
           setMoments(momentsWithMetadata)
           console.log("[v0] Perfil - Successfully loaded moments")
         } else {
-          console.log("[v0] Perfil - No moments found in response")
+          console.log("[v0] Perfil - No moments found in response or invalid data structure")
           setMoments([])
         }
       } catch (error) {
         console.error("[v0] Perfil - Error in fetchUserProfile:", error)
         if (error instanceof Error) {
-          console.error("[v0] Perfil - Error details:", error.message)
+          console.error("[v0] Perfil - Error message:", error.message)
+          console.error("[v0] Perfil - Error stack:", error.stack)
         }
         setMoments([])
       } finally {
