@@ -55,19 +55,33 @@ export default function PerfilPage() {
         const displayName = await getDisplayName(address)
         setUserName(displayName)
 
+        console.log("[v0] Perfil - Fetching timeline for address:", address)
         const timelineData = await getTimeline(1, 100, true, address, 8453, false)
+        console.log("[v0] Perfil - Timeline data received:", timelineData)
+        console.log("[v0] Perfil - Number of moments:", timelineData.moments?.length || 0)
 
         if (timelineData.moments && timelineData.moments.length > 0) {
           const filteredMoments = timelineData.moments.filter(
             (moment) => moment.admin.toLowerCase() === address.toLowerCase(),
           )
 
+          console.log("[v0] Perfil - Filtered moments (created by user):", filteredMoments.length)
+          filteredMoments.forEach((moment, index) => {
+            console.log(`[v0] Perfil - Moment ${index}:`, {
+              id: moment.id,
+              tokenId: moment.tokenId,
+              address: moment.address,
+              admin: moment.admin,
+              uri: moment.uri,
+            })
+          })
+
           const momentsWithMetadata = await Promise.all(
             filteredMoments.map(async (moment) => {
-              console.log(`[v0] Fetching metadata for moment ${moment.tokenId}`)
+              console.log(`[v0] Perfil - Fetching metadata for moment ${moment.tokenId} at contract ${moment.address}`)
               const metadata = await fetchTokenMetadata(moment.address, moment.tokenId)
 
-              console.log(`[v0] Metadata result for ${moment.tokenId}:`, metadata)
+              console.log(`[v0] Perfil - Metadata result for ${moment.tokenId}:`, metadata)
 
               if (metadata && !metadata.error) {
                 return {
@@ -88,12 +102,15 @@ export default function PerfilPage() {
             }),
           )
 
+          console.log("[v0] Perfil - Final moments with metadata:", momentsWithMetadata.length)
           setMoments(momentsWithMetadata)
         } else {
+          console.log("[v0] Perfil - No moments found in timeline")
           setMoments([])
         }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : "Unknown error"
+        console.error("[v0] Perfil - Error in fetchData:", errorMsg, error)
         setError(errorMsg)
         setMoments([])
       } finally {

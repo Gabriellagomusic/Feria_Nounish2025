@@ -75,6 +75,10 @@ export async function fetchTokenMetadata(contractAddress: string, tokenId: strin
     try {
       response = await fetch(gatewayUrl)
       console.log("[v0] Metadata - Fetch response status:", response.status)
+      console.log("[v0] Metadata - Response headers:")
+      response.headers.forEach((value, key) => {
+        console.log(`  ${key}: ${value}`)
+      })
     } catch (fetchError) {
       console.error("[v0] Metadata - Fetch failed:", fetchError)
       return {
@@ -102,16 +106,20 @@ export async function fetchTokenMetadata(contractAddress: string, tokenId: strin
     let metadata: any
     try {
       const text = await response.text()
-      console.log("[v0] Metadata - Response text (first 200 chars):", text.substring(0, 200))
+      console.log("[v0] Metadata - Full response text:", text)
+      console.log("[v0] Metadata - Response length:", text.length)
+      console.log("[v0] Metadata - First character code:", text.charCodeAt(0))
+
       metadata = JSON.parse(text)
       console.log("[v0] Metadata - Parsed successfully:", metadata)
     } catch (parseError) {
       console.error("[v0] Metadata - JSON parse failed:", parseError)
+      const text = await response.clone().text()
       return {
         name: "Parse Error",
         description: `Failed to parse metadata JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
         image: "",
-        error: `JSON parse failed: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
+        error: `JSON parse failed: ${parseError instanceof Error ? parseError.message : String(parseError)}. Response was: ${text.substring(0, 500)}`,
       }
     }
 
