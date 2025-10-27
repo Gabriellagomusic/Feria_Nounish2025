@@ -176,6 +176,25 @@ export default function PerfilPage() {
                       Array.from(firstBytes).map((c) => c.charCodeAt(0)),
                     )
 
+                    const isImage =
+                      contentType?.includes("image/") ||
+                      responseText.startsWith("\xFF\xD8\xFF") || // JPEG
+                      responseText.startsWith("\x89PNG") || // PNG
+                      responseText.includes("JFIF") || // JPEG marker
+                      responseText.includes("EXIF") // EXIF data
+
+                    if (isImage) {
+                      console.log(`[v0] Perfil - Detected image file, using URI directly as image URL`)
+                      // This is an image file, not JSON metadata
+                      // Use the URI directly as the image URL
+                      return {
+                        ...moment,
+                        imageUrl: metadataUrl,
+                        title: moment.title || `NFT #${moment.tokenId}`,
+                        description: moment.description || "Digital collectible from Feria Nounish",
+                      }
+                    }
+
                     try {
                       const metadata = JSON.parse(responseText)
                       console.log(`[v0] Perfil - Metadata parsed successfully:`, metadata)
