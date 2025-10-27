@@ -102,19 +102,29 @@ export async function fetchTokenMetadata(contractAddress: string, tokenId: strin
     const contentType = response.headers.get("content-type")
     console.log("[v0] Metadata - Content-Type:", contentType)
 
-    // Try to parse as JSON regardless of content-type
-    let metadata: any
+    let text: string
     try {
-      const text = await response.text()
+      text = await response.text()
       console.log("[v0] Metadata - Full response text:", text)
       console.log("[v0] Metadata - Response length:", text.length)
       console.log("[v0] Metadata - First character code:", text.charCodeAt(0))
+    } catch (textError) {
+      console.error("[v0] Metadata - Failed to read response text:", textError)
+      return {
+        name: "Read Error",
+        description: `Failed to read response: ${textError instanceof Error ? textError.message : String(textError)}`,
+        image: "",
+        error: `Failed to read response: ${textError instanceof Error ? textError.message : String(textError)}`,
+      }
+    }
 
+    // Try to parse as JSON
+    let metadata: any
+    try {
       metadata = JSON.parse(text)
       console.log("[v0] Metadata - Parsed successfully:", metadata)
     } catch (parseError) {
       console.error("[v0] Metadata - JSON parse failed:", parseError)
-      const text = await response.clone().text()
       return {
         name: "Parse Error",
         description: `Failed to parse metadata JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
