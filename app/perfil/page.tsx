@@ -10,7 +10,8 @@ import { useAccount } from "wagmi"
 import { getDisplayName, getFarcasterProfilePic } from "@/lib/farcaster"
 import { getNounAvatarUrl } from "@/lib/noun-avatar"
 import { getTimeline, type Moment } from "@/lib/inprocess"
-import { fetchTokenMetadata } from "@/lib/metadata"
+import { createPublicClient, http } from "viem"
+import { base } from "viem/chains"
 
 interface MomentWithImage extends Moment {
   imageUrl: string
@@ -18,6 +19,16 @@ interface MomentWithImage extends Moment {
   description?: string
   metadataError?: string
 }
+
+const ERC1155_ABI = [
+  {
+    inputs: [{ name: "id", type: "uint256" }],
+    name: "uri",
+    outputs: [{ name: "", type: "string" }],
+    stateMutability: "view",
+    type: "function",
+  },
+] as const
 
 export default function PerfilPage() {
   const router = useRouter()
@@ -106,28 +117,80 @@ export default function PerfilPage() {
             })
           })
 
-          console.log("[v0] PerfilPage - Starting metadata fetch for", filteredMoments.length, "moments")
+          console.log("[v0] PerfilPage - Starting metadata fetch using gallery method")
+          const publicClient = createPublicClient({
+            chain: base,
+            transport: http(),
+          })
+
           const momentsWithMetadata = await Promise.all(
             filteredMoments.map(async (moment) => {
-              console.log(`[v0] Perfil - Fetching metadata for moment ${moment.tokenId} at contract ${moment.address}`)
-              const metadata = await fetchTokenMetadata(moment.address, moment.tokenId)
+              try {
+                console.log(`[v0] Perfil - Fetching URI for token ${moment.tokenId} at ${moment.address}`)
 
-              console.log(`[v0] Perfil - Metadata result for ${moment.tokenId}:`, metadata)
+                // Read the token URI directly from the contract
+                const tokenURI = await publicClient.readContract({
+                  address: moment.address as `0x${string}`,
+                  abi: ERC1155_ABI,
+                  functionName: "uri",
+                  args: [BigInt(moment.tokenId)],
+                })
 
-              if (metadata && !metadata.error) {
-                return {
-                  ...moment,
-                  imageUrl: metadata.image || convertToGatewayUrl(moment.uri),
-                  title: metadata.name,
-                  description: metadata.description,
+                console.log(`[v0] Perfil - Token URI received:`, tokenURI)
+
+                if (tokenURI) {
+                  // Replace {id} placeholder with actual token ID
+                  let metadataUrl = tokenURI.replace("{id}", moment.tokenId.toString())
+
+                  // Convert ar:// to Arweave gateway URL
+                  if (metadataUrl.startsWith("ar://")) {
+                    metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
+                  }
+
+                  console.log(`[v0] Perfil - Fetching metadata from:`, metadataUrl)
+
+                  // Fetch the metadata JSON
+                  const metadataResponse = await fetch(metadataUrl)
+                  console.log(`[v0] Perfil - Metadata response status:`, metadataResponse.status)
+
+                  if (metadataResponse.ok) {
+                    const metadata = await metadataResponse.json()
+                    console.log(`[v0] Perfil - Metadata parsed successfully:`, metadata)
+
+                    // Convert image URL to gateway URL if needed
+                    let imageUrl = metadata.image
+                    if (imageUrl?.startsWith("ipfs://")) {
+                      imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+                    } else if (imageUrl?.startsWith("ar://")) {
+                      imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+                    }
+
+                    return {
+                      ...moment,
+                      imageUrl: imageUrl || "/placeholder.svg",
+                      title: metadata.name || `Token #${moment.tokenId}`,
+                      description: metadata.description || "",
+                    }
+                  }
                 }
-              } else {
+
+                // Fallback if metadata fetch fails
+                console.log(`[v0] Perfil - Using fallback for token ${moment.tokenId}`)
                 return {
                   ...moment,
                   imageUrl: convertToGatewayUrl(moment.uri),
-                  title: metadata?.name || `Moment #${moment.tokenId}`,
-                  description: metadata?.description,
-                  metadataError: metadata?.error || "Metadata fetch failed",
+                  title: `Token #${moment.tokenId}`,
+                  description: "NFT from Feria Nounish",
+                  metadataError: "Failed to fetch metadata",
+                }
+              } catch (error) {
+                console.error(`[v0] Perfil - Error fetching metadata for token ${moment.tokenId}:`, error)
+                return {
+                  ...moment,
+                  imageUrl: convertToGatewayUrl(moment.uri),
+                  title: `Token #${moment.tokenId}`,
+                  description: "NFT from Feria Nounish",
+                  metadataError: error instanceof Error ? error.message : "Unknown error",
                 }
               }
             }),
