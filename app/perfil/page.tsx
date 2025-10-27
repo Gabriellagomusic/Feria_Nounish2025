@@ -16,6 +16,8 @@ interface MomentWithImage extends Moment {
   imageUrl: string
   title: string
   description?: string
+  metadataError?: string
+  metadataUri?: string
 }
 
 export default function PerfilPage() {
@@ -63,13 +65,38 @@ export default function PerfilPage() {
 
           const momentsWithMetadata = await Promise.all(
             filteredMoments.map(async (moment) => {
-              const metadata = await fetchTokenMetadata(moment.address, moment.tokenId)
+              try {
+                console.log(`[v0] Fetching metadata for moment ${moment.tokenId}`)
+                const metadata = await fetchTokenMetadata(moment.address, moment.tokenId)
 
-              return {
-                ...moment,
-                imageUrl: metadata?.image || convertToGatewayUrl(moment.uri),
-                title: metadata?.name || `Moment #${moment.tokenId}`,
-                description: metadata?.description,
+                console.log(`[v0] Metadata result for ${moment.tokenId}:`, metadata)
+
+                if (metadata) {
+                  return {
+                    ...moment,
+                    imageUrl: metadata.image,
+                    title: metadata.name,
+                    description: metadata.description,
+                    metadataUri: "success",
+                  }
+                } else {
+                  return {
+                    ...moment,
+                    imageUrl: convertToGatewayUrl(moment.uri),
+                    title: `Moment #${moment.tokenId}`,
+                    description: undefined,
+                    metadataError: "Metadata fetch returned null",
+                  }
+                }
+              } catch (err) {
+                console.error(`[v0] Error fetching metadata for ${moment.tokenId}:`, err)
+                return {
+                  ...moment,
+                  imageUrl: convertToGatewayUrl(moment.uri),
+                  title: `Moment #${moment.tokenId}`,
+                  description: undefined,
+                  metadataError: err instanceof Error ? err.message : "Unknown error",
+                }
               }
             }),
           )
@@ -169,6 +196,15 @@ export default function PerfilPage() {
                           <p className="text-sm text-gray-600 mb-2 line-clamp-2">{moment.description}</p>
                         )}
                         <p className="text-xs text-gray-500 mb-4">Por: {moment.username || userName}</p>
+
+                        {moment.metadataError && (
+                          <div className="mb-4 p-2 bg-yellow-100 border border-yellow-400 rounded text-xs">
+                            <p className="font-semibold text-yellow-800">Metadata Error:</p>
+                            <p className="text-yellow-700">{moment.metadataError}</p>
+                            <p className="text-yellow-600 mt-1">Contract: {moment.address}</p>
+                            <p className="text-yellow-600">Token ID: {moment.tokenId}</p>
+                          </div>
+                        )}
 
                         <Button
                           onClick={() => handleAddToGallery(moment)}
