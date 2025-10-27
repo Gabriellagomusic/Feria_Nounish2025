@@ -20,6 +20,7 @@ export interface TokenMetadata {
   name: string
   description: string
   image: string
+  error?: string
 }
 
 function convertToGatewayUrl(uri: string): string {
@@ -33,49 +34,99 @@ function convertToGatewayUrl(uri: string): string {
 
 export async function fetchTokenMetadata(contractAddress: string, tokenId: string): Promise<TokenMetadata | null> {
   try {
-    console.log("[v0] Fetching metadata for token:", tokenId, "from contract:", contractAddress)
+    console.log("[v0] Metadata - Starting fetch for token:", tokenId, "contract:", contractAddress)
 
     // Call the contract's uri() function to get the metadata URI
-    const metadataUri = (await publicClient.readContract({
-      address: contractAddress as `0x${string}`,
-      abi: ERC1155_ABI,
-      functionName: "uri",
-      args: [BigInt(tokenId)],
-    })) as string
+    let metadataUri: string
+    try {
+      metadataUri = (await publicClient.readContract({
+        address: contractAddress as `0x${string}`,
+        abi: ERC1155_ABI,
+        functionName: "uri",
+        args: [BigInt(tokenId)],
+      })) as string
+      console.log("[v0] Metadata - URI from contract:", metadataUri)
+    } catch (contractError) {
+      console.error("[v0] Metadata - Contract call failed:", contractError)
+      return {
+        name: "Contract Error",
+        description: `Failed to call uri() function: ${contractError instanceof Error ? contractError.message : String(contractError)}`,
+        image: "",
+        error: `Contract call failed: ${contractError instanceof Error ? contractError.message : String(contractError)}`,
+      }
+    }
 
-    console.log("[v0] Metadata URI from contract:", metadataUri)
+    if (!metadataUri || metadataUri.trim() === "") {
+      console.error("[v0] Metadata - Empty URI returned from contract")
+      return {
+        name: "Empty URI",
+        description: "Contract returned an empty metadata URI",
+        image: "",
+        error: "Empty URI from contract",
+      }
+    }
 
     // Convert IPFS/Arweave URIs to gateway URLs
     const gatewayUrl = convertToGatewayUrl(metadataUri)
-    console.log("[v0] Gateway URL:", gatewayUrl)
+    console.log("[v0] Metadata - Gateway URL:", gatewayUrl)
 
     // Fetch the metadata JSON
-    const response = await fetch(gatewayUrl)
+    let response: Response
+    try {
+      response = await fetch(gatewayUrl)
+      console.log("[v0] Metadata - Fetch response status:", response.status)
+    } catch (fetchError) {
+      console.error("[v0] Metadata - Fetch failed:", fetchError)
+      return {
+        name: "Fetch Error",
+        description: `Failed to fetch metadata: ${fetchError instanceof Error ? fetchError.message : String(fetchError)}`,
+        image: "",
+        error: `Fetch failed: ${fetchError instanceof Error ? fetchError.message : String(fetchError)}`,
+      }
+    }
 
     if (!response.ok) {
-      console.error("[v0] Metadata fetch failed:", response.status, response.statusText)
-      return null
+      console.error("[v0] Metadata - Bad response:", response.status, response.statusText)
+      return {
+        name: "HTTP Error",
+        description: `HTTP ${response.status}: ${response.statusText}`,
+        image: "",
+        error: `HTTP ${response.status}: ${response.statusText}`,
+      }
     }
 
     const contentType = response.headers.get("content-type")
-    console.log("[v0] Metadata response content-type:", contentType)
+    console.log("[v0] Metadata - Content-Type:", contentType)
 
-    // Check if the response is JSON
-    if (!contentType?.includes("application/json")) {
-      console.error("[v0] Metadata response is not JSON, content-type:", contentType)
-      return null
+    // Try to parse as JSON regardless of content-type
+    let metadata: any
+    try {
+      const text = await response.text()
+      console.log("[v0] Metadata - Response text (first 200 chars):", text.substring(0, 200))
+      metadata = JSON.parse(text)
+      console.log("[v0] Metadata - Parsed successfully:", metadata)
+    } catch (parseError) {
+      console.error("[v0] Metadata - JSON parse failed:", parseError)
+      return {
+        name: "Parse Error",
+        description: `Failed to parse metadata JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
+        image: "",
+        error: `JSON parse failed: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
+      }
     }
-
-    const metadata = (await response.json()) as TokenMetadata
-    console.log("[v0] Metadata fetched successfully:", metadata.name)
 
     return {
       name: metadata.name || "Untitled",
       description: metadata.description || "",
-      image: convertToGatewayUrl(metadata.image),
+      image: convertToGatewayUrl(metadata.image || ""),
     }
   } catch (error) {
-    console.error("[v0] Error fetching token metadata:", error)
-    return null
+    console.error("[v0] Metadata - Unexpected error:", error)
+    return {
+      name: "Unknown Error",
+      description: `Unexpected error: ${error instanceof Error ? error.message : String(error)}`,
+      image: "",
+      error: `Unexpected error: ${error instanceof Error ? error.message : String(error)}`,
+    }
   }
 }
