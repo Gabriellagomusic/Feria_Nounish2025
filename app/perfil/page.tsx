@@ -17,6 +17,7 @@ interface MomentWithImage extends Moment {
   imageUrl: string
   title: string
   description?: string
+  metadataError?: string
 }
 
 const ERC1155_ABI = [
@@ -136,47 +137,44 @@ export default function PerfilPage() {
                 })
 
                 console.log(`[v0] Perfil - Token URI received:`, tokenURI)
+                console.log(`[v0] Perfil - Token URI type:`, typeof tokenURI)
+                console.log(`[v0] Perfil - Token URI length:`, tokenURI?.length)
 
                 if (tokenURI) {
                   // Replace {id} placeholder with actual token ID
                   let metadataUrl = tokenURI.replace("{id}", moment.tokenId.toString())
+                  console.log(`[v0] Perfil - After {id} replacement:`, metadataUrl)
 
                   // Convert ar:// to Arweave gateway URL
                   if (metadataUrl.startsWith("ar://")) {
                     metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
+                    console.log(`[v0] Perfil - After ar:// conversion:`, metadataUrl)
                   }
 
+                  console.log(`[v0] Perfil - Final metadata URL:`, metadataUrl)
                   console.log(`[v0] Perfil - Fetching metadata from:`, metadataUrl)
 
                   const metadataResponse = await fetch(metadataUrl)
-                  const contentType = metadataResponse.headers.get("content-type") || ""
+                  console.log(`[v0] Perfil - Metadata response status:`, metadataResponse.status)
+                  console.log(
+                    `[v0] Perfil - Metadata response headers:`,
+                    Object.fromEntries(metadataResponse.headers.entries()),
+                  )
 
-                  console.log(`[v0] Perfil - Response status: ${metadataResponse.status}, Content-Type: ${contentType}`)
+                  const contentType = metadataResponse.headers.get("content-type")
+                  console.log(`[v0] Perfil - Content-Type:`, contentType)
 
                   if (metadataResponse.ok) {
-                    if (contentType.startsWith("image/")) {
-                      console.log(`[v0] Perfil - Detected image content, using URL directly as image`)
-                      return {
-                        ...moment,
-                        imageUrl: metadataUrl,
-                        title: `Token #${moment.tokenId}`,
-                        description: "NFT from Feria Nounish",
-                      }
-                    }
-
                     const responseText = await metadataResponse.text()
-                    console.log(`[v0] Perfil - Response text (first 200 chars):`, responseText.substring(0, 200))
+                    console.log(`[v0] Perfil - Response text (first 500 chars):`, responseText.substring(0, 500))
+                    console.log(`[v0] Perfil - Response text length:`, responseText.length)
 
-                    // Check if response looks like an image (binary data)
-                    if (responseText.charCodeAt(0) === 0xff || responseText.charCodeAt(0) === 0x89) {
-                      console.log(`[v0] Perfil - Detected binary image data, using URL as image`)
-                      return {
-                        ...moment,
-                        imageUrl: metadataUrl,
-                        title: `Token #${moment.tokenId}`,
-                        description: "NFT from Feria Nounish",
-                      }
-                    }
+                    const firstBytes = responseText.substring(0, 10)
+                    console.log(`[v0] Perfil - First bytes:`, firstBytes)
+                    console.log(
+                      `[v0] Perfil - First byte codes:`,
+                      Array.from(firstBytes).map((c) => c.charCodeAt(0)),
+                    )
 
                     try {
                       const metadata = JSON.parse(responseText)
@@ -196,13 +194,16 @@ export default function PerfilPage() {
                         title: metadata.name || `Token #${moment.tokenId}`,
                         description: metadata.description || "",
                       }
-                    } catch (jsonError) {
-                      console.log(`[v0] Perfil - Not valid JSON, using URL as image`)
+                    } catch (parseError) {
+                      console.error(`[v0] Perfil - JSON parse error:`, parseError)
+                      console.log(`[v0] Perfil - This appears to be an image file, not JSON metadata`)
+
                       return {
                         ...moment,
                         imageUrl: metadataUrl,
                         title: `Token #${moment.tokenId}`,
                         description: "NFT from Feria Nounish",
+                        metadataError: `JSON.parse: ${parseError instanceof Error ? parseError.message : "Unknown error"}. Response was: ${responseText.substring(0, 200)}`,
                       }
                     }
                   }
@@ -215,6 +216,7 @@ export default function PerfilPage() {
                   imageUrl: convertToGatewayUrl(moment.uri),
                   title: `Token #${moment.tokenId}`,
                   description: "NFT from Feria Nounish",
+                  metadataError: "Failed to fetch metadata",
                 }
               } catch (error) {
                 console.error(`[v0] Perfil - Error fetching metadata for token ${moment.tokenId}:`, error)
@@ -223,6 +225,7 @@ export default function PerfilPage() {
                   imageUrl: convertToGatewayUrl(moment.uri),
                   title: `Token #${moment.tokenId}`,
                   description: "NFT from Feria Nounish",
+                  metadataError: error instanceof Error ? error.message : "Unknown error",
                 }
               }
             }),
@@ -335,6 +338,26 @@ export default function PerfilPage() {
                           <p className="text-sm text-gray-600 mb-2 line-clamp-2">{moment.description}</p>
                         )}
                         <p className="text-xs text-gray-500 mb-4">Por: {moment.username || userName}</p>
+
+                        {moment.metadataError && (
+                          <details className="mb-4 p-3 bg-yellow-50 border border-yellow-300 rounded text-xs">
+                            <summary className="font-semibold text-yellow-800 cursor-pointer">
+                              ⚠️ Metadata Error (Click to expand)
+                            </summary>
+                            <div className="mt-2 space-y-1">
+                              <p className="text-yellow-700 font-mono">{moment.metadataError}</p>
+                              <p className="text-yellow-600">
+                                <span className="font-semibold">Contract:</span> {moment.address}
+                              </p>
+                              <p className="text-yellow-600">
+                                <span className="font-semibold">Token ID:</span> {moment.tokenId}
+                              </p>
+                              <p className="text-yellow-600">
+                                <span className="font-semibold">Chain:</span> Base ({moment.chainId})
+                              </p>
+                            </div>
+                          </details>
+                        )}
 
                         <Button
                           onClick={() => handleAddToGallery(moment)}
