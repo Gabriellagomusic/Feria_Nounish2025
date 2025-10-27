@@ -154,22 +154,33 @@ export default function PerfilPage() {
                   console.log(`[v0] Perfil - Metadata response status:`, metadataResponse.status)
 
                   if (metadataResponse.ok) {
-                    const metadata = await metadataResponse.json()
-                    console.log(`[v0] Perfil - Metadata parsed successfully:`, metadata)
+                    try {
+                      const metadata = await metadataResponse.json()
+                      console.log(`[v0] Perfil - Metadata parsed successfully:`, metadata)
 
-                    // Convert image URL to gateway URL if needed
-                    let imageUrl = metadata.image
-                    if (imageUrl?.startsWith("ipfs://")) {
-                      imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-                    } else if (imageUrl?.startsWith("ar://")) {
-                      imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
-                    }
+                      // Convert image URL to gateway URL if needed
+                      let imageUrl = metadata.image
+                      if (imageUrl?.startsWith("ipfs://")) {
+                        imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+                      } else if (imageUrl?.startsWith("ar://")) {
+                        imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+                      }
 
-                    return {
-                      ...moment,
-                      imageUrl: imageUrl || "/placeholder.svg",
-                      title: metadata.name || `Token #${moment.tokenId}`,
-                      description: metadata.description || "",
+                      return {
+                        ...moment,
+                        imageUrl: imageUrl || "/placeholder.svg",
+                        title: metadata.name || `Token #${moment.tokenId}`,
+                        description: metadata.description || "",
+                      }
+                    } catch (jsonError) {
+                      console.log(`[v0] Perfil - JSON parse failed, using URI as image:`, jsonError)
+                      return {
+                        ...moment,
+                        imageUrl: metadataUrl,
+                        title: `Token #${moment.tokenId}`,
+                        description: "NFT from Feria Nounish",
+                        metadataError: `JSON parse failed: ${jsonError instanceof Error ? jsonError.message : "Unknown error"}`,
+                      }
                     }
                   }
                 }
