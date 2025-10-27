@@ -99,15 +99,23 @@ export async function fetchTokenMetadata(contractAddress: string, tokenId: strin
       }
     }
 
-    const contentType = response.headers.get("content-type")
+    const contentType = response.headers.get("content-type") || ""
     console.log("[v0] Metadata - Content-Type:", contentType)
+
+    if (contentType.startsWith("image/")) {
+      console.log("[v0] Metadata - URI points directly to an image, using it as the image URL")
+      return {
+        name: `Token #${tokenId}`,
+        description: "NFT from Feria Nounish",
+        image: gatewayUrl,
+      }
+    }
 
     let text: string
     try {
       text = await response.text()
-      console.log("[v0] Metadata - Full response text:", text)
-      console.log("[v0] Metadata - Response length:", text.length)
-      console.log("[v0] Metadata - First character code:", text.charCodeAt(0))
+      console.log("[v0] Metadata - Response text length:", text.length)
+      console.log("[v0] Metadata - First 200 chars:", text.substring(0, 200))
     } catch (textError) {
       console.error("[v0] Metadata - Failed to read response text:", textError)
       return {
@@ -118,25 +126,34 @@ export async function fetchTokenMetadata(contractAddress: string, tokenId: strin
       }
     }
 
+    const firstChar = text.charCodeAt(0)
+    if (firstChar === 0xff || firstChar === 0x89 || firstChar === 0x47 || text.startsWith("����")) {
+      console.log("[v0] Metadata - Response appears to be binary image data, using URI as image URL")
+      return {
+        name: `Token #${tokenId}`,
+        description: "NFT from Feria Nounish",
+        image: gatewayUrl,
+      }
+    }
+
     // Try to parse as JSON
     let metadata: any
     try {
       metadata = JSON.parse(text)
       console.log("[v0] Metadata - Parsed successfully:", metadata)
     } catch (parseError) {
-      console.error("[v0] Metadata - JSON parse failed:", parseError)
+      console.error("[v0] Metadata - JSON parse failed, treating URI as direct image link")
       return {
-        name: "Parse Error",
-        description: `Failed to parse metadata JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
-        image: "",
-        error: `JSON parse failed: ${parseError instanceof Error ? parseError.message : String(parseError)}. Response was: ${text.substring(0, 500)}`,
+        name: `Token #${tokenId}`,
+        description: "NFT from Feria Nounish",
+        image: gatewayUrl,
       }
     }
 
     return {
-      name: metadata.name || "Untitled",
-      description: metadata.description || "",
-      image: convertToGatewayUrl(metadata.image || ""),
+      name: metadata.name || `Token #${tokenId}`,
+      description: metadata.description || "NFT from Feria Nounish",
+      image: convertToGatewayUrl(metadata.image || gatewayUrl),
     }
   } catch (error) {
     console.error("[v0] Metadata - Unexpected error:", error)
