@@ -32,6 +32,12 @@ function convertToGatewayUrl(uri: string): string {
   return uri
 }
 
+function isImageUrl(url: string): boolean {
+  const imageExtensions = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"]
+  const lowerUrl = url.toLowerCase()
+  return imageExtensions.some((ext) => lowerUrl.includes(ext))
+}
+
 export async function fetchTokenMetadata(contractAddress: string, tokenId: string): Promise<TokenMetadata | null> {
   try {
     console.log("[v0] Metadata - Starting fetch for token:", tokenId, "contract:", contractAddress)
@@ -49,8 +55,8 @@ export async function fetchTokenMetadata(contractAddress: string, tokenId: strin
     } catch (contractError) {
       console.error("[v0] Metadata - Contract call failed:", contractError)
       return {
-        name: "Contract Error",
-        description: `Failed to call uri() function: ${contractError instanceof Error ? contractError.message : String(contractError)}`,
+        name: `Moment #${tokenId}`,
+        description: "Inprocess Moment",
         image: "",
         error: `Contract call failed: ${contractError instanceof Error ? contractError.message : String(contractError)}`,
       }
@@ -59,8 +65,8 @@ export async function fetchTokenMetadata(contractAddress: string, tokenId: strin
     if (!metadataUri || metadataUri.trim() === "") {
       console.error("[v0] Metadata - Empty URI returned from contract")
       return {
-        name: "Empty URI",
-        description: "Contract returned an empty metadata URI",
+        name: `Moment #${tokenId}`,
+        description: "Inprocess Moment",
         image: "",
         error: "Empty URI from contract",
       }
@@ -70,6 +76,15 @@ export async function fetchTokenMetadata(contractAddress: string, tokenId: strin
     const gatewayUrl = convertToGatewayUrl(metadataUri)
     console.log("[v0] Metadata - Gateway URL:", gatewayUrl)
 
+    if (isImageUrl(gatewayUrl)) {
+      console.log("[v0] Metadata - URI points to image file, using directly")
+      return {
+        name: `Moment #${tokenId}`,
+        description: "Inprocess Moment",
+        image: gatewayUrl,
+      }
+    }
+
     // Fetch the metadata JSON
     let response: Response
     try {
@@ -78,9 +93,9 @@ export async function fetchTokenMetadata(contractAddress: string, tokenId: strin
     } catch (fetchError) {
       console.error("[v0] Metadata - Fetch failed:", fetchError)
       return {
-        name: "Fetch Error",
-        description: `Failed to fetch metadata: ${fetchError instanceof Error ? fetchError.message : String(fetchError)}`,
-        image: "",
+        name: `Moment #${tokenId}`,
+        description: "Inprocess Moment",
+        image: gatewayUrl, // Use the URI as image fallback
         error: `Fetch failed: ${fetchError instanceof Error ? fetchError.message : String(fetchError)}`,
       }
     }
@@ -88,9 +103,9 @@ export async function fetchTokenMetadata(contractAddress: string, tokenId: strin
     if (!response.ok) {
       console.error("[v0] Metadata - Bad response:", response.status, response.statusText)
       return {
-        name: "HTTP Error",
-        description: `HTTP ${response.status}: ${response.statusText}`,
-        image: "",
+        name: `Moment #${tokenId}`,
+        description: "Inprocess Moment",
+        image: gatewayUrl, // Use the URI as image fallback
         error: `HTTP ${response.status}: ${response.statusText}`,
       }
     }
@@ -98,7 +113,16 @@ export async function fetchTokenMetadata(contractAddress: string, tokenId: strin
     const contentType = response.headers.get("content-type")
     console.log("[v0] Metadata - Content-Type:", contentType)
 
-    // Try to parse as JSON regardless of content-type
+    if (contentType && contentType.startsWith("image/")) {
+      console.log("[v0] Metadata - Content is an image, using URL directly")
+      return {
+        name: `Moment #${tokenId}`,
+        description: "Inprocess Moment",
+        image: gatewayUrl,
+      }
+    }
+
+    // Try to parse as JSON
     let metadata: any
     try {
       const text = await response.text()
@@ -106,25 +130,24 @@ export async function fetchTokenMetadata(contractAddress: string, tokenId: strin
       metadata = JSON.parse(text)
       console.log("[v0] Metadata - Parsed successfully:", metadata)
     } catch (parseError) {
-      console.error("[v0] Metadata - JSON parse failed:", parseError)
+      console.error("[v0] Metadata - JSON parse failed, assuming URI is image")
       return {
-        name: "Parse Error",
-        description: `Failed to parse metadata JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
-        image: "",
-        error: `JSON parse failed: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
+        name: `Moment #${tokenId}`,
+        description: "Inprocess Moment",
+        image: gatewayUrl,
       }
     }
 
     return {
-      name: metadata.name || "Untitled",
-      description: metadata.description || "",
-      image: convertToGatewayUrl(metadata.image || ""),
+      name: metadata.name || `Moment #${tokenId}`,
+      description: metadata.description || "Inprocess Moment",
+      image: convertToGatewayUrl(metadata.image || gatewayUrl),
     }
   } catch (error) {
     console.error("[v0] Metadata - Unexpected error:", error)
     return {
-      name: "Unknown Error",
-      description: `Unexpected error: ${error instanceof Error ? error.message : String(error)}`,
+      name: `Moment #${tokenId}`,
+      description: "Inprocess Moment",
       image: "",
       error: `Unexpected error: ${error instanceof Error ? error.message : String(error)}`,
     }
