@@ -96,19 +96,19 @@ export default function PerfilPage() {
         console.log("[v0] PerfilPage - Display name:", displayName)
         setUserName(displayName)
 
-        console.log("[v0] Perfil - Fetching timeline for address:", address)
+        console.log("[v0] PerfilPage - Fetching timeline for address:", address)
         const timelineData = await getTimeline(1, 100, true, address, 8453, false)
-        console.log("[v0] Perfil - Timeline data received:", timelineData)
-        console.log("[v0] Perfil - Number of moments:", timelineData.moments?.length || 0)
+        console.log("[v0] PerfilPage - Timeline data received:", timelineData)
+        console.log("[v0] PerfilPage - Number of moments:", timelineData.moments?.length || 0)
 
         if (timelineData.moments && timelineData.moments.length > 0) {
           const filteredMoments = timelineData.moments.filter(
             (moment) => moment.admin.toLowerCase() === address.toLowerCase(),
           )
 
-          console.log("[v0] Perfil - Filtered moments (created by user):", filteredMoments.length)
+          console.log("[v0] PerfilPage - Filtered moments (created by user):", filteredMoments.length)
           filteredMoments.forEach((moment, index) => {
-            console.log(`[v0] Perfil - Moment ${index}:`, {
+            console.log(`[v0] PerfilPage - Moment ${index}:`, {
               id: moment.id,
               tokenId: moment.tokenId,
               address: moment.address,
@@ -126,75 +126,60 @@ export default function PerfilPage() {
           const momentsWithMetadata = await Promise.all(
             filteredMoments.map(async (moment) => {
               try {
-                console.log(`[v0] Perfil - Fetching URI for token ${moment.tokenId} at ${moment.address}`)
+                console.log(`[v0] PerfilPage - Fetching URI for token ${moment.tokenId} at ${moment.address}`)
 
-                const contractAddress = moment.address.toLowerCase()
-                const isKnownContract = contractAddress === "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5"
-                const tokenIdToFetch = isKnownContract && moment.tokenId === 0 ? 1 : moment.tokenId
-
-                console.log(
-                  `[v0] Perfil - Using token ID ${tokenIdToFetch} for metadata fetch (original: ${moment.tokenId})`,
-                )
-
-                // Read the token URI directly from the contract
                 const tokenURI = await publicClient.readContract({
                   address: moment.address as `0x${string}`,
                   abi: ERC1155_ABI,
                   functionName: "uri",
-                  args: [BigInt(tokenIdToFetch)],
+                  args: [BigInt(moment.tokenId)],
                 })
 
-                console.log(`[v0] Perfil - Token URI received:`, tokenURI)
-                console.log(`[v0] Perfil - Token URI type:`, typeof tokenURI)
-                console.log(`[v0] Perfil - Token URI length:`, tokenURI?.length)
+                console.log(`[v0] PerfilPage - Token URI received:`, tokenURI)
 
                 if (tokenURI) {
                   // Replace {id} placeholder with actual token ID
-                  let metadataUrl = tokenURI.replace("{id}", tokenIdToFetch.toString())
-                  console.log(`[v0] Perfil - After {id} replacement:`, metadataUrl)
+                  let metadataUrl = tokenURI.replace("{id}", moment.tokenId.toString())
+                  console.log(`[v0] PerfilPage - After {id} replacement:`, metadataUrl)
 
                   // Convert ar:// to Arweave gateway URL
                   if (metadataUrl.startsWith("ar://")) {
                     metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
-                    console.log(`[v0] Perfil - After ar:// conversion:`, metadataUrl)
+                    console.log(`[v0] PerfilPage - After ar:// conversion:`, metadataUrl)
                   }
 
-                  console.log(`[v0] Perfil - Final metadata URL:`, metadataUrl)
-                  console.log(`[v0] Perfil - Fetching metadata from:`, metadataUrl)
+                  console.log(`[v0] PerfilPage - Fetching metadata from:`, metadataUrl)
 
                   const metadataResponse = await fetch(metadataUrl)
-                  console.log(`[v0] Perfil - Metadata response status:`, metadataResponse.status)
-                  console.log(
-                    `[v0] Perfil - Metadata response headers:`,
-                    Object.fromEntries(metadataResponse.headers.entries()),
-                  )
-
-                  const contentType = metadataResponse.headers.get("content-type")
-                  console.log(`[v0] Perfil - Content-Type:`, contentType)
+                  console.log(`[v0] PerfilPage - Metadata response status:`, metadataResponse.status)
 
                   if (metadataResponse.ok) {
+                    const contentType = metadataResponse.headers.get("content-type")
+                    console.log(`[v0] PerfilPage - Content-Type:`, contentType)
+
+                    if (contentType?.includes("image/")) {
+                      console.log(`[v0] PerfilPage - Content-Type indicates image, using URI as image URL`)
+                      return {
+                        ...moment,
+                        imageUrl: metadataUrl,
+                        title: moment.title || `NFT #${moment.tokenId}`,
+                        description: moment.description || "Digital collectible from Feria Nounish",
+                      }
+                    }
+
                     const responseText = await metadataResponse.text()
-                    console.log(`[v0] Perfil - Response text (first 500 chars):`, responseText.substring(0, 500))
-                    console.log(`[v0] Perfil - Response text length:`, responseText.length)
+                    console.log(`[v0] PerfilPage - Response text (first 200 chars):`, responseText.substring(0, 200))
 
-                    const firstBytes = responseText.substring(0, 10)
-                    console.log(`[v0] Perfil - First bytes:`, firstBytes)
-                    console.log(
-                      `[v0] Perfil - First byte codes:`,
-                      Array.from(firstBytes).map((c) => c.charCodeAt(0)),
-                    )
+                    const isJPEG =
+                      responseText.includes("JFIF") ||
+                      responseText.includes("EXIF") ||
+                      responseText.startsWith("\xFF\xD8\xFF")
+                    const isPNG = responseText.startsWith("\x89PNG")
 
-                    const isImage =
-                      contentType?.includes("image/") ||
-                      responseText.startsWith("\xFF\xD8\xFF") || // JPEG
-                      responseText.startsWith("\x89PNG") || // PNG
-                      responseText.includes("JFIF") || // JPEG marker
-                      responseText.includes("EXIF") // EXIF data
-
-                    if (isImage) {
-                      console.log(`[v0] Perfil - Detected image file, using URI directly as image URL`)
-                      // This is an image file, not JSON metadata
-                      // Use the URI directly as the image URL
+                    if (isJPEG || isPNG) {
+                      console.log(
+                        `[v0] PerfilPage - Detected image file (JPEG: ${isJPEG}, PNG: ${isPNG}), using URI as image URL`,
+                      )
                       return {
                         ...moment,
                         imageUrl: metadataUrl,
@@ -205,7 +190,7 @@ export default function PerfilPage() {
 
                     try {
                       const metadata = JSON.parse(responseText)
-                      console.log(`[v0] Perfil - Metadata parsed successfully:`, metadata)
+                      console.log(`[v0] PerfilPage - Metadata parsed successfully:`, metadata)
 
                       // Convert image URL to gateway URL if needed
                       let imageUrl = metadata.image
@@ -222,22 +207,19 @@ export default function PerfilPage() {
                         description: metadata.description || "",
                       }
                     } catch (parseError) {
-                      console.error(`[v0] Perfil - JSON parse error:`, parseError)
-                      console.log(`[v0] Perfil - This appears to be an image file, not JSON metadata`)
-
+                      console.error(`[v0] PerfilPage - JSON parse failed, treating as image:`, parseError)
                       return {
                         ...moment,
                         imageUrl: metadataUrl,
-                        title: `Token #${moment.tokenId}`,
-                        description: "NFT from Feria Nounish",
-                        metadataError: `JSON.parse: ${parseError instanceof Error ? parseError.message : "Unknown error"}. Response was: ${responseText.substring(0, 200)}`,
+                        title: moment.title || `NFT #${moment.tokenId}`,
+                        description: moment.description || "Digital collectible from Feria Nounish",
                       }
                     }
                   }
                 }
 
                 // Fallback if metadata fetch fails
-                console.log(`[v0] Perfil - Using fallback for token ${moment.tokenId}`)
+                console.log(`[v0] PerfilPage - Using fallback for token ${moment.tokenId}`)
                 return {
                   ...moment,
                   imageUrl: convertToGatewayUrl(moment.uri),
@@ -246,7 +228,7 @@ export default function PerfilPage() {
                   metadataError: "Failed to fetch metadata",
                 }
               } catch (error) {
-                console.error(`[v0] Perfil - Error fetching metadata for token ${moment.tokenId}:`, error)
+                console.error(`[v0] PerfilPage - Error fetching metadata for token ${moment.tokenId}:`, error)
                 return {
                   ...moment,
                   imageUrl: convertToGatewayUrl(moment.uri),
@@ -258,15 +240,15 @@ export default function PerfilPage() {
             }),
           )
 
-          console.log("[v0] Perfil - Final moments with metadata:", momentsWithMetadata.length)
+          console.log("[v0] PerfilPage - Final moments with metadata:", momentsWithMetadata.length)
           setMoments(momentsWithMetadata)
         } else {
-          console.log("[v0] Perfil - No moments found in timeline")
+          console.log("[v0] PerfilPage - No moments found in timeline")
           setMoments([])
         }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : "Unknown error"
-        console.error("[v0] Perfil - Error in fetchData:", errorMsg, error)
+        console.error("[v0] PerfilPage - Error in fetchData:", errorMsg, error)
         setError(errorMsg)
         setMoments([])
       } finally {
