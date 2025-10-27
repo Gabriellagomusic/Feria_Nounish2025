@@ -30,6 +30,17 @@ const ERC1155_ABI = [
   },
 ] as const
 
+const knownTokens: Record<string, { name: string; description: string }> = {
+  "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5-1": {
+    name: "EXPERIMENTAL MUSIC SESSIONS",
+    description: "🎵🎶🎸",
+  },
+  "0xfaa54c8258b419ab0411da8ddc1985f42f98f59b-1": {
+    name: "Feria Nounish Collection",
+    description: "Official Feria Nounish NFT",
+  },
+}
+
 export default function PerfilPage() {
   const router = useRouter()
   const { address, isConnected } = useAccount()
@@ -128,6 +139,9 @@ export default function PerfilPage() {
               try {
                 console.log(`[v0] Perfil - Fetching URI for token ${moment.tokenId} at ${moment.address}`)
 
+                const tokenKey = `${moment.address.toLowerCase()}-${moment.tokenId}`
+                const knownToken = knownTokens[tokenKey]
+
                 // Read the token URI directly from the contract
                 const tokenURI = await publicClient.readContract({
                   address: moment.address as `0x${string}`,
@@ -137,8 +151,6 @@ export default function PerfilPage() {
                 })
 
                 console.log(`[v0] Perfil - Token URI received:`, tokenURI)
-                console.log(`[v0] Perfil - Token URI type:`, typeof tokenURI)
-                console.log(`[v0] Perfil - Token URI length:`, tokenURI?.length)
 
                 if (tokenURI) {
                   // Replace {id} placeholder with actual token ID
@@ -156,10 +168,6 @@ export default function PerfilPage() {
 
                   const metadataResponse = await fetch(metadataUrl)
                   console.log(`[v0] Perfil - Metadata response status:`, metadataResponse.status)
-                  console.log(
-                    `[v0] Perfil - Metadata response headers:`,
-                    Object.fromEntries(metadataResponse.headers.entries()),
-                  )
 
                   const contentType = metadataResponse.headers.get("content-type")
                   console.log(`[v0] Perfil - Content-Type:`, contentType)
@@ -167,14 +175,6 @@ export default function PerfilPage() {
                   if (metadataResponse.ok) {
                     const responseText = await metadataResponse.text()
                     console.log(`[v0] Perfil - Response text (first 500 chars):`, responseText.substring(0, 500))
-                    console.log(`[v0] Perfil - Response text length:`, responseText.length)
-
-                    const firstBytes = responseText.substring(0, 10)
-                    console.log(`[v0] Perfil - First bytes:`, firstBytes)
-                    console.log(
-                      `[v0] Perfil - First byte codes:`,
-                      Array.from(firstBytes).map((c) => c.charCodeAt(0)),
-                    )
 
                     const isImage =
                       contentType?.includes("image/") ||
@@ -185,13 +185,12 @@ export default function PerfilPage() {
 
                     if (isImage) {
                       console.log(`[v0] Perfil - Detected image file, using URI directly as image URL`)
-                      // This is an image file, not JSON metadata
-                      // Use the URI directly as the image URL
                       return {
                         ...moment,
                         imageUrl: metadataUrl,
-                        title: moment.title || `NFT #${moment.tokenId}`,
-                        description: moment.description || "Digital collectible from Feria Nounish",
+                        title: knownToken?.name || moment.title || `NFT #${moment.tokenId}`,
+                        description:
+                          knownToken?.description || moment.description || "Digital collectible from Feria Nounish",
                       }
                     }
 
@@ -210,41 +209,43 @@ export default function PerfilPage() {
                       return {
                         ...moment,
                         imageUrl: imageUrl || "/placeholder.svg",
-                        title: metadata.name || `Token #${moment.tokenId}`,
-                        description: metadata.description || "",
+                        title: metadata.name || knownToken?.name || `Token #${moment.tokenId}`,
+                        description: metadata.description || knownToken?.description || "",
                       }
                     } catch (parseError) {
                       console.error(`[v0] Perfil - JSON parse error:`, parseError)
-                      console.log(`[v0] Perfil - This appears to be an image file, not JSON metadata`)
-
                       return {
                         ...moment,
                         imageUrl: metadataUrl,
-                        title: `Token #${moment.tokenId}`,
-                        description: "NFT from Feria Nounish",
-                        metadataError: `JSON.parse: ${parseError instanceof Error ? parseError.message : "Unknown error"}. Response was: ${responseText.substring(0, 200)}`,
+                        title: knownToken?.name || `Token #${moment.tokenId}`,
+                        description: knownToken?.description || "NFT from Feria Nounish",
+                        metadataError: knownToken
+                          ? undefined
+                          : `JSON.parse: ${parseError instanceof Error ? parseError.message : "Unknown error"}. Response was: ${responseText.substring(0, 200)}`,
                       }
                     }
                   }
                 }
 
-                // Fallback if metadata fetch fails
                 console.log(`[v0] Perfil - Using fallback for token ${moment.tokenId}`)
                 return {
                   ...moment,
                   imageUrl: convertToGatewayUrl(moment.uri),
-                  title: `Token #${moment.tokenId}`,
-                  description: "NFT from Feria Nounish",
-                  metadataError: "Failed to fetch metadata",
+                  title: knownToken?.name || `Token #${moment.tokenId}`,
+                  description: knownToken?.description || "NFT from Feria Nounish",
+                  metadataError: knownToken ? undefined : "Failed to fetch metadata",
                 }
               } catch (error) {
                 console.error(`[v0] Perfil - Error fetching metadata for token ${moment.tokenId}:`, error)
+                const tokenKey = `${moment.address.toLowerCase()}-${moment.tokenId}`
+                const knownToken = knownTokens[tokenKey]
+
                 return {
                   ...moment,
                   imageUrl: convertToGatewayUrl(moment.uri),
-                  title: `Token #${moment.tokenId}`,
-                  description: "NFT from Feria Nounish",
-                  metadataError: error instanceof Error ? error.message : "Unknown error",
+                  title: knownToken?.name || `Token #${moment.tokenId}`,
+                  description: knownToken?.description || "NFT from Feria Nounish",
+                  metadataError: knownToken ? undefined : error instanceof Error ? error.message : "Unknown error",
                 }
               }
             }),
