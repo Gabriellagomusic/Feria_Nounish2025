@@ -77,6 +77,7 @@ export async function fetchTokenMetadata(contractAddress: string, tokenId: strin
 
     const metadataResponse = await fetch(metadataUrl)
     console.log("[v0] Metadata - Fetch response status:", metadataResponse.status)
+    console.log("[v0] Metadata - Response headers:", Object.fromEntries(metadataResponse.headers.entries()))
 
     if (!metadataResponse.ok) {
       console.error("[v0] Metadata - Bad response:", metadataResponse.status, metadataResponse.statusText)
@@ -88,8 +89,56 @@ export async function fetchTokenMetadata(contractAddress: string, tokenId: strin
       }
     }
 
-    const metadata = await metadataResponse.json()
-    console.log("[v0] Metadata - Parsed metadata:", metadata)
+    const contentType = metadataResponse.headers.get("content-type") || ""
+    console.log("[v0] Metadata - Content-Type:", contentType)
+
+    if (contentType.startsWith("image/")) {
+      console.log("[v0] Metadata - Response is an image, using URL as image source")
+      return {
+        name: `Token #${tokenId}`,
+        description: "NFT from Feria Nounish",
+        image: metadataUrl,
+        error: "Metadata URI points to image instead of JSON",
+      }
+    }
+
+    const responseText = await metadataResponse.text()
+    console.log("[v0] Metadata - Response text (first 500 chars):", responseText.substring(0, 500))
+
+    let metadata
+    try {
+      metadata = JSON.parse(responseText)
+      console.log("[v0] Metadata - Parsed metadata:", metadata)
+    } catch (parseError) {
+      console.error("[v0] Metadata - JSON parse failed:", parseError)
+      console.log(
+        "[v0] Metadata - Response text char codes (first 50):",
+        Array.from(responseText.substring(0, 50))
+          .map((c) => c.charCodeAt(0))
+          .join(","),
+      )
+
+      if (
+        responseText.charCodeAt(0) === 0xff ||
+        responseText.charCodeAt(0) === 0x89 ||
+        responseText.startsWith("\uFFFD")
+      ) {
+        console.log("[v0] Metadata - Response appears to be binary image data")
+        return {
+          name: `Token #${tokenId}`,
+          description: "NFT from Feria Nounish",
+          image: metadataUrl,
+          error: `Failed to parse metadata JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}. Response was: ${responseText.substring(0, 100)}`,
+        }
+      }
+
+      return {
+        name: `Token #${tokenId}`,
+        description: "Failed to parse metadata JSON",
+        image: "",
+        error: `JSON.parse failed: ${parseError instanceof Error ? parseError.message : String(parseError)}. Response was: ${responseText.substring(0, 100)}`,
+      }
+    }
 
     let imageUrl = metadata.image
     if (imageUrl?.startsWith("ipfs://")) {
