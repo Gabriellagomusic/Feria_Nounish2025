@@ -8,7 +8,7 @@ const publicClient = createPublicClient({
 
 const ERC1155_ABI = [
   {
-    inputs: [{ name: "tokenId", type: "uint256" }],
+    inputs: [{ name: "id", type: "uint256" }],
     name: "uri",
     outputs: [{ name: "", type: "string" }],
     stateMutability: "view",
@@ -36,130 +36,78 @@ export async function fetchTokenMetadata(contractAddress: string, tokenId: strin
   try {
     console.log("[v0] Metadata - Starting fetch for token:", tokenId, "contract:", contractAddress)
 
-    // Call the contract's uri() function to get the metadata URI
-    let metadataUri: string
+    let tokenURI: string
     try {
-      metadataUri = (await publicClient.readContract({
+      tokenURI = (await publicClient.readContract({
         address: contractAddress as `0x${string}`,
         abi: ERC1155_ABI,
         functionName: "uri",
         args: [BigInt(tokenId)],
       })) as string
-      console.log("[v0] Metadata - URI from contract:", metadataUri)
+      console.log("[v0] Metadata - Token URI from contract:", tokenURI)
     } catch (contractError) {
       console.error("[v0] Metadata - Contract call failed:", contractError)
       return {
-        name: "Contract Error",
-        description: `Failed to call uri() function: ${contractError instanceof Error ? contractError.message : String(contractError)}`,
+        name: `Token #${tokenId}`,
+        description: "Failed to fetch metadata from contract",
         image: "",
         error: `Contract call failed: ${contractError instanceof Error ? contractError.message : String(contractError)}`,
       }
     }
 
-    if (!metadataUri || metadataUri.trim() === "") {
+    if (!tokenURI || tokenURI.trim() === "") {
       console.error("[v0] Metadata - Empty URI returned from contract")
       return {
-        name: "Empty URI",
+        name: `Token #${tokenId}`,
         description: "Contract returned an empty metadata URI",
         image: "",
         error: "Empty URI from contract",
       }
     }
 
-    // Convert IPFS/Arweave URIs to gateway URLs
-    const gatewayUrl = convertToGatewayUrl(metadataUri)
-    console.log("[v0] Metadata - Gateway URL:", gatewayUrl)
+    let metadataUrl = tokenURI.replace("{id}", tokenId)
 
-    // Fetch the metadata JSON
-    let response: Response
-    try {
-      response = await fetch(gatewayUrl)
-      console.log("[v0] Metadata - Fetch response status:", response.status)
-      console.log("[v0] Metadata - Response headers:")
-      response.headers.forEach((value, key) => {
-        console.log(`  ${key}: ${value}`)
-      })
-    } catch (fetchError) {
-      console.error("[v0] Metadata - Fetch failed:", fetchError)
-      return {
-        name: "Fetch Error",
-        description: `Failed to fetch metadata: ${fetchError instanceof Error ? fetchError.message : String(fetchError)}`,
-        image: "",
-        error: `Fetch failed: ${fetchError instanceof Error ? fetchError.message : String(fetchError)}`,
-      }
+    if (metadataUrl.startsWith("ar://")) {
+      metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
+    } else if (metadataUrl.startsWith("ipfs://")) {
+      metadataUrl = metadataUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
     }
 
-    if (!response.ok) {
-      console.error("[v0] Metadata - Bad response:", response.status, response.statusText)
-      return {
-        name: "HTTP Error",
-        description: `HTTP ${response.status}: ${response.statusText}`,
-        image: "",
-        error: `HTTP ${response.status}: ${response.statusText}`,
-      }
-    }
+    console.log("[v0] Metadata - Final metadata URL:", metadataUrl)
 
-    const contentType = response.headers.get("content-type") || ""
-    console.log("[v0] Metadata - Content-Type:", contentType)
+    const metadataResponse = await fetch(metadataUrl)
+    console.log("[v0] Metadata - Fetch response status:", metadataResponse.status)
 
-    if (contentType.startsWith("image/")) {
-      console.log("[v0] Metadata - URI points directly to an image, using it as the image URL")
+    if (!metadataResponse.ok) {
+      console.error("[v0] Metadata - Bad response:", metadataResponse.status, metadataResponse.statusText)
       return {
         name: `Token #${tokenId}`,
-        description: "NFT from Feria Nounish",
-        image: gatewayUrl,
-      }
-    }
-
-    let text: string
-    try {
-      text = await response.text()
-      console.log("[v0] Metadata - Response text length:", text.length)
-      console.log("[v0] Metadata - First 200 chars:", text.substring(0, 200))
-    } catch (textError) {
-      console.error("[v0] Metadata - Failed to read response text:", textError)
-      return {
-        name: "Read Error",
-        description: `Failed to read response: ${textError instanceof Error ? textError.message : String(textError)}`,
+        description: `HTTP ${metadataResponse.status}: ${metadataResponse.statusText}`,
         image: "",
-        error: `Failed to read response: ${textError instanceof Error ? textError.message : String(textError)}`,
+        error: `HTTP ${metadataResponse.status}: ${metadataResponse.statusText}`,
       }
     }
 
-    const firstChar = text.charCodeAt(0)
-    if (firstChar === 0xff || firstChar === 0x89 || firstChar === 0x47 || text.startsWith("����")) {
-      console.log("[v0] Metadata - Response appears to be binary image data, using URI as image URL")
-      return {
-        name: `Token #${tokenId}`,
-        description: "NFT from Feria Nounish",
-        image: gatewayUrl,
-      }
-    }
+    const metadata = await metadataResponse.json()
+    console.log("[v0] Metadata - Parsed metadata:", metadata)
 
-    // Try to parse as JSON
-    let metadata: any
-    try {
-      metadata = JSON.parse(text)
-      console.log("[v0] Metadata - Parsed successfully:", metadata)
-    } catch (parseError) {
-      console.error("[v0] Metadata - JSON parse failed, treating URI as direct image link")
-      return {
-        name: `Token #${tokenId}`,
-        description: "NFT from Feria Nounish",
-        image: gatewayUrl,
-      }
+    let imageUrl = metadata.image
+    if (imageUrl?.startsWith("ipfs://")) {
+      imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+    } else if (imageUrl?.startsWith("ar://")) {
+      imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
     }
 
     return {
       name: metadata.name || `Token #${tokenId}`,
       description: metadata.description || "NFT from Feria Nounish",
-      image: convertToGatewayUrl(metadata.image || gatewayUrl),
+      image: imageUrl || "/placeholder.svg",
     }
   } catch (error) {
     console.error("[v0] Metadata - Unexpected error:", error)
     return {
-      name: "Unknown Error",
-      description: `Unexpected error: ${error instanceof Error ? error.message : String(error)}`,
+      name: `Token #${tokenId}`,
+      description: "Failed to fetch metadata",
       image: "",
       error: `Unexpected error: ${error instanceof Error ? error.message : String(error)}`,
     }
