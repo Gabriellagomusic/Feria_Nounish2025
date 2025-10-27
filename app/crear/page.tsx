@@ -123,7 +123,7 @@ export default function CrearPage() {
 
   return (
     <div className="min-h-screen relative overflow-hidden">
-      <div className="absolute inset-0 z-0">
+      <div className="absolute inset-0 z-0 bg-fixed-parallax">
         <Image src="/images/fondo-crear-nuevo.png" alt="Fondo" fill className="object-cover" priority />
       </div>
 

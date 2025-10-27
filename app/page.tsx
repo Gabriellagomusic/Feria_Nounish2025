@@ -60,7 +60,9 @@ export default function Home() {
 
   return (
     <div className="min-h-screen relative overflow-hidden">
-      <Image src="/images/fondolanding.png" alt="Background" fill className="object-cover" priority unoptimized />
+      <div className="absolute inset-0 z-0 bg-fixed-parallax">
+        <Image src="/images/fondolanding.png" alt="Background" fill className="object-cover" priority unoptimized />
+      </div>
 
       <div className="absolute top-4 right-4 z-20">
         <Link href="/perfil">
