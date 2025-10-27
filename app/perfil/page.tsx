@@ -29,6 +29,24 @@ export default function PerfilPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  useEffect(() => {
+    console.log("[v0] PerfilPage - Component mounted")
+    console.log("[v0] PerfilPage - Initial state:", {
+      address,
+      isConnected,
+      isLoading,
+    })
+  }, [])
+
+  useEffect(() => {
+    console.log("[v0] PerfilPage - Account state changed:", {
+      address,
+      isConnected,
+      addressType: typeof address,
+      addressValue: address,
+    })
+  }, [address, isConnected])
+
   const convertToGatewayUrl = (uri: string): string => {
     if (uri.startsWith("ar://")) {
       return uri.replace("ar://", "https://arweave.net/")
@@ -39,20 +57,32 @@ export default function PerfilPage() {
   }
 
   useEffect(() => {
+    console.log("[v0] PerfilPage - Main useEffect triggered")
+    console.log("[v0] PerfilPage - Address:", address)
+    console.log("[v0] PerfilPage - isConnected:", isConnected)
+
     if (!address) {
+      console.log("[v0] PerfilPage - No address, setting loading to false")
       setIsLoading(false)
       return
     }
 
+    console.log("[v0] PerfilPage - Starting fetchData for address:", address)
+
     const fetchData = async () => {
       try {
+        console.log("[v0] PerfilPage - fetchData started")
         setIsLoading(true)
         setError(null)
 
+        console.log("[v0] PerfilPage - Fetching profile pic...")
         const picUrl = await getFarcasterProfilePic(address)
+        console.log("[v0] PerfilPage - Profile pic URL:", picUrl)
         setProfilePicUrl(picUrl)
 
+        console.log("[v0] PerfilPage - Fetching display name...")
         const displayName = await getDisplayName(address)
+        console.log("[v0] PerfilPage - Display name:", displayName)
         setUserName(displayName)
 
         console.log("[v0] Perfil - Fetching timeline for address:", address)
@@ -76,6 +106,7 @@ export default function PerfilPage() {
             })
           })
 
+          console.log("[v0] PerfilPage - Starting metadata fetch for", filteredMoments.length, "moments")
           const momentsWithMetadata = await Promise.all(
             filteredMoments.map(async (moment) => {
               console.log(`[v0] Perfil - Fetching metadata for moment ${moment.tokenId} at contract ${moment.address}`)
@@ -114,6 +145,7 @@ export default function PerfilPage() {
         setError(errorMsg)
         setMoments([])
       } finally {
+        console.log("[v0] PerfilPage - fetchData completed, setting loading to false")
         setIsLoading(false)
       }
     }
@@ -124,6 +156,14 @@ export default function PerfilPage() {
   const handleAddToGallery = async (moment: MomentWithImage) => {
     alert(`Agregar ${moment.title} a la galería (funcionalidad pendiente)`)
   }
+
+  console.log("[v0] PerfilPage - Render state:", {
+    address,
+    isConnected,
+    isLoading,
+    momentsCount: moments.length,
+    error,
+  })
 
   return (
     <div className="min-h-screen relative overflow-hidden">
