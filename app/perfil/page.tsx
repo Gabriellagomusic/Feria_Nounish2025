@@ -18,6 +18,16 @@ interface MomentWithImage extends Moment {
   title: string
   description?: string
   metadataError?: string
+  debugInfo?: {
+    apiUri: string
+    contractUri?: string
+    fetchedUrl: string
+    responseStatus?: number
+    contentType?: string
+    isDirectImage: boolean
+    parseError?: string
+    rawResponse?: string
+  }
 }
 
 interface DebugInfo {
@@ -173,6 +183,12 @@ export default function PerfilPage() {
                 data: {} as any,
               }
 
+              const tokenDebugInfo: MomentWithImage["debugInfo"] = {
+                apiUri: moment.uri,
+                fetchedUrl: "",
+                isDirectImage: false,
+              }
+
               try {
                 console.log(`[v0] Processing token ${moment.tokenId} at ${moment.address}`)
                 logEntry.step = "Reading contract URI"
@@ -189,6 +205,7 @@ export default function PerfilPage() {
                 console.log(`[v0] Token URI from contract:`, tokenURI)
                 logEntry.step = "Got URI from contract"
                 logEntry.data.rawURI = tokenURI
+                tokenDebugInfo.contractUri = tokenURI
 
                 if (tokenURI) {
                   let metadataUrl = tokenURI.replace("{id}", moment.tokenId.toString())
@@ -200,11 +217,15 @@ export default function PerfilPage() {
                   console.log(`[v0] Fetching metadata from:`, metadataUrl)
                   logEntry.step = "Fetching metadata"
                   logEntry.data.metadataUrl = metadataUrl
+                  tokenDebugInfo.fetchedUrl = metadataUrl
 
                   const metadataResponse = await fetch(metadataUrl)
                   console.log(`[v0] Metadata response status:`, metadataResponse.status)
                   logEntry.data.responseStatus = metadataResponse.status
                   logEntry.data.responseHeaders = Object.fromEntries(metadataResponse.headers.entries())
+
+                  tokenDebugInfo.responseStatus = metadataResponse.status
+                  tokenDebugInfo.contentType = metadataResponse.headers.get("content-type") || undefined
 
                   if (metadataResponse.ok) {
                     const contentType = metadataResponse.headers.get("content-type")
@@ -214,18 +235,21 @@ export default function PerfilPage() {
                       logEntry.step = "Direct image URL"
                       logEntry.data.result = "Using metadata URL as image"
                       newDebugInfo.metadataFetchLogs.push(logEntry)
+                      tokenDebugInfo.isDirectImage = true
 
                       return {
                         ...moment,
                         imageUrl: metadataUrl,
                         title: moment.title || `NFT #${moment.tokenId}`,
                         description: moment.description || "Digital collectible from Feria Nounish",
+                        debugInfo: tokenDebugInfo,
                       }
                     }
 
                     const responseText = await metadataResponse.text()
                     console.log(`[v0] Response text (first 200 chars):`, responseText.substring(0, 200))
-                    logEntry.data.responsePreview = responseText.substring(0, 200)
+                    logEntry.data.responsePreview = responseText.substring(0, 500)
+                    tokenDebugInfo.rawResponse = responseText.substring(0, 500)
 
                     const isJPEG =
                       responseText.includes("JFIF") ||
@@ -237,12 +261,14 @@ export default function PerfilPage() {
                       logEntry.step = "Binary image detected"
                       logEntry.data.result = "Using metadata URL as image (binary)"
                       newDebugInfo.metadataFetchLogs.push(logEntry)
+                      tokenDebugInfo.isDirectImage = true
 
                       return {
                         ...moment,
                         imageUrl: metadataUrl,
                         title: moment.title || `NFT #${moment.tokenId}`,
                         description: moment.description || "Digital collectible from Feria Nounish",
+                        debugInfo: tokenDebugInfo,
                       }
                     }
 
@@ -267,18 +293,21 @@ export default function PerfilPage() {
                         imageUrl: imageUrl || "/placeholder.svg",
                         title: metadata.name || `Token #${moment.tokenId}`,
                         description: metadata.description || "",
+                        debugInfo: tokenDebugInfo,
                       }
                     } catch (parseError) {
                       console.error(`[v0] JSON parse error:`, parseError)
                       logEntry.step = "JSON parse failed"
                       logEntry.data.parseError = parseError instanceof Error ? parseError.message : String(parseError)
                       newDebugInfo.metadataFetchLogs.push(logEntry)
+                      tokenDebugInfo.parseError = parseError instanceof Error ? parseError.message : String(parseError)
 
                       return {
                         ...moment,
                         imageUrl: metadataUrl,
                         title: moment.title || `NFT #${moment.tokenId}`,
                         description: moment.description || "Digital collectible from Feria Nounish",
+                        debugInfo: tokenDebugInfo,
                       }
                     }
                   }
@@ -294,6 +323,7 @@ export default function PerfilPage() {
                   title: `Token #${moment.tokenId}`,
                   description: "NFT from Feria Nounish",
                   metadataError: "Failed to fetch metadata",
+                  debugInfo: tokenDebugInfo,
                 }
               } catch (error) {
                 console.error(`[v0] Error fetching metadata for token ${moment.tokenId}:`, error)
@@ -307,6 +337,7 @@ export default function PerfilPage() {
                   title: `Token #${moment.tokenId}`,
                   description: "NFT from Feria Nounish",
                   metadataError: error instanceof Error ? error.message : "Unknown error",
+                  debugInfo: tokenDebugInfo,
                 }
               }
             }),
@@ -490,6 +521,78 @@ export default function PerfilPage() {
                           <p className="text-xs text-gray-700 font-mono break-all mb-1">{moment.address}</p>
                           <p className="text-xs text-gray-700 font-mono">Token ID: {moment.tokenId}</p>
                         </div>
+
+                        {moment.debugInfo && (
+                          <details className="mb-4 p-3 bg-blue-50 border border-blue-300 rounded text-xs">
+                            <summary className="font-semibold text-blue-800 cursor-pointer">
+                              🔍 Token Debug Info (Click to expand)
+                            </summary>
+                            <div className="mt-3 space-y-2 font-mono">
+                              <div className="bg-white p-2 rounded border border-blue-200">
+                                <p className="font-semibold text-blue-900 mb-1">URI from API:</p>
+                                <p className="text-blue-700 break-all">{moment.debugInfo.apiUri}</p>
+                              </div>
+
+                              {moment.debugInfo.contractUri && (
+                                <div className="bg-white p-2 rounded border border-blue-200">
+                                  <p className="font-semibold text-blue-900 mb-1">URI from Contract:</p>
+                                  <p className="text-blue-700 break-all">{moment.debugInfo.contractUri}</p>
+                                </div>
+                              )}
+
+                              <div className="bg-white p-2 rounded border border-blue-200">
+                                <p className="font-semibold text-blue-900 mb-1">Fetched URL:</p>
+                                <p className="text-blue-700 break-all">{moment.debugInfo.fetchedUrl}</p>
+                              </div>
+
+                              {moment.debugInfo.responseStatus && (
+                                <div className="bg-white p-2 rounded border border-blue-200">
+                                  <p className="font-semibold text-blue-900 mb-1">Response Status:</p>
+                                  <p className="text-blue-700">{moment.debugInfo.responseStatus}</p>
+                                </div>
+                              )}
+
+                              {moment.debugInfo.contentType && (
+                                <div className="bg-white p-2 rounded border border-blue-200">
+                                  <p className="font-semibold text-blue-900 mb-1">Content-Type:</p>
+                                  <p className="text-blue-700">{moment.debugInfo.contentType}</p>
+                                </div>
+                              )}
+
+                              <div className="bg-white p-2 rounded border border-blue-200">
+                                <p className="font-semibold text-blue-900 mb-1">Is Direct Image:</p>
+                                <p className={moment.debugInfo.isDirectImage ? "text-green-700" : "text-red-700"}>
+                                  {moment.debugInfo.isDirectImage
+                                    ? "✓ Yes - URI points to image file"
+                                    : "✗ No - Expected JSON metadata"}
+                                </p>
+                              </div>
+
+                              {moment.debugInfo.parseError && (
+                                <div className="bg-red-50 p-2 rounded border border-red-300">
+                                  <p className="font-semibold text-red-900 mb-1">Parse Error:</p>
+                                  <p className="text-red-700">{moment.debugInfo.parseError}</p>
+                                </div>
+                              )}
+
+                              {moment.debugInfo.rawResponse && (
+                                <div className="bg-white p-2 rounded border border-blue-200">
+                                  <p className="font-semibold text-blue-900 mb-1">Raw Response (first 500 chars):</p>
+                                  <p className="text-blue-700 break-all text-[10px]">{moment.debugInfo.rawResponse}</p>
+                                </div>
+                              )}
+
+                              <div className="bg-yellow-50 p-2 rounded border border-yellow-300">
+                                <p className="font-semibold text-yellow-900 mb-1">⚠️ Issue:</p>
+                                <p className="text-yellow-800">
+                                  {moment.debugInfo.isDirectImage
+                                    ? "The URI points directly to an image file, not a JSON metadata file. This NFT doesn't have separate metadata (name/description) stored on Arweave."
+                                    : "Expected JSON metadata but got something else. Check the raw response above."}
+                                </p>
+                              </div>
+                            </div>
+                          </details>
+                        )}
 
                         {moment.metadataError && (
                           <details className="mb-4 p-3 bg-yellow-50 border border-yellow-300 rounded text-xs">
