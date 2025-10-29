@@ -10,8 +10,6 @@ import { useAccount } from "wagmi"
 import { getDisplayName, getFarcasterProfilePic } from "@/lib/farcaster"
 import { getNounAvatarUrl } from "@/lib/noun-avatar"
 import { getTimeline, type Moment } from "@/lib/inprocess"
-import { createPublicClient, http } from "viem"
-import { base } from "viem/chains"
 
 interface MomentWithImage extends Moment {
   imageUrl: string
@@ -149,86 +147,71 @@ export default function PerfilPage() {
             address: m.address,
             admin: m.admin,
             username: m.username,
+            uri: m.uri,
           }))
 
           console.log("[v0] Filtered moments count:", filteredMoments.length)
           console.log("[v0] Filtered moments:", JSON.stringify(debug.filteredMoments, null, 2))
 
-          const publicClient = createPublicClient({
-            chain: base,
-            transport: http(),
-          })
-
           const momentsWithMetadata = await Promise.all(
             filteredMoments.map(async (moment, index) => {
               console.log(`[v0] ===== Processing moment ${index + 1}/${filteredMoments.length} =====`)
               console.log(`[v0] Moment ID: ${moment.id}`)
-              console.log(`[v0] Token ID (raw): ${moment.tokenId}`)
-              console.log(`[v0] Token ID (type): ${typeof moment.tokenId}`)
+              console.log(`[v0] Token ID: ${moment.tokenId}`)
               console.log(`[v0] Contract Address: ${moment.address}`)
-              console.log(`[v0] Admin: ${moment.admin}`)
+              console.log(`[v0] URI from API: ${moment.uri}`)
 
               try {
-                console.log(`[v0] Converting tokenId to BigInt: ${moment.tokenId}`)
-                const tokenIdBigInt = BigInt(moment.tokenId)
-                console.log(`[v0] BigInt conversion successful: ${tokenIdBigInt}`)
+                let metadataUrl = moment.uri
 
-                console.log(`[v0] Calling contract.uri() with tokenId: ${tokenIdBigInt}`)
-                const tokenURI = await publicClient.readContract({
-                  address: moment.address as `0x${string}`,
-                  abi: ERC1155_ABI,
-                  functionName: "uri",
-                  args: [tokenIdBigInt],
-                })
+                if (metadataUrl.startsWith("ar://")) {
+                  metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
+                  console.log(`[v0] Converted ar:// to gateway URL: ${metadataUrl}`)
+                } else if (metadataUrl.startsWith("ipfs://")) {
+                  metadataUrl = metadataUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+                  console.log(`[v0] Converted ipfs:// to gateway URL: ${metadataUrl}`)
+                }
 
-                console.log(`[v0] Token URI received: ${tokenURI}`)
+                console.log(`[v0] Fetching metadata from: ${metadataUrl}`)
+                const metadataResponse = await fetch(metadataUrl)
+                console.log(`[v0] Metadata response status: ${metadataResponse.status}`)
+                console.log(`[v0] Metadata response content-type: ${metadataResponse.headers.get("content-type")}`)
 
-                if (tokenURI) {
-                  let metadataUrl = tokenURI.replace("{id}", moment.tokenId)
-                  console.log(`[v0] Metadata URL after {id} replacement: ${metadataUrl}`)
+                if (metadataResponse.ok) {
+                  const responseText = await metadataResponse.text()
+                  console.log(`[v0] Raw response (first 200 chars): ${responseText.substring(0, 200)}`)
 
-                  if (metadataUrl.startsWith("ar://")) {
-                    metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
-                    console.log(`[v0] Converted ar:// to gateway URL: ${metadataUrl}`)
-                  } else if (metadataUrl.startsWith("ipfs://")) {
-                    metadataUrl = metadataUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-                    console.log(`[v0] Converted ipfs:// to gateway URL: ${metadataUrl}`)
+                  const metadata = JSON.parse(responseText)
+                  console.log(`[v0] Metadata received:`, JSON.stringify(metadata, null, 2))
+
+                  let imageUrl = metadata.image
+                  if (imageUrl?.startsWith("ipfs://")) {
+                    imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+                  } else if (imageUrl?.startsWith("ar://")) {
+                    imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
                   }
 
-                  console.log(`[v0] Fetching metadata from: ${metadataUrl}`)
-                  const metadataResponse = await fetch(metadataUrl)
-                  console.log(`[v0] Metadata response status: ${metadataResponse.status}`)
-
-                  if (metadataResponse.ok) {
-                    const metadata = await metadataResponse.json()
-                    console.log(`[v0] Metadata received:`, JSON.stringify(metadata, null, 2))
-
-                    let imageUrl = metadata.image
-                    if (imageUrl?.startsWith("ipfs://")) {
-                      imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-                    } else if (imageUrl?.startsWith("ar://")) {
-                      imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
-                    }
-
-                    const result = {
-                      ...moment,
-                      imageUrl: imageUrl || "/placeholder.svg",
-                      title: metadata.name || `Obra de Arte #${moment.tokenId}`,
-                      description: metadata.description || "Obra de arte digital única",
-                    }
-
-                    console.log(`[v0] Final processed moment:`, {
-                      tokenId: result.tokenId,
-                      title: result.title,
-                      description: result.description,
-                    })
-
-                    return result
-                  } else {
-                    const errorMsg = `Metadata fetch failed with status ${metadataResponse.status}`
-                    console.error(`[v0] ${errorMsg}`)
-                    debug.errors?.push(`Token ${moment.tokenId}: ${errorMsg}`)
+                  const result = {
+                    ...moment,
+                    imageUrl: imageUrl || "/placeholder.svg",
+                    title: metadata.name || `Obra de Arte #${moment.tokenId}`,
+                    description: metadata.description || "Obra de arte digital única",
                   }
+
+                  console.log(`[v0] Final processed moment:`, {
+                    tokenId: result.tokenId,
+                    title: result.title,
+                    description: result.description,
+                  })
+
+                  return result
+                } else {
+                  const errorMsg = `Metadata fetch failed with status ${metadataResponse.status}`
+                  console.error(`[v0] ${errorMsg}`)
+                  debug.errors?.push(`Token ${moment.tokenId}: ${errorMsg}`)
+
+                  const errorText = await metadataResponse.text()
+                  console.error(`[v0] Error response: ${errorText.substring(0, 200)}`)
                 }
 
                 const fallbackResult = {
