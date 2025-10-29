@@ -9,6 +9,12 @@ import Link from "next/link"
 import { getNounAvatarUrl } from "@/lib/noun-avatar"
 import { getFarcasterProfilePic } from "@/lib/farcaster"
 
+type DebugLog = {
+  timestamp: string
+  message: string
+  data?: any
+}
+
 export default function Home() {
   const { setFrameReady, isFrameReady } = useMiniKit()
   const { address, isConnected } = useAccount()
@@ -16,9 +22,17 @@ export default function Home() {
   const [profilePicUrl, setProfilePicUrl] = useState<string | null>(null)
   const [isWhitelisted, setIsWhitelisted] = useState<boolean>(false)
   const [isCheckingWhitelist, setIsCheckingWhitelist] = useState<boolean>(true)
+  const [debugLogs, setDebugLogs] = useState<DebugLog[]>([])
+  const [apiResponse, setApiResponse] = useState<any>(null)
 
   const frameReadyCalledRef = useRef(false)
   const connectAttemptedRef = useRef(false)
+
+  const addDebugLog = (message: string, data?: any) => {
+    const timestamp = new Date().toLocaleTimeString()
+    setDebugLogs((prev) => [...prev, { timestamp, message, data }])
+    console.log(`[v0] ${message}`, data || "")
+  }
 
   useEffect(() => {
     if (!isFrameReady && !frameReadyCalledRef.current) {
@@ -41,23 +55,42 @@ export default function Home() {
 
   useEffect(() => {
     const checkWhitelist = async () => {
+      setDebugLogs([])
+
       if (!address) {
+        addDebugLog("No wallet address connected")
         setIsWhitelisted(false)
         setIsCheckingWhitelist(false)
         return
       }
 
       try {
-        console.log("[v0] Checking whitelist for address:", address)
-        const response = await fetch(`/api/whitelist/check?address=${address}`)
+        addDebugLog("Starting whitelist check", { address })
+        addDebugLog("Normalized address", { normalized: address.toLowerCase() })
+
+        const apiUrl = `/api/whitelist/check?address=${address}`
+        addDebugLog("Calling API", { url: apiUrl })
+
+        const response = await fetch(apiUrl)
+        addDebugLog("API response received", {
+          status: response.status,
+          statusText: response.statusText,
+        })
+
         const data = await response.json()
-        console.log("[v0] Whitelist check result:", data)
-        setIsWhitelisted(data.isWhitelisted || false)
+        setApiResponse(data)
+        addDebugLog("API response data", data)
+
+        const whitelisted = data.isWhitelisted || false
+        setIsWhitelisted(whitelisted)
+        addDebugLog("Whitelist status determined", { isWhitelisted: whitelisted })
       } catch (error) {
+        addDebugLog("Error checking whitelist", { error: String(error) })
         console.error("[v0] Error checking whitelist:", error)
         setIsWhitelisted(false)
       } finally {
         setIsCheckingWhitelist(false)
+        addDebugLog("Whitelist check complete")
       }
     }
 
@@ -93,6 +126,51 @@ export default function Home() {
           backgroundImage: "url(/images/fondolanding.png)",
         }}
       />
+
+      <div className="absolute top-4 left-4 z-30 max-w-md bg-black/80 backdrop-blur-md text-white p-4 rounded-lg text-xs font-mono max-h-[80vh] overflow-y-auto">
+        <h3 className="font-bold mb-2 text-sm">🔍 WHITELIST DEBUG PANEL</h3>
+
+        <div className="mb-3 pb-3 border-b border-white/20">
+          <p className="text-yellow-300 font-semibold">Connection Status:</p>
+          <p>Connected: {isConnected ? "✅ Yes" : "❌ No"}</p>
+          <p>Address: {address || "Not connected"}</p>
+          <p>Normalized: {address ? address.toLowerCase() : "N/A"}</p>
+        </div>
+
+        <div className="mb-3 pb-3 border-b border-white/20">
+          <p className="text-yellow-300 font-semibold">Whitelist Status:</p>
+          <p>Checking: {isCheckingWhitelist ? "⏳ Yes" : "✅ Done"}</p>
+          <p>Is Whitelisted: {isWhitelisted ? "✅ YES" : "❌ NO"}</p>
+        </div>
+
+        {apiResponse && (
+          <div className="mb-3 pb-3 border-b border-white/20">
+            <p className="text-yellow-300 font-semibold">API Response:</p>
+            <pre className="text-xs overflow-x-auto">{JSON.stringify(apiResponse, null, 2)}</pre>
+          </div>
+        )}
+
+        <div>
+          <p className="text-yellow-300 font-semibold mb-2">Debug Logs:</p>
+          {debugLogs.length === 0 ? (
+            <p className="text-gray-400">No logs yet...</p>
+          ) : (
+            <div className="space-y-1">
+              {debugLogs.map((log, index) => (
+                <div key={index} className="text-xs">
+                  <span className="text-gray-400">[{log.timestamp}]</span>{" "}
+                  <span className="text-green-300">{log.message}</span>
+                  {log.data && (
+                    <pre className="ml-4 text-xs overflow-x-auto text-blue-300">
+                      {JSON.stringify(log.data, null, 2)}
+                    </pre>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
 
       {isWhitelisted && (
         <div className="absolute top-4 right-4 z-20">
