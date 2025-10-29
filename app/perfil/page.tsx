@@ -22,17 +22,8 @@ interface DebugInfo {
   filteredMoments?: any[]
   processedMoments?: any[]
   errors?: string[]
+  gatewayInfo?: { uri: string; source?: string }[]
 }
-
-const ERC1155_ABI = [
-  {
-    inputs: [{ name: "id", type: "uint256" }],
-    name: "uri",
-    outputs: [{ name: "", type: "string" }],
-    stateMutability: "view",
-    type: "function",
-  },
-] as const
 
 export default function PerfilPage() {
   const router = useRouter()
@@ -49,30 +40,7 @@ export default function PerfilPage() {
 
   useEffect(() => {
     console.log("[v0] PerfilPage - Component mounted")
-    console.log("[v0] PerfilPage - Initial state:", {
-      address,
-      isConnected,
-      isLoading,
-    })
   }, [])
-
-  useEffect(() => {
-    console.log("[v0] PerfilPage - Account state changed:", {
-      address,
-      isConnected,
-      addressType: typeof address,
-      addressValue: address,
-    })
-  }, [address, isConnected])
-
-  const convertToGatewayUrl = (uri: string): string => {
-    if (uri.startsWith("ar://")) {
-      return uri.replace("ar://", "https://arweave.net/")
-    } else if (uri.startsWith("ipfs://")) {
-      return uri.replace("ipfs://", "https://ipfs.io/ipfs/")
-    }
-    return uri
-  }
 
   useEffect(() => {
     const checkWhitelist = async () => {
@@ -116,7 +84,7 @@ export default function PerfilPage() {
       try {
         setIsLoading(true)
         setError(null)
-        const debug: DebugInfo = { errors: [] }
+        const debug: DebugInfo = { errors: [], gatewayInfo: [] }
 
         console.log("[v0] ===== STARTING PROFILE DATA FETCH =====")
         console.log("[v0] Connected address:", address)
@@ -135,8 +103,6 @@ export default function PerfilPage() {
         console.log("[v0] Total moments from API:", timelineData.moments?.length || 0)
 
         if (timelineData.moments && timelineData.moments.length > 0) {
-          console.log("[v0] First moment from API:", JSON.stringify(timelineData.moments[0], null, 2))
-
           const filteredMoments = timelineData.moments.filter(
             (moment) => moment.admin.toLowerCase() === address.toLowerCase(),
           )
@@ -162,66 +128,52 @@ export default function PerfilPage() {
               console.log(`[v0] URI from API: ${moment.uri}`)
 
               try {
-                let metadataUrl = moment.uri
+                // Use server-side API route to fetch metadata with gateway retries
+                const apiUrl = `/api/token-metadata?uri=${encodeURIComponent(moment.uri)}`
+                console.log(`[v0] Calling metadata API: ${apiUrl}`)
 
-                if (metadataUrl.startsWith("ar://")) {
-                  metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
-                  console.log(`[v0] Converted ar:// to gateway URL: ${metadataUrl}`)
-                } else if (metadataUrl.startsWith("ipfs://")) {
-                  metadataUrl = metadataUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-                  console.log(`[v0] Converted ipfs:// to gateway URL: ${metadataUrl}`)
-                }
+                const response = await fetch(apiUrl)
+                const result = await response.json()
 
-                console.log(`[v0] Fetching metadata from: ${metadataUrl}`)
-                const metadataResponse = await fetch(metadataUrl)
-                console.log(`[v0] Metadata response status: ${metadataResponse.status}`)
-                console.log(`[v0] Metadata response content-type: ${metadataResponse.headers.get("content-type")}`)
+                console.log(`[v0] Metadata API response:`, result)
 
-                if (metadataResponse.ok) {
-                  const responseText = await metadataResponse.text()
-                  console.log(`[v0] Raw response (first 200 chars): ${responseText.substring(0, 200)}`)
+                if (result.ok && result.metadata) {
+                  const metadata = result.metadata
 
-                  const metadata = JSON.parse(responseText)
-                  console.log(`[v0] Metadata received:`, JSON.stringify(metadata, null, 2))
+                  debug.gatewayInfo?.push({
+                    uri: moment.uri,
+                    source: result.source,
+                  })
 
-                  let imageUrl = metadata.image
-                  if (imageUrl?.startsWith("ipfs://")) {
-                    imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-                  } else if (imageUrl?.startsWith("ar://")) {
-                    imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
-                  }
+                  console.log(`[v0] Successfully fetched metadata from: ${result.source}`)
+                  console.log(`[v0] Metadata:`, metadata)
 
-                  const result = {
+                  const processedMoment = {
                     ...moment,
-                    imageUrl: imageUrl || "/placeholder.svg",
-                    title: metadata.name || `Obra de Arte #${moment.tokenId}`,
+                    imageUrl: metadata.image || "/placeholder.svg",
+                    title: metadata.name || metadata.title || `Obra de Arte #${moment.tokenId}`,
                     description: metadata.description || "Obra de arte digital única",
                   }
 
                   console.log(`[v0] Final processed moment:`, {
-                    tokenId: result.tokenId,
-                    title: result.title,
-                    description: result.description,
+                    tokenId: processedMoment.tokenId,
+                    title: processedMoment.title,
+                    description: processedMoment.description,
                   })
 
-                  return result
+                  return processedMoment
                 } else {
-                  const errorMsg = `Metadata fetch failed with status ${metadataResponse.status}`
+                  const errorMsg = `Metadata API failed: ${result.error || "Unknown error"}`
                   console.error(`[v0] ${errorMsg}`)
                   debug.errors?.push(`Token ${moment.tokenId}: ${errorMsg}`)
 
-                  const errorText = await metadataResponse.text()
-                  console.error(`[v0] Error response: ${errorText.substring(0, 200)}`)
+                  return {
+                    ...moment,
+                    imageUrl: "/placeholder.svg",
+                    title: `Obra de Arte #${moment.tokenId}`,
+                    description: "Obra de arte digital única de la colección oficial",
+                  }
                 }
-
-                const fallbackResult = {
-                  ...moment,
-                  imageUrl: convertToGatewayUrl(moment.uri),
-                  title: `Obra de Arte #${moment.tokenId}`,
-                  description: "Obra de arte digital única de la colección oficial",
-                }
-                console.log(`[v0] Using fallback for token ${moment.tokenId}`)
-                return fallbackResult
               } catch (error) {
                 const errorMsg = `Error fetching metadata for token ${moment.tokenId}: ${error}`
                 console.error(`[v0] ${errorMsg}`, error)
@@ -229,7 +181,7 @@ export default function PerfilPage() {
 
                 return {
                   ...moment,
-                  imageUrl: convertToGatewayUrl(moment.uri),
+                  imageUrl: "/placeholder.svg",
                   title: `Obra de Arte #${moment.tokenId}`,
                   description: "Obra de arte digital única de la colección oficial",
                 }
@@ -338,6 +290,13 @@ export default function PerfilPage() {
             {showDebug && (
               <div className="mt-2 bg-black/80 border border-yellow-500 rounded-lg p-4 max-h-96 overflow-auto">
                 <div className="text-white font-mono text-xs space-y-4">
+                  <div>
+                    <h3 className="text-yellow-400 font-bold mb-2">Gateway Information:</h3>
+                    <pre className="whitespace-pre-wrap break-words">
+                      {JSON.stringify(debugInfo.gatewayInfo, null, 2)}
+                    </pre>
+                  </div>
+
                   <div>
                     <h3 className="text-yellow-400 font-bold mb-2">Raw API Response:</h3>
                     <pre className="whitespace-pre-wrap break-words">
