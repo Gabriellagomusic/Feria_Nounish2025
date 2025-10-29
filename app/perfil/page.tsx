@@ -39,6 +39,7 @@ export default function PerfilPage() {
   const [moments, setMoments] = useState<MomentWithImage[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [isWhitelisted, setIsWhitelisted] = useState<boolean | null>(null)
 
   useEffect(() => {
     console.log("[v0] PerfilPage - Component mounted")
@@ -68,56 +69,61 @@ export default function PerfilPage() {
   }
 
   useEffect(() => {
-    console.log("[v0] PerfilPage - Main useEffect triggered")
-    console.log("[v0] PerfilPage - Address:", address)
-    console.log("[v0] PerfilPage - isConnected:", isConnected)
+    const checkWhitelist = async () => {
+      if (!address) {
+        setIsWhitelisted(false)
+        return
+      }
+
+      try {
+        const response = await fetch(`/api/whitelist/check?address=${address}`)
+        const data = await response.json()
+
+        if (!data.isWhitelisted) {
+          alert("No tienes acceso a esta página. Solo artistas autorizados pueden ver su perfil.")
+          router.push("/")
+          return
+        }
+
+        setIsWhitelisted(data.isWhitelisted)
+      } catch (error) {
+        console.error("Error checking whitelist:", error)
+        setIsWhitelisted(false)
+        router.push("/")
+      }
+    }
+
+    checkWhitelist()
+  }, [address, router])
+
+  useEffect(() => {
+    if (isWhitelisted === null || !isWhitelisted) {
+      return
+    }
 
     if (!address) {
-      console.log("[v0] PerfilPage - No address, setting loading to false")
       setIsLoading(false)
       return
     }
 
-    console.log("[v0] PerfilPage - Starting fetchData for address:", address)
-
     const fetchData = async () => {
       try {
-        console.log("[v0] PerfilPage - fetchData started")
         setIsLoading(true)
         setError(null)
 
-        console.log("[v0] PerfilPage - Fetching profile pic...")
         const picUrl = await getFarcasterProfilePic(address)
-        console.log("[v0] PerfilPage - Profile pic URL:", picUrl)
         setProfilePicUrl(picUrl)
 
-        console.log("[v0] PerfilPage - Fetching display name...")
         const displayName = await getDisplayName(address)
-        console.log("[v0] PerfilPage - Display name:", displayName)
         setUserName(displayName)
 
-        console.log("[v0] PerfilPage - Fetching timeline for address:", address)
         const timelineData = await getTimeline(1, 100, true, address, 8453, false)
-        console.log("[v0] PerfilPage - Timeline data received:", timelineData)
-        console.log("[v0] PerfilPage - Number of moments:", timelineData.moments?.length || 0)
 
         if (timelineData.moments && timelineData.moments.length > 0) {
           const filteredMoments = timelineData.moments.filter(
             (moment) => moment.admin.toLowerCase() === address.toLowerCase(),
           )
 
-          console.log("[v0] PerfilPage - Filtered moments (created by user):", filteredMoments.length)
-          filteredMoments.forEach((moment, index) => {
-            console.log(`[v0] PerfilPage - Moment ${index}:`, {
-              id: moment.id,
-              tokenId: moment.tokenId,
-              address: moment.address,
-              admin: moment.admin,
-              uri: moment.uri,
-            })
-          })
-
-          console.log("[v0] PerfilPage - Starting metadata fetch using gallery method")
           const publicClient = createPublicClient({
             chain: base,
             transport: http(),
@@ -126,8 +132,6 @@ export default function PerfilPage() {
           const momentsWithMetadata = await Promise.all(
             filteredMoments.map(async (moment) => {
               try {
-                console.log(`[v0] PerfilPage - Fetching URI for token ${moment.tokenId} at ${moment.address}`)
-
                 const tokenURI = await publicClient.readContract({
                   address: moment.address as `0x${string}`,
                   abi: ERC1155_ABI,
@@ -135,30 +139,19 @@ export default function PerfilPage() {
                   args: [BigInt(moment.tokenId)],
                 })
 
-                console.log(`[v0] PerfilPage - Token URI received:`, tokenURI)
-
                 if (tokenURI) {
-                  // Replace {id} placeholder with actual token ID
                   let metadataUrl = tokenURI.replace("{id}", moment.tokenId.toString())
-                  console.log(`[v0] PerfilPage - After {id} replacement:`, metadataUrl)
 
-                  // Convert ar:// to Arweave gateway URL
                   if (metadataUrl.startsWith("ar://")) {
                     metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
-                    console.log(`[v0] PerfilPage - After ar:// conversion:`, metadataUrl)
                   }
 
-                  console.log(`[v0] PerfilPage - Fetching metadata from:`, metadataUrl)
-
                   const metadataResponse = await fetch(metadataUrl)
-                  console.log(`[v0] PerfilPage - Metadata response status:`, metadataResponse.status)
 
                   if (metadataResponse.ok) {
                     const contentType = metadataResponse.headers.get("content-type")
-                    console.log(`[v0] PerfilPage - Content-Type:`, contentType)
 
                     if (contentType?.includes("image/")) {
-                      console.log(`[v0] PerfilPage - Content-Type indicates image, using URI as image URL`)
                       return {
                         ...moment,
                         imageUrl: metadataUrl,
@@ -168,7 +161,6 @@ export default function PerfilPage() {
                     }
 
                     const responseText = await metadataResponse.text()
-                    console.log(`[v0] PerfilPage - Response text (first 200 chars):`, responseText.substring(0, 200))
 
                     const isJPEG =
                       responseText.includes("JFIF") ||
@@ -177,9 +169,6 @@ export default function PerfilPage() {
                     const isPNG = responseText.startsWith("\x89PNG")
 
                     if (isJPEG || isPNG) {
-                      console.log(
-                        `[v0] PerfilPage - Detected image file (JPEG: ${isJPEG}, PNG: ${isPNG}), using URI as image URL`,
-                      )
                       return {
                         ...moment,
                         imageUrl: metadataUrl,
@@ -190,9 +179,7 @@ export default function PerfilPage() {
 
                     try {
                       const metadata = JSON.parse(responseText)
-                      console.log(`[v0] PerfilPage - Metadata parsed successfully:`, metadata)
 
-                      // Convert image URL to gateway URL if needed
                       let imageUrl = metadata.image
                       if (imageUrl?.startsWith("ipfs://")) {
                         imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
@@ -207,7 +194,6 @@ export default function PerfilPage() {
                         description: metadata.description || "",
                       }
                     } catch (parseError) {
-                      console.error(`[v0] PerfilPage - JSON parse failed, treating as image:`, parseError)
                       return {
                         ...moment,
                         imageUrl: metadataUrl,
@@ -218,8 +204,6 @@ export default function PerfilPage() {
                   }
                 }
 
-                // Fallback if metadata fetch fails
-                console.log(`[v0] PerfilPage - Using fallback for token ${moment.tokenId}`)
                 return {
                   ...moment,
                   imageUrl: convertToGatewayUrl(moment.uri),
@@ -228,7 +212,7 @@ export default function PerfilPage() {
                   metadataError: "Failed to fetch metadata",
                 }
               } catch (error) {
-                console.error(`[v0] PerfilPage - Error fetching metadata for token ${moment.tokenId}:`, error)
+                console.error(`Error fetching metadata for token ${moment.tokenId}:`, error)
                 return {
                   ...moment,
                   imageUrl: convertToGatewayUrl(moment.uri),
@@ -240,43 +224,47 @@ export default function PerfilPage() {
             }),
           )
 
-          console.log("[v0] PerfilPage - Final moments with metadata:", momentsWithMetadata.length)
           setMoments(momentsWithMetadata)
         } else {
-          console.log("[v0] PerfilPage - No moments found in timeline")
           setMoments([])
         }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : "Unknown error"
-        console.error("[v0] PerfilPage - Error in fetchData:", errorMsg, error)
+        console.error("Error in fetchData:", errorMsg, error)
         setError(errorMsg)
         setMoments([])
       } finally {
-        console.log("[v0] PerfilPage - fetchData completed, setting loading to false")
         setIsLoading(false)
       }
     }
 
     fetchData()
-  }, [address, isConnected])
+  }, [address, isConnected, isWhitelisted])
 
   const handleAddToGallery = async (moment: MomentWithImage) => {
     alert(`Agregar ${moment.title} a la galería (funcionalidad pendiente)`)
   }
 
-  console.log("[v0] PerfilPage - Render state:", {
-    address,
-    isConnected,
-    isLoading,
-    momentsCount: moments.length,
-    error,
-  })
+  if (isWhitelisted === null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-white text-lg">Verificando acceso...</p>
+      </div>
+    )
+  }
+
+  if (!isWhitelisted) {
+    return null
+  }
 
   return (
     <div className="min-h-screen relative overflow-hidden">
-      <div className="absolute inset-0 z-0 bg-fixed-parallax">
-        <Image src="/images/fondo-crear-nuevo.png" alt="Fondo" fill className="object-cover" priority unoptimized />
-      </div>
+      <div
+        className="absolute inset-0 z-0 bg-fixed-parallax"
+        style={{
+          backgroundImage: "url(/images/fondo-crear-nuevo.png)",
+        }}
+      />
 
       <div className="relative z-10">
         <header className="p-4">

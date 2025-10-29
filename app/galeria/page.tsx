@@ -186,9 +186,12 @@ export default function GaleriaPage() {
 
   return (
     <div className="min-h-screen relative overflow-hidden">
-      <div className="absolute inset-0 z-0 bg-fixed-parallax">
-        <Image src="/images/fondo-galeria.png" alt="Fondo" fill className="object-cover" priority unoptimized />
-      </div>
+      <div
+        className="absolute inset-0 z-0 bg-fixed-parallax"
+        style={{
+          backgroundImage: "url(/images/fondo-galeria.png)",
+        }}
+      />
 
       <div className="relative z-10">
         <header className="p-4">

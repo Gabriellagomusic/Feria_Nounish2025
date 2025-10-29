@@ -4,7 +4,7 @@ import type React from "react"
 import { Button } from "@/components/ui/button"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { uploadToArweave } from "@/app/actions/upload-to-arweave"
 import { uploadJson } from "@/app/actions/upload-json"
 import { useAccount } from "wagmi"
@@ -17,8 +17,49 @@ export default function CrearPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [tokenName, setTokenName] = useState("")
   const [tokenDescription, setTokenDescription] = useState("")
+  const [isWhitelisted, setIsWhitelisted] = useState<boolean | null>(null)
 
   const { address, isConnected } = useAccount()
+
+  useEffect(() => {
+    const checkWhitelist = async () => {
+      if (!address) {
+        setIsWhitelisted(false)
+        return
+      }
+
+      try {
+        const response = await fetch(`/api/whitelist/check?address=${address}`)
+        const data = await response.json()
+
+        if (!data.isWhitelisted) {
+          alert("No tienes acceso a esta página. Solo artistas autorizados pueden crear NFTs.")
+          router.push("/")
+          return
+        }
+
+        setIsWhitelisted(data.isWhitelisted)
+      } catch (error) {
+        console.error("Error checking whitelist:", error)
+        setIsWhitelisted(false)
+        router.push("/")
+      }
+    }
+
+    checkWhitelist()
+  }, [address, router])
+
+  if (isWhitelisted === null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-white text-lg">Verificando acceso...</p>
+      </div>
+    )
+  }
+
+  if (!isWhitelisted) {
+    return null
+  }
 
   const isFormValid = () => {
     return tokenName.trim() !== "" && tokenDescription.trim() !== "" && selectedFile !== null && isConnected
@@ -123,9 +164,12 @@ export default function CrearPage() {
 
   return (
     <div className="min-h-screen relative overflow-hidden">
-      <div className="absolute inset-0 z-0 bg-fixed-parallax">
-        <Image src="/images/fondo-crear-nuevo.png" alt="Fondo" fill className="object-cover" priority />
-      </div>
+      <div
+        className="absolute inset-0 z-0 bg-fixed-parallax"
+        style={{
+          backgroundImage: "url(/images/fondo-crear-nuevo.png)",
+        }}
+      />
 
       <header className="relative z-20 p-4">
         <button

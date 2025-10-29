@@ -14,6 +14,8 @@ export default function Home() {
   const { address, isConnected } = useAccount()
   const { connect, connectors } = useConnect()
   const [profilePicUrl, setProfilePicUrl] = useState<string | null>(null)
+  const [isWhitelisted, setIsWhitelisted] = useState<boolean>(false)
+  const [isCheckingWhitelist, setIsCheckingWhitelist] = useState<boolean>(true)
 
   const frameReadyCalledRef = useRef(false)
   const connectAttemptedRef = useRef(false)
@@ -38,6 +40,31 @@ export default function Home() {
   }, [isFrameReady, isConnected, connectors, connect])
 
   useEffect(() => {
+    const checkWhitelist = async () => {
+      if (!address) {
+        setIsWhitelisted(false)
+        setIsCheckingWhitelist(false)
+        return
+      }
+
+      try {
+        console.log("[v0] Checking whitelist for address:", address)
+        const response = await fetch(`/api/whitelist/check?address=${address}`)
+        const data = await response.json()
+        console.log("[v0] Whitelist check result:", data)
+        setIsWhitelisted(data.isWhitelisted || false)
+      } catch (error) {
+        console.error("[v0] Error checking whitelist:", error)
+        setIsWhitelisted(false)
+      } finally {
+        setIsCheckingWhitelist(false)
+      }
+    }
+
+    checkWhitelist()
+  }, [address])
+
+  useEffect(() => {
     const fetchProfilePic = async () => {
       if (!address) {
         setProfilePicUrl(null)
@@ -60,28 +87,33 @@ export default function Home() {
 
   return (
     <div className="min-h-screen relative overflow-hidden">
-      <div className="absolute inset-0 z-0 bg-fixed-parallax">
-        <Image src="/images/fondolanding.png" alt="Background" fill className="object-cover" priority unoptimized />
-      </div>
+      <div
+        className="absolute inset-0 z-0 bg-fixed-parallax"
+        style={{
+          backgroundImage: "url(/images/fondolanding.png)",
+        }}
+      />
 
-      <div className="absolute top-4 right-4 z-20">
-        <Link href="/perfil">
-          <button
-            className="flex items-center justify-center w-12 h-12 rounded-full bg-white/20 backdrop-blur-md hover:bg-white/30 transition-all shadow-lg overflow-hidden border-2 border-white/40"
-            aria-label="Ver perfil"
-          >
-            <Image
-              src={
-                profilePicUrl || (address ? getNounAvatarUrl(address) : getNounAvatarUrl("0x0")) || "/placeholder.svg"
-              }
-              alt="Profile"
-              width={48}
-              height={48}
-              className="w-full h-full object-cover"
-            />
-          </button>
-        </Link>
-      </div>
+      {isWhitelisted && (
+        <div className="absolute top-4 right-4 z-20">
+          <Link href="/perfil">
+            <button
+              className="flex items-center justify-center w-12 h-12 rounded-full bg-white/20 backdrop-blur-md hover:bg-white/30 transition-all shadow-lg overflow-hidden border-2 border-white/40"
+              aria-label="Ver perfil"
+            >
+              <Image
+                src={
+                  profilePicUrl || (address ? getNounAvatarUrl(address) : getNounAvatarUrl("0x0")) || "/placeholder.svg"
+                }
+                alt="Profile"
+                width={48}
+                height={48}
+                className="w-full h-full object-cover"
+              />
+            </button>
+          </Link>
+        </div>
+      )}
 
       <div className="relative z-10 flex flex-col items-center justify-center min-h-screen px-4">
         <div className="mb-12">
@@ -95,26 +127,43 @@ export default function Home() {
           />
         </div>
 
-        <div className="flex flex-row gap-4 items-center mb-8">
-          <Link href="/galeria">
-            <Button
-              size="default"
-              className="bg-white text-black hover:bg-gray-100 font-semibold px-6 py-3 text-base min-w-[120px] shadow-lg"
-            >
-              GALERÍA
-            </Button>
-          </Link>
+        {isCheckingWhitelist ? (
+          <div className="flex items-center justify-center mb-8">
+            <p className="text-white text-sm">Verificando acceso...</p>
+          </div>
+        ) : isWhitelisted ? (
+          <div className="flex flex-row gap-4 items-center mb-8">
+            <Link href="/galeria">
+              <Button
+                size="default"
+                className="bg-white text-black hover:bg-gray-100 font-semibold px-6 py-3 text-base min-w-[120px] shadow-lg"
+              >
+                GALERÍA
+              </Button>
+            </Link>
 
-          <Link href="/crear">
-            <Button
-              size="default"
-              className="font-semibold px-6 py-3 text-base min-w-[120px] shadow-lg text-white hover:opacity-90"
-              style={{ backgroundColor: "#FF0B00" }}
-            >
-              CREAR
-            </Button>
-          </Link>
-        </div>
+            <Link href="/crear">
+              <Button
+                size="default"
+                className="font-semibold px-6 py-3 text-base min-w-[120px] shadow-lg text-white hover:opacity-90"
+                style={{ backgroundColor: "#FF0B00" }}
+              >
+                CREAR
+              </Button>
+            </Link>
+          </div>
+        ) : (
+          <div className="flex items-center justify-center mb-8">
+            <Link href="/galeria">
+              <Button
+                size="default"
+                className="bg-white text-black hover:bg-gray-100 font-semibold px-6 py-3 text-base min-w-[120px] shadow-lg"
+              >
+                GALERÍA
+              </Button>
+            </Link>
+          </div>
+        )}
 
         <p className="text-white text-center text-sm md:text-base max-w-2xl px-4">
           ¡DESCUBRE LA COLECCIÓN OFICIAL DE NFTS DE LOS ARTISTAS DE LA FERIA NOUNISH
