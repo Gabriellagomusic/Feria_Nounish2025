@@ -53,6 +53,31 @@ const ERC1155_ABI = [
   },
 ] as const
 
+const KNOWN_TOKENS: Record<
+  string,
+  {
+    name: string
+    description: string
+    artistName: string
+  }
+> = {
+  "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5-1": {
+    name: "Gabriella Go Music NFT",
+    description: "Obra de arte digital única de gabriellagomusic",
+    artistName: "gabriellagomusic",
+  },
+  "0xfaa54c8258b419ab0411da8ddc1985f42f98f59b-1": {
+    name: "Feria Nounish NFT",
+    description: "Obra de arte digital única de ferianounish",
+    artistName: "ferianounish",
+  },
+}
+
+function getKnownTokenMetadata(contractAddress: string, tokenId: string) {
+  const key = `${contractAddress.toLowerCase()}-${tokenId}`
+  return KNOWN_TOKENS[key]
+}
+
 export default function PerfilPage() {
   const router = useRouter()
   const { address, isConnected } = useAccount()
@@ -191,6 +216,27 @@ export default function PerfilPage() {
 
               try {
                 console.log(`[v0] Processing token ${moment.tokenId} at ${moment.address}`)
+
+                const knownMetadata = getKnownTokenMetadata(moment.address, moment.tokenId)
+                if (knownMetadata) {
+                  console.log(`[v0] Using known metadata for ${moment.address}-${moment.tokenId}`)
+                  logEntry.step = "Using hardcoded metadata for known token"
+                  logEntry.data.knownMetadata = knownMetadata
+                  newDebugInfo.metadataFetchLogs.push(logEntry)
+
+                  return {
+                    ...moment,
+                    imageUrl: convertToGatewayUrl(moment.uri),
+                    title: knownMetadata.name,
+                    description: knownMetadata.description,
+                    debugInfo: {
+                      ...tokenDebugInfo,
+                      fetchedUrl: convertToGatewayUrl(moment.uri),
+                      isDirectImage: true,
+                    },
+                  }
+                }
+
                 logEntry.step = "Reading contract URI"
                 logEntry.data.tokenId = moment.tokenId
                 logEntry.data.contractAddress = moment.address
