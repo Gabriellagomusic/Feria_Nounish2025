@@ -61,6 +61,18 @@ const KNOWN_TOKENS: Record<
     artistName: string
   }
 > = {
+  // TokenId 0 mappings
+  "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5-0": {
+    name: "Gabriella Go Music NFT",
+    description: "Obra de arte digital única de gabriellagomusic",
+    artistName: "gabriellagomusic",
+  },
+  "0xfaa54c8258b419ab0411da8ddc1985f42f98f59b-0": {
+    name: "Feria Nounish NFT",
+    description: "Obra de arte digital única de ferianounish",
+    artistName: "ferianounish",
+  },
+  // TokenId 1 mappings (keeping for compatibility)
   "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5-1": {
     name: "Gabriella Go Music NFT",
     description: "Obra de arte digital única de gabriellagomusic",
