@@ -229,7 +229,7 @@ export default function PerfilPage() {
               try {
                 console.log(`[v0] Processing token ${moment.tokenId} at ${moment.address}`)
 
-                const knownToken = getKnownTokenMetadata(moment.address, moment.tokenId)
+                const knownToken = getKnownTokenMetadata(moment.address, "1")
 
                 let artistName: string
                 let title: string
