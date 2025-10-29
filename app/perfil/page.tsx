@@ -10,6 +10,8 @@ import { useAccount } from "wagmi"
 import { getDisplayName, getFarcasterProfilePic } from "@/lib/farcaster"
 import { getNounAvatarUrl } from "@/lib/noun-avatar"
 import { getTimeline, type Moment } from "@/lib/inprocess"
+import { createPublicClient, http } from "viem"
+import { base } from "viem/chains"
 
 interface MomentWithImage extends Moment {
   imageUrl: string
@@ -204,74 +206,95 @@ export default function PerfilPage() {
           newDebugInfo.filteredMoments = filteredMoments
           console.log("[v0] Filtered moments:", filteredMoments)
 
+          const publicClient = createPublicClient({
+            chain: base,
+            transport: http(),
+          })
+
           const momentsWithMetadata = await Promise.all(
             filteredMoments.map(async (moment) => {
               const logEntry = {
-                tokenId: moment.tokenId,
+                tokenId: "1", // Always use tokenId 1
                 contractAddress: moment.address,
                 step: "",
                 data: {} as any,
               }
 
               try {
-                console.log(`[v0] Processing token ${moment.tokenId} at ${moment.address}`)
+                console.log(`[v0] Processing token at ${moment.address} with tokenId 1`)
 
-                // Check for hardcoded metadata first (always use tokenId 1 for lookups)
-                const knownToken = getKnownTokenMetadata(moment.address, "1")
+                // Step 1: Get URI from contract using tokenId 1 (same as galeria)
+                const tokenURI = await publicClient.readContract({
+                  address: moment.address as `0x${string}`,
+                  abi: ERC1155_ABI,
+                  functionName: "uri",
+                  args: [BigInt(1)], // Always use tokenId 1
+                })
 
-                let artistName: string
-                let title: string
-                let description: string
+                logEntry.step = "Got URI from contract"
+                logEntry.data.tokenURI = tokenURI
 
-                if (knownToken) {
-                  // Use hardcoded metadata for known tokens
-                  artistName = knownToken.artistName
-                  title = knownToken.name
-                  description = knownToken.description
+                if (tokenURI) {
+                  // Step 2: Replace {id} with tokenId (same as galeria)
+                  let metadataUrl = tokenURI.replace("{id}", "1")
 
-                  logEntry.step = "Using hardcoded metadata for known token"
-                  logEntry.data = {
-                    knownToken,
-                    contractAddress: moment.address,
-                    tokenId: "1",
+                  // Step 3: Convert ar:// to gateway URL (same as galeria)
+                  if (metadataUrl.startsWith("ar://")) {
+                    metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
                   }
-                } else {
-                  // Use inprocess API data or generate fallback
-                  artistName = moment.username || userName || "Artista Desconocido"
-                  title = `${artistName} - Obra #1`
-                  description = `Obra de arte digital única creada por ${artistName}`
 
-                  logEntry.step = "Using inprocess API data + generated fallback"
-                  logEntry.data = {
-                    inprocessUsername: moment.username,
-                    generatedArtistName: artistName,
-                    generatedTitle: title,
+                  logEntry.data.metadataUrl = metadataUrl
+
+                  // Step 4: Fetch and parse metadata (same as galeria)
+                  const metadataResponse = await fetch(metadataUrl)
+
+                  if (metadataResponse.ok) {
+                    const metadata = await metadataResponse.json()
+
+                    logEntry.step = "Successfully fetched and parsed metadata"
+                    logEntry.data.metadata = metadata
+
+                    // Step 5: Convert image URLs (same as galeria)
+                    let imageUrl = metadata.image
+                    if (imageUrl?.startsWith("ipfs://")) {
+                      imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+                    } else if (imageUrl?.startsWith("ar://")) {
+                      imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+                    }
+
+                    newDebugInfo.metadataFetchLogs.push(logEntry)
+
+                    return {
+                      ...moment,
+                      imageUrl: imageUrl || "/placeholder.svg",
+                      title: metadata.name || `Obra de Arte #1`,
+                      description: metadata.description || "Obra de arte digital única",
+                    }
                   }
                 }
 
-                // Convert URI to gateway URL for image display
-                const imageUrl = convertToGatewayUrl(moment.uri)
-
+                // Fallback if metadata fetch fails (same as galeria)
+                logEntry.step = "Using fallback data"
                 newDebugInfo.metadataFetchLogs.push(logEntry)
 
                 return {
                   ...moment,
-                  imageUrl,
-                  title,
-                  description,
+                  imageUrl: "/placeholder.svg",
+                  title: `Obra de Arte #1`,
+                  description: "Obra de arte digital única de la colección oficial",
                 }
               } catch (error) {
-                console.error(`[v0] Error processing token ${moment.tokenId}:`, error)
+                console.error(`[v0] Error processing token at ${moment.address}:`, error)
                 logEntry.step = "Error occurred"
                 logEntry.data.error = error instanceof Error ? error.message : String(error)
                 newDebugInfo.metadataFetchLogs.push(logEntry)
 
-                // Fallback on error
+                // Fallback on error (same as galeria)
                 return {
                   ...moment,
-                  imageUrl: convertToGatewayUrl(moment.uri),
+                  imageUrl: "/placeholder.svg",
                   title: `Obra de Arte #1`,
-                  description: "Obra de arte digital única",
+                  description: "Obra de arte digital única de la colección oficial",
                   metadataError: error instanceof Error ? error.message : "Unknown error",
                 }
               }
