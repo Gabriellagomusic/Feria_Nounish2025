@@ -10,6 +10,18 @@ import { useAccount } from "wagmi"
 import { getDisplayName, getFarcasterProfilePic } from "@/lib/farcaster"
 import { getNounAvatarUrl } from "@/lib/noun-avatar"
 import { getTimeline, type Moment } from "@/lib/inprocess"
+import { createPublicClient, http } from "viem"
+import { base } from "viem/chains"
+
+const ERC1155_ABI = [
+  {
+    inputs: [{ name: "id", type: "uint256" }],
+    name: "uri",
+    outputs: [{ name: "", type: "string" }],
+    stateMutability: "view",
+    type: "function",
+  },
+] as const
 
 interface MomentWithImage extends Moment {
   imageUrl: string
@@ -22,7 +34,7 @@ interface DebugInfo {
   filteredMoments?: any[]
   processedMoments?: any[]
   errors?: string[]
-  gatewayInfo?: { uri: string; source?: string }[]
+  gatewayInfo?: { uri: string; source?: string; success: boolean }[]
 }
 
 export default function PerfilPage() {
@@ -119,6 +131,11 @@ export default function PerfilPage() {
           console.log("[v0] Filtered moments count:", filteredMoments.length)
           console.log("[v0] Filtered moments:", JSON.stringify(debug.filteredMoments, null, 2))
 
+          const publicClient = createPublicClient({
+            chain: base,
+            transport: http(),
+          })
+
           const momentsWithMetadata: MomentWithImage[] = []
 
           for (let index = 0; index < filteredMoments.length; index++) {
@@ -127,29 +144,30 @@ export default function PerfilPage() {
             console.log(`[v0] Moment ID: ${moment.id}`)
             console.log(`[v0] Token ID: ${moment.tokenId}`)
             console.log(`[v0] Contract Address: ${moment.address}`)
-            console.log(`[v0] URI from API: ${moment.uri}`)
 
             try {
-              let metadataUrl = moment.uri
-              if (metadataUrl.startsWith("ar://")) {
-                metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
-              } else if (metadataUrl.startsWith("ipfs://")) {
-                metadataUrl = metadataUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-              }
+              console.log(`[v0] Calling contract.uri(${moment.tokenId})...`)
+              const tokenURI = await publicClient.readContract({
+                address: moment.address as `0x${string}`,
+                abi: ERC1155_ABI,
+                functionName: "uri",
+                args: [BigInt(moment.tokenId)],
+              })
 
-              console.log(`[v0] Fetching metadata from: ${metadataUrl}`)
+              console.log(`[v0] Contract returned URI: ${tokenURI}`)
 
-              const metadataResponse = await fetch(metadataUrl)
-              console.log(`[v0] Response status: ${metadataResponse.status}`)
-              console.log(`[v0] Response headers:`, Object.fromEntries(metadataResponse.headers.entries()))
+              if (tokenURI) {
+                let metadataUrl = tokenURI.replace("{id}", moment.tokenId)
+                if (metadataUrl.startsWith("ar://")) {
+                  metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
+                }
 
-              if (metadataResponse.ok) {
-                const responseText = await metadataResponse.text()
-                console.log(`[v0] Response text (first 500 chars):`, responseText.substring(0, 500))
+                console.log(`[v0] Fetching metadata from: ${metadataUrl}`)
 
-                try {
-                  const metadata = JSON.parse(responseText)
-                  console.log(`[v0] Successfully parsed metadata:`, metadata)
+                const metadataResponse = await fetch(metadataUrl)
+                if (metadataResponse.ok) {
+                  const metadata = await metadataResponse.json()
+                  console.log(`[v0] Successfully fetched metadata:`, metadata)
 
                   let imageUrl = metadata.image
                   if (imageUrl?.startsWith("ipfs://")) {
@@ -159,8 +177,9 @@ export default function PerfilPage() {
                   }
 
                   debug.gatewayInfo?.push({
-                    uri: moment.uri,
+                    uri: tokenURI,
                     source: metadataUrl,
+                    success: true,
                   })
 
                   const processedMoment: MomentWithImage = {
@@ -176,31 +195,23 @@ export default function PerfilPage() {
                   })
 
                   momentsWithMetadata.push(processedMoment)
-                } catch (parseError) {
-                  console.error(`[v0] JSON parse error:`, parseError)
-                  console.error(`[v0] Full response text:`, responseText)
-                  debug.errors?.push(`Token ${moment.tokenId}: JSON parse failed - ${parseError}`)
-
-                  momentsWithMetadata.push({
-                    ...moment,
-                    imageUrl: "/placeholder.svg",
-                    title: `Obra de Arte #${moment.tokenId}`,
-                    description: "Obra de arte digital única de la colección oficial",
-                  })
+                  continue
                 }
-              } else {
-                console.error(`[v0] Metadata fetch failed with status: ${metadataResponse.status}`)
-                const errorText = await metadataResponse.text()
-                console.error(`[v0] Error response:`, errorText.substring(0, 500))
-                debug.errors?.push(`Token ${moment.tokenId}: HTTP ${metadataResponse.status}`)
-
-                momentsWithMetadata.push({
-                  ...moment,
-                  imageUrl: "/placeholder.svg",
-                  title: `Obra de Arte #${moment.tokenId}`,
-                  description: "Obra de arte digital única de la colección oficial",
-                })
               }
+
+              console.log(`[v0] Using fallback metadata for token ${moment.tokenId}`)
+              debug.gatewayInfo?.push({
+                uri: tokenURI || "unknown",
+                source: "fallback",
+                success: false,
+              })
+
+              momentsWithMetadata.push({
+                ...moment,
+                imageUrl: "/placeholder.svg",
+                title: `Obra de Arte #${moment.tokenId}`,
+                description: "Obra de arte digital única de la colección oficial",
+              })
             } catch (error) {
               const errorMsg = `Error fetching metadata for token ${moment.tokenId}: ${error}`
               console.error(`[v0] ${errorMsg}`, error)
