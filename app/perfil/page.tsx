@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
-import { ArrowLeft, Plus } from "lucide-react"
+import { ArrowLeft, Plus, ChevronDown, ChevronUp } from "lucide-react"
 import { useAccount } from "wagmi"
 import { getDisplayName, getFarcasterProfilePic } from "@/lib/farcaster"
 import { getNounAvatarUrl } from "@/lib/noun-avatar"
@@ -17,6 +17,13 @@ interface MomentWithImage extends Moment {
   imageUrl: string
   title: string
   description?: string
+}
+
+interface DebugInfo {
+  rawApiResponse?: any
+  filteredMoments?: any[]
+  processedMoments?: any[]
+  errors?: string[]
 }
 
 const ERC1155_ABI = [
@@ -39,6 +46,8 @@ export default function PerfilPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isWhitelisted, setIsWhitelisted] = useState<boolean | null>(null)
+  const [debugInfo, setDebugInfo] = useState<DebugInfo>({})
+  const [showDebug, setShowDebug] = useState(false)
 
   useEffect(() => {
     console.log("[v0] PerfilPage - Component mounted")
@@ -109,6 +118,10 @@ export default function PerfilPage() {
       try {
         setIsLoading(true)
         setError(null)
+        const debug: DebugInfo = { errors: [] }
+
+        console.log("[v0] ===== STARTING PROFILE DATA FETCH =====")
+        console.log("[v0] Connected address:", address)
 
         const picUrl = await getFarcasterProfilePic(address)
         setProfilePicUrl(picUrl)
@@ -116,12 +129,30 @@ export default function PerfilPage() {
         const displayName = await getDisplayName(address)
         setUserName(displayName)
 
+        console.log("[v0] Fetching timeline for address:", address)
         const timelineData = await getTimeline(1, 100, true, address, 8453, false)
 
+        debug.rawApiResponse = timelineData
+        console.log("[v0] Raw API Response:", JSON.stringify(timelineData, null, 2))
+        console.log("[v0] Total moments from API:", timelineData.moments?.length || 0)
+
         if (timelineData.moments && timelineData.moments.length > 0) {
+          console.log("[v0] First moment from API:", JSON.stringify(timelineData.moments[0], null, 2))
+
           const filteredMoments = timelineData.moments.filter(
             (moment) => moment.admin.toLowerCase() === address.toLowerCase(),
           )
+
+          debug.filteredMoments = filteredMoments.map((m) => ({
+            id: m.id,
+            tokenId: m.tokenId,
+            address: m.address,
+            admin: m.admin,
+            username: m.username,
+          }))
+
+          console.log("[v0] Filtered moments count:", filteredMoments.length)
+          console.log("[v0] Filtered moments:", JSON.stringify(debug.filteredMoments, null, 2))
 
           const publicClient = createPublicClient({
             chain: base,
@@ -129,26 +160,48 @@ export default function PerfilPage() {
           })
 
           const momentsWithMetadata = await Promise.all(
-            filteredMoments.map(async (moment) => {
+            filteredMoments.map(async (moment, index) => {
+              console.log(`[v0] ===== Processing moment ${index + 1}/${filteredMoments.length} =====`)
+              console.log(`[v0] Moment ID: ${moment.id}`)
+              console.log(`[v0] Token ID (raw): ${moment.tokenId}`)
+              console.log(`[v0] Token ID (type): ${typeof moment.tokenId}`)
+              console.log(`[v0] Contract Address: ${moment.address}`)
+              console.log(`[v0] Admin: ${moment.admin}`)
+
               try {
+                console.log(`[v0] Converting tokenId to BigInt: ${moment.tokenId}`)
+                const tokenIdBigInt = BigInt(moment.tokenId)
+                console.log(`[v0] BigInt conversion successful: ${tokenIdBigInt}`)
+
+                console.log(`[v0] Calling contract.uri() with tokenId: ${tokenIdBigInt}`)
                 const tokenURI = await publicClient.readContract({
                   address: moment.address as `0x${string}`,
                   abi: ERC1155_ABI,
                   functionName: "uri",
-                  args: [BigInt(moment.tokenId)],
+                  args: [tokenIdBigInt],
                 })
+
+                console.log(`[v0] Token URI received: ${tokenURI}`)
 
                 if (tokenURI) {
                   let metadataUrl = tokenURI.replace("{id}", moment.tokenId)
+                  console.log(`[v0] Metadata URL after {id} replacement: ${metadataUrl}`)
+
                   if (metadataUrl.startsWith("ar://")) {
                     metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
+                    console.log(`[v0] Converted ar:// to gateway URL: ${metadataUrl}`)
                   } else if (metadataUrl.startsWith("ipfs://")) {
                     metadataUrl = metadataUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+                    console.log(`[v0] Converted ipfs:// to gateway URL: ${metadataUrl}`)
                   }
 
+                  console.log(`[v0] Fetching metadata from: ${metadataUrl}`)
                   const metadataResponse = await fetch(metadataUrl)
+                  console.log(`[v0] Metadata response status: ${metadataResponse.status}`)
+
                   if (metadataResponse.ok) {
                     const metadata = await metadataResponse.json()
+                    console.log(`[v0] Metadata received:`, JSON.stringify(metadata, null, 2))
 
                     let imageUrl = metadata.image
                     if (imageUrl?.startsWith("ipfs://")) {
@@ -157,23 +210,40 @@ export default function PerfilPage() {
                       imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
                     }
 
-                    return {
+                    const result = {
                       ...moment,
                       imageUrl: imageUrl || "/placeholder.svg",
                       title: metadata.name || `Obra de Arte #${moment.tokenId}`,
                       description: metadata.description || "Obra de arte digital única",
                     }
+
+                    console.log(`[v0] Final processed moment:`, {
+                      tokenId: result.tokenId,
+                      title: result.title,
+                      description: result.description,
+                    })
+
+                    return result
+                  } else {
+                    const errorMsg = `Metadata fetch failed with status ${metadataResponse.status}`
+                    console.error(`[v0] ${errorMsg}`)
+                    debug.errors?.push(`Token ${moment.tokenId}: ${errorMsg}`)
                   }
                 }
 
-                return {
+                const fallbackResult = {
                   ...moment,
                   imageUrl: convertToGatewayUrl(moment.uri),
                   title: `Obra de Arte #${moment.tokenId}`,
                   description: "Obra de arte digital única de la colección oficial",
                 }
+                console.log(`[v0] Using fallback for token ${moment.tokenId}`)
+                return fallbackResult
               } catch (error) {
-                console.error(`Error fetching metadata for token ${moment.tokenId}:`, error)
+                const errorMsg = `Error fetching metadata for token ${moment.tokenId}: ${error}`
+                console.error(`[v0] ${errorMsg}`, error)
+                debug.errors?.push(errorMsg)
+
                 return {
                   ...moment,
                   imageUrl: convertToGatewayUrl(moment.uri),
@@ -184,13 +254,27 @@ export default function PerfilPage() {
             }),
           )
 
+          debug.processedMoments = momentsWithMetadata.map((m) => ({
+            id: m.id,
+            tokenId: m.tokenId,
+            title: m.title,
+            description: m.description,
+            address: m.address,
+          }))
+
+          console.log("[v0] Final processed moments:", JSON.stringify(debug.processedMoments, null, 2))
+          console.log("[v0] ===== PROFILE DATA FETCH COMPLETE =====")
+
+          setDebugInfo(debug)
           setMoments(momentsWithMetadata)
         } else {
+          console.log("[v0] No moments found in timeline")
+          setDebugInfo(debug)
           setMoments([])
         }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : "Unknown error"
-        console.error("Error in fetchData:", errorMsg, error)
+        console.error("[v0] Error in fetchData:", errorMsg, error)
         setError(errorMsg)
         setMoments([])
       } finally {
@@ -257,6 +341,56 @@ export default function PerfilPage() {
             <p className="text-center text-white/70 mt-2 text-sm">
               {isConnected ? `Conectado: ${address?.slice(0, 6)}...${address?.slice(-4)}` : "No conectado"}
             </p>
+          </div>
+
+          <div className="max-w-6xl mx-auto mb-6">
+            <button
+              onClick={() => setShowDebug(!showDebug)}
+              className="w-full bg-yellow-500/20 hover:bg-yellow-500/30 border border-yellow-500 rounded-lg p-4 flex items-center justify-between transition-all"
+            >
+              <span className="text-white font-semibold">🐛 Debug Information</span>
+              {showDebug ? <ChevronUp className="text-white" /> : <ChevronDown className="text-white" />}
+            </button>
+
+            {showDebug && (
+              <div className="mt-2 bg-black/80 border border-yellow-500 rounded-lg p-4 max-h-96 overflow-auto">
+                <div className="text-white font-mono text-xs space-y-4">
+                  <div>
+                    <h3 className="text-yellow-400 font-bold mb-2">Raw API Response:</h3>
+                    <pre className="whitespace-pre-wrap break-words">
+                      {JSON.stringify(debugInfo.rawApiResponse, null, 2)}
+                    </pre>
+                  </div>
+
+                  <div>
+                    <h3 className="text-yellow-400 font-bold mb-2">Filtered Moments:</h3>
+                    <pre className="whitespace-pre-wrap break-words">
+                      {JSON.stringify(debugInfo.filteredMoments, null, 2)}
+                    </pre>
+                  </div>
+
+                  <div>
+                    <h3 className="text-yellow-400 font-bold mb-2">Processed Moments:</h3>
+                    <pre className="whitespace-pre-wrap break-words">
+                      {JSON.stringify(debugInfo.processedMoments, null, 2)}
+                    </pre>
+                  </div>
+
+                  {debugInfo.errors && debugInfo.errors.length > 0 && (
+                    <div>
+                      <h3 className="text-red-400 font-bold mb-2">Errors:</h3>
+                      <ul className="list-disc list-inside">
+                        {debugInfo.errors.map((err, i) => (
+                          <li key={i} className="text-red-300">
+                            {err}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="max-w-6xl mx-auto">
