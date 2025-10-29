@@ -13,6 +13,26 @@ import { getTimeline, type Moment } from "@/lib/inprocess"
 import { createPublicClient, http } from "viem"
 import { base } from "viem/chains"
 
+interface MomentWithImage extends Moment {
+  imageUrl: string
+  title: string
+  description?: string
+  metadataError?: string
+}
+
+interface DebugInfo {
+  rawApiResponse: any
+  filteredMoments: any[]
+  processedMoments: any[]
+  metadataFetchLogs: Array<{
+    tokenId: string
+    contractAddress: string
+    step: string
+    data: any
+    error?: string
+  }>
+}
+
 const ERC1155_ABI = [
   {
     inputs: [{ name: "id", type: "uint256" }],
@@ -22,19 +42,6 @@ const ERC1155_ABI = [
     type: "function",
   },
 ] as const
-
-interface MomentWithImage extends Moment {
-  imageUrl: string
-  title: string
-  description?: string
-}
-
-interface DebugInfo {
-  rawApiResponse?: any
-  filteredMoments?: any[]
-  processedMoments?: any[]
-  errors?: string[]
-}
 
 export default function PerfilPage() {
   const router = useRouter()
@@ -46,12 +53,41 @@ export default function PerfilPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isWhitelisted, setIsWhitelisted] = useState<boolean | null>(null)
-  const [debugInfo, setDebugInfo] = useState<DebugInfo>({})
+
+  const [debugInfo, setDebugInfo] = useState<DebugInfo>({
+    rawApiResponse: null,
+    filteredMoments: [],
+    processedMoments: [],
+    metadataFetchLogs: [],
+  })
   const [showDebug, setShowDebug] = useState(false)
 
   useEffect(() => {
     console.log("[v0] PerfilPage - Component mounted")
+    console.log("[v0] PerfilPage - Initial state:", {
+      address,
+      isConnected,
+      isLoading,
+    })
   }, [])
+
+  useEffect(() => {
+    console.log("[v0] PerfilPage - Account state changed:", {
+      address,
+      isConnected,
+      addressType: typeof address,
+      addressValue: address,
+    })
+  }, [address, isConnected])
+
+  const convertToGatewayUrl = (uri: string): string => {
+    if (uri.startsWith("ar://")) {
+      return uri.replace("ar://", "https://arweave.net/")
+    } else if (uri.startsWith("ipfs://")) {
+      return uri.replace("ipfs://", "https://ipfs.io/ipfs/")
+    }
+    return uri
+  }
 
   useEffect(() => {
     const checkWhitelist = async () => {
@@ -95,9 +131,13 @@ export default function PerfilPage() {
       try {
         setIsLoading(true)
         setError(null)
-        const debug: DebugInfo = { errors: [] }
 
-        console.log("[v0] Fetching profile data for:", address)
+        const newDebugInfo: DebugInfo = {
+          rawApiResponse: null,
+          filteredMoments: [],
+          processedMoments: [],
+          metadataFetchLogs: [],
+        }
 
         const picUrl = await getFarcasterProfilePic(address)
         setProfilePicUrl(picUrl)
@@ -105,96 +145,185 @@ export default function PerfilPage() {
         const displayName = await getDisplayName(address)
         setUserName(displayName)
 
+        console.log("[v0] Fetching timeline for address:", address)
         const timelineData = await getTimeline(1, 100, true, address, 8453, false)
-        debug.rawApiResponse = timelineData
+
+        newDebugInfo.rawApiResponse = timelineData
+        console.log("[v0] Raw API response:", timelineData)
 
         if (timelineData.moments && timelineData.moments.length > 0) {
           const filteredMoments = timelineData.moments.filter(
             (moment) => moment.admin.toLowerCase() === address.toLowerCase(),
           )
 
-          debug.filteredMoments = filteredMoments.map((m) => ({
-            id: m.id,
-            tokenId: m.tokenId,
-            address: m.address,
-          }))
+          newDebugInfo.filteredMoments = filteredMoments
+          console.log("[v0] Filtered moments:", filteredMoments)
 
           const publicClient = createPublicClient({
             chain: base,
             transport: http(),
           })
 
-          const momentsWithMetadata: MomentWithImage[] = []
-
-          for (const moment of filteredMoments) {
-            try {
-              const tokenURI = (await publicClient.readContract({
-                address: moment.address as `0x${string}`,
-                abi: ERC1155_ABI,
-                functionName: "uri",
-                args: [BigInt(moment.tokenId)],
-              })) as string
-
-              let metadataUrl = tokenURI.replace("{id}", moment.tokenId)
-              if (metadataUrl.startsWith("ar://")) {
-                metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
+          const momentsWithMetadata = await Promise.all(
+            filteredMoments.map(async (moment) => {
+              const logEntry = {
+                tokenId: moment.tokenId,
+                contractAddress: moment.address,
+                step: "",
+                data: {} as any,
               }
 
-              const metadataResponse = await fetch(metadataUrl)
-              if (metadataResponse.ok) {
-                const metadata = await metadataResponse.json()
+              try {
+                console.log(`[v0] Processing token ${moment.tokenId} at ${moment.address}`)
+                logEntry.step = "Reading contract URI"
+                logEntry.data.tokenId = moment.tokenId
+                logEntry.data.contractAddress = moment.address
 
-                let imageUrl = metadata.image
-                if (imageUrl?.startsWith("ipfs://")) {
-                  imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-                } else if (imageUrl?.startsWith("ar://")) {
-                  imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+                const tokenURI = await publicClient.readContract({
+                  address: moment.address as `0x${string}`,
+                  abi: ERC1155_ABI,
+                  functionName: "uri",
+                  args: [BigInt(moment.tokenId)],
+                })
+
+                console.log(`[v0] Token URI from contract:`, tokenURI)
+                logEntry.step = "Got URI from contract"
+                logEntry.data.rawURI = tokenURI
+
+                if (tokenURI) {
+                  let metadataUrl = tokenURI.replace("{id}", moment.tokenId.toString())
+
+                  if (metadataUrl.startsWith("ar://")) {
+                    metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
+                  }
+
+                  console.log(`[v0] Fetching metadata from:`, metadataUrl)
+                  logEntry.step = "Fetching metadata"
+                  logEntry.data.metadataUrl = metadataUrl
+
+                  const metadataResponse = await fetch(metadataUrl)
+                  console.log(`[v0] Metadata response status:`, metadataResponse.status)
+                  logEntry.data.responseStatus = metadataResponse.status
+                  logEntry.data.responseHeaders = Object.fromEntries(metadataResponse.headers.entries())
+
+                  if (metadataResponse.ok) {
+                    const contentType = metadataResponse.headers.get("content-type")
+                    console.log(`[v0] Content-Type:`, contentType)
+
+                    if (contentType?.includes("image/")) {
+                      logEntry.step = "Direct image URL"
+                      logEntry.data.result = "Using metadata URL as image"
+                      newDebugInfo.metadataFetchLogs.push(logEntry)
+
+                      return {
+                        ...moment,
+                        imageUrl: metadataUrl,
+                        title: moment.title || `NFT #${moment.tokenId}`,
+                        description: moment.description || "Digital collectible from Feria Nounish",
+                      }
+                    }
+
+                    const responseText = await metadataResponse.text()
+                    console.log(`[v0] Response text (first 200 chars):`, responseText.substring(0, 200))
+                    logEntry.data.responsePreview = responseText.substring(0, 200)
+
+                    const isJPEG =
+                      responseText.includes("JFIF") ||
+                      responseText.includes("EXIF") ||
+                      responseText.startsWith("\xFF\xD8\xFF")
+                    const isPNG = responseText.startsWith("\x89PNG")
+
+                    if (isJPEG || isPNG) {
+                      logEntry.step = "Binary image detected"
+                      logEntry.data.result = "Using metadata URL as image (binary)"
+                      newDebugInfo.metadataFetchLogs.push(logEntry)
+
+                      return {
+                        ...moment,
+                        imageUrl: metadataUrl,
+                        title: moment.title || `NFT #${moment.tokenId}`,
+                        description: moment.description || "Digital collectible from Feria Nounish",
+                      }
+                    }
+
+                    try {
+                      const metadata = JSON.parse(responseText)
+                      console.log(`[v0] Parsed metadata:`, metadata)
+                      logEntry.step = "Successfully parsed JSON"
+                      logEntry.data.metadata = metadata
+
+                      let imageUrl = metadata.image
+                      if (imageUrl?.startsWith("ipfs://")) {
+                        imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+                      } else if (imageUrl?.startsWith("ar://")) {
+                        imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+                      }
+
+                      logEntry.data.finalImageUrl = imageUrl
+                      newDebugInfo.metadataFetchLogs.push(logEntry)
+
+                      return {
+                        ...moment,
+                        imageUrl: imageUrl || "/placeholder.svg",
+                        title: metadata.name || `Token #${moment.tokenId}`,
+                        description: metadata.description || "",
+                      }
+                    } catch (parseError) {
+                      console.error(`[v0] JSON parse error:`, parseError)
+                      logEntry.step = "JSON parse failed"
+                      logEntry.data.parseError = parseError instanceof Error ? parseError.message : String(parseError)
+                      newDebugInfo.metadataFetchLogs.push(logEntry)
+
+                      return {
+                        ...moment,
+                        imageUrl: metadataUrl,
+                        title: moment.title || `NFT #${moment.tokenId}`,
+                        description: moment.description || "Digital collectible from Feria Nounish",
+                      }
+                    }
+                  }
                 }
 
-                momentsWithMetadata.push({
+                logEntry.step = "Fallback - using API URI"
+                logEntry.data.fallbackUri = moment.uri
+                newDebugInfo.metadataFetchLogs.push(logEntry)
+
+                return {
                   ...moment,
-                  imageUrl: imageUrl || "/placeholder.svg",
-                  title: metadata.name || `Obra de Arte #${moment.tokenId}`,
-                  description: metadata.description || "Obra de arte digital única",
-                })
-                continue
+                  imageUrl: convertToGatewayUrl(moment.uri),
+                  title: `Token #${moment.tokenId}`,
+                  description: "NFT from Feria Nounish",
+                  metadataError: "Failed to fetch metadata",
+                }
+              } catch (error) {
+                console.error(`[v0] Error fetching metadata for token ${moment.tokenId}:`, error)
+                logEntry.step = "Error occurred"
+                logEntry.data.error = error instanceof Error ? error.message : String(error)
+                newDebugInfo.metadataFetchLogs.push(logEntry)
+
+                return {
+                  ...moment,
+                  imageUrl: convertToGatewayUrl(moment.uri),
+                  title: `Token #${moment.tokenId}`,
+                  description: "NFT from Feria Nounish",
+                  metadataError: error instanceof Error ? error.message : "Unknown error",
+                }
               }
+            }),
+          )
 
-              momentsWithMetadata.push({
-                ...moment,
-                imageUrl: "/placeholder.svg",
-                title: `Obra de Arte #${moment.tokenId}`,
-                description: "Obra de arte digital única de la colección oficial",
-              })
-            } catch (error) {
-              console.error("[v0] Error processing moment:", error)
-              debug.errors?.push(`Error: ${error}`)
+          newDebugInfo.processedMoments = momentsWithMetadata
+          console.log("[v0] Processed moments with metadata:", momentsWithMetadata)
 
-              momentsWithMetadata.push({
-                ...moment,
-                imageUrl: "/placeholder.svg",
-                title: `Obra de Arte #${moment.tokenId}`,
-                description: "Obra de arte digital única de la colección oficial",
-              })
-            }
-          }
-
-          debug.processedMoments = momentsWithMetadata.map((m) => ({
-            id: m.id,
-            tokenId: m.tokenId,
-            title: m.title,
-            address: m.address,
-          }))
-
-          setDebugInfo(debug)
           setMoments(momentsWithMetadata)
+          setDebugInfo(newDebugInfo)
         } else {
-          setDebugInfo(debug)
           setMoments([])
+          setDebugInfo(newDebugInfo)
         }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : "Unknown error"
-        console.error("[v0] Error in fetchData:", errorMsg)
+        console.error("[v0] Error in fetchData:", errorMsg, error)
         setError(errorMsg)
         setMoments([])
       } finally {
@@ -263,53 +392,59 @@ export default function PerfilPage() {
             </p>
           </div>
 
-          <div className="max-w-6xl mx-auto mb-6">
-            <button
+          <div className="max-w-6xl mx-auto mb-8">
+            <Button
               onClick={() => setShowDebug(!showDebug)}
-              className="w-full bg-yellow-500/20 hover:bg-yellow-500/30 border border-yellow-500 rounded-lg p-4 flex items-center justify-between transition-all"
+              className="w-full bg-yellow-500 hover:bg-yellow-600 text-black font-bold py-3 flex items-center justify-center gap-2"
             >
-              <span className="text-white font-semibold">🐛 Debug Information</span>
-              {showDebug ? <ChevronUp className="text-white" /> : <ChevronDown className="text-white" />}
-            </button>
+              {showDebug ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+              Debug Information
+              {showDebug ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+            </Button>
 
             {showDebug && (
-              <div className="mt-2 bg-black/80 border border-yellow-500 rounded-lg p-4 max-h-96 overflow-auto">
-                <div className="text-white font-mono text-xs space-y-4">
-                  <div>
-                    <h3 className="text-yellow-400 font-bold mb-2">Raw API Response:</h3>
-                    <pre className="whitespace-pre-wrap break-words">
-                      {JSON.stringify(debugInfo.rawApiResponse, null, 2)}
-                    </pre>
-                  </div>
-
-                  <div>
-                    <h3 className="text-yellow-400 font-bold mb-2">Filtered Moments:</h3>
-                    <pre className="whitespace-pre-wrap break-words">
-                      {JSON.stringify(debugInfo.filteredMoments, null, 2)}
-                    </pre>
-                  </div>
-
-                  <div>
-                    <h3 className="text-yellow-400 font-bold mb-2">Processed Moments:</h3>
-                    <pre className="whitespace-pre-wrap break-words">
-                      {JSON.stringify(debugInfo.processedMoments, null, 2)}
-                    </pre>
-                  </div>
-
-                  {debugInfo.errors && debugInfo.errors.length > 0 && (
+              <Card className="mt-4 bg-black/90 border-yellow-500">
+                <CardContent className="p-6 text-white font-mono text-xs max-h-[600px] overflow-y-auto">
+                  <div className="space-y-6">
                     <div>
-                      <h3 className="text-red-400 font-bold mb-2">Errors:</h3>
-                      <ul className="list-disc list-inside">
-                        {debugInfo.errors.map((err, i) => (
-                          <li key={i} className="text-red-300">
-                            {err}
-                          </li>
-                        ))}
-                      </ul>
+                      <h3 className="text-yellow-400 font-bold text-sm mb-2">Raw API Response:</h3>
+                      <pre className="bg-gray-900 p-3 rounded overflow-x-auto">
+                        {JSON.stringify(debugInfo.rawApiResponse, null, 2)}
+                      </pre>
                     </div>
-                  )}
-                </div>
-              </div>
+
+                    <div>
+                      <h3 className="text-yellow-400 font-bold text-sm mb-2">
+                        Filtered Moments ({debugInfo.filteredMoments.length}):
+                      </h3>
+                      <pre className="bg-gray-900 p-3 rounded overflow-x-auto">
+                        {JSON.stringify(debugInfo.filteredMoments, null, 2)}
+                      </pre>
+                    </div>
+
+                    <div>
+                      <h3 className="text-yellow-400 font-bold text-sm mb-2">Metadata Fetch Logs:</h3>
+                      {debugInfo.metadataFetchLogs.map((log, index) => (
+                        <div key={index} className="bg-gray-900 p-3 rounded mb-2">
+                          <p className="text-green-400 font-bold">
+                            Token {log.tokenId} - {log.step}
+                          </p>
+                          <pre className="mt-2 text-xs overflow-x-auto">{JSON.stringify(log.data, null, 2)}</pre>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div>
+                      <h3 className="text-yellow-400 font-bold text-sm mb-2">
+                        Processed Moments ({debugInfo.processedMoments.length}):
+                      </h3>
+                      <pre className="bg-gray-900 p-3 rounded overflow-x-auto">
+                        {JSON.stringify(debugInfo.processedMoments, null, 2)}
+                      </pre>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             )}
           </div>
 
@@ -355,6 +490,26 @@ export default function PerfilPage() {
                           <p className="text-xs text-gray-700 font-mono break-all mb-1">{moment.address}</p>
                           <p className="text-xs text-gray-700 font-mono">Token ID: {moment.tokenId}</p>
                         </div>
+
+                        {moment.metadataError && (
+                          <details className="mb-4 p-3 bg-yellow-50 border border-yellow-300 rounded text-xs">
+                            <summary className="font-semibold text-yellow-800 cursor-pointer">
+                              ⚠️ Metadata Error (Click to expand)
+                            </summary>
+                            <div className="mt-2 space-y-1">
+                              <p className="text-yellow-700 font-mono">{moment.metadataError}</p>
+                              <p className="text-yellow-600">
+                                <span className="font-semibold">Contract:</span> {moment.address}
+                              </p>
+                              <p className="text-yellow-600">
+                                <span className="font-semibold">Token ID:</span> {moment.tokenId}
+                              </p>
+                              <p className="text-yellow-600">
+                                <span className="font-semibold">Chain:</span> Base ({moment.chainId})
+                              </p>
+                            </div>
+                          </details>
+                        )}
 
                         <Button
                           onClick={() => handleAddToGallery(moment)}
