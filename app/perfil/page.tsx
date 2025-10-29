@@ -208,8 +208,8 @@ export default function PerfilPage() {
                 tokenDebugInfo.contractUri = tokenURI
 
                 if (tokenURI) {
+                  // Same as galeria: replace {id} and convert ar:// to gateway URL
                   let metadataUrl = tokenURI.replace("{id}", moment.tokenId.toString())
-
                   if (metadataUrl.startsWith("ar://")) {
                     metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
                   }
@@ -219,100 +219,41 @@ export default function PerfilPage() {
                   logEntry.data.metadataUrl = metadataUrl
                   tokenDebugInfo.fetchedUrl = metadataUrl
 
+                  // Same as galeria: simple fetch and JSON parse
                   const metadataResponse = await fetch(metadataUrl)
                   console.log(`[v0] Metadata response status:`, metadataResponse.status)
-                  logEntry.data.responseStatus = metadataResponse.status
-                  logEntry.data.responseHeaders = Object.fromEntries(metadataResponse.headers.entries())
-
                   tokenDebugInfo.responseStatus = metadataResponse.status
                   tokenDebugInfo.contentType = metadataResponse.headers.get("content-type") || undefined
 
                   if (metadataResponse.ok) {
-                    const contentType = metadataResponse.headers.get("content-type")
-                    console.log(`[v0] Content-Type:`, contentType)
+                    // Same as galeria: directly parse as JSON
+                    const metadata = await metadataResponse.json()
+                    console.log(`[v0] Parsed metadata:`, metadata)
+                    logEntry.step = "Successfully parsed JSON"
+                    logEntry.data.metadata = metadata
 
-                    if (contentType?.includes("image/")) {
-                      logEntry.step = "Direct image URL"
-                      logEntry.data.result = "Using metadata URL as image"
-                      newDebugInfo.metadataFetchLogs.push(logEntry)
-                      tokenDebugInfo.isDirectImage = true
-
-                      return {
-                        ...moment,
-                        imageUrl: metadataUrl,
-                        title: moment.title || `NFT #${moment.tokenId}`,
-                        description: moment.description || "Digital collectible from Feria Nounish",
-                        debugInfo: tokenDebugInfo,
-                      }
+                    // Same as galeria: convert image URLs
+                    let imageUrl = metadata.image
+                    if (imageUrl?.startsWith("ipfs://")) {
+                      imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+                    } else if (imageUrl?.startsWith("ar://")) {
+                      imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
                     }
 
-                    const responseText = await metadataResponse.text()
-                    console.log(`[v0] Response text (first 200 chars):`, responseText.substring(0, 200))
-                    logEntry.data.responsePreview = responseText.substring(0, 500)
-                    tokenDebugInfo.rawResponse = responseText.substring(0, 500)
+                    logEntry.data.finalImageUrl = imageUrl
+                    newDebugInfo.metadataFetchLogs.push(logEntry)
 
-                    const isJPEG =
-                      responseText.includes("JFIF") ||
-                      responseText.includes("EXIF") ||
-                      responseText.startsWith("\xFF\xD8\xFF")
-                    const isPNG = responseText.startsWith("\x89PNG")
-
-                    if (isJPEG || isPNG) {
-                      logEntry.step = "Binary image detected"
-                      logEntry.data.result = "Using metadata URL as image (binary)"
-                      newDebugInfo.metadataFetchLogs.push(logEntry)
-                      tokenDebugInfo.isDirectImage = true
-
-                      return {
-                        ...moment,
-                        imageUrl: metadataUrl,
-                        title: moment.title || `NFT #${moment.tokenId}`,
-                        description: moment.description || "Digital collectible from Feria Nounish",
-                        debugInfo: tokenDebugInfo,
-                      }
-                    }
-
-                    try {
-                      const metadata = JSON.parse(responseText)
-                      console.log(`[v0] Parsed metadata:`, metadata)
-                      logEntry.step = "Successfully parsed JSON"
-                      logEntry.data.metadata = metadata
-
-                      let imageUrl = metadata.image
-                      if (imageUrl?.startsWith("ipfs://")) {
-                        imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-                      } else if (imageUrl?.startsWith("ar://")) {
-                        imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
-                      }
-
-                      logEntry.data.finalImageUrl = imageUrl
-                      newDebugInfo.metadataFetchLogs.push(logEntry)
-
-                      return {
-                        ...moment,
-                        imageUrl: imageUrl || "/placeholder.svg",
-                        title: metadata.name || `Token #${moment.tokenId}`,
-                        description: metadata.description || "",
-                        debugInfo: tokenDebugInfo,
-                      }
-                    } catch (parseError) {
-                      console.error(`[v0] JSON parse error:`, parseError)
-                      logEntry.step = "JSON parse failed"
-                      logEntry.data.parseError = parseError instanceof Error ? parseError.message : String(parseError)
-                      newDebugInfo.metadataFetchLogs.push(logEntry)
-                      tokenDebugInfo.parseError = parseError instanceof Error ? parseError.message : String(parseError)
-
-                      return {
-                        ...moment,
-                        imageUrl: metadataUrl,
-                        title: moment.title || `NFT #${moment.tokenId}`,
-                        description: moment.description || "Digital collectible from Feria Nounish",
-                        debugInfo: tokenDebugInfo,
-                      }
+                    return {
+                      ...moment,
+                      imageUrl: imageUrl || "/placeholder.svg",
+                      title: metadata.name || `Obra de Arte #${moment.tokenId}`,
+                      description: metadata.description || "Obra de arte digital única",
+                      debugInfo: tokenDebugInfo,
                     }
                   }
                 }
 
+                // Fallback if fetch fails
                 logEntry.step = "Fallback - using API URI"
                 logEntry.data.fallbackUri = moment.uri
                 newDebugInfo.metadataFetchLogs.push(logEntry)
@@ -320,8 +261,8 @@ export default function PerfilPage() {
                 return {
                   ...moment,
                   imageUrl: convertToGatewayUrl(moment.uri),
-                  title: `Token #${moment.tokenId}`,
-                  description: "NFT from Feria Nounish",
+                  title: `Obra de Arte #${moment.tokenId}`,
+                  description: "Obra de arte digital única de la colección oficial",
                   metadataError: "Failed to fetch metadata",
                   debugInfo: tokenDebugInfo,
                 }
@@ -331,11 +272,12 @@ export default function PerfilPage() {
                 logEntry.data.error = error instanceof Error ? error.message : String(error)
                 newDebugInfo.metadataFetchLogs.push(logEntry)
 
+                // Same fallback as galeria
                 return {
                   ...moment,
                   imageUrl: convertToGatewayUrl(moment.uri),
-                  title: `Token #${moment.tokenId}`,
-                  description: "NFT from Feria Nounish",
+                  title: `Obra de Arte #${moment.tokenId}`,
+                  description: "Obra de arte digital única de la colección oficial",
                   metadataError: error instanceof Error ? error.message : "Unknown error",
                   debugInfo: tokenDebugInfo,
                 }
