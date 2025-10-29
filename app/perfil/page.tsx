@@ -195,11 +195,6 @@ export default function PerfilPage() {
   }, [address, isConnected, isWhitelisted])
 
   const handleGalleryToggle = async (moment: MomentWithImage) => {
-    const action = moment.inGallery ? "remover de" : "agregar a"
-    const confirmed = window.confirm(`¿Estás seguro de que quieres ${action} la galería "${moment.title}"?`)
-
-    if (!confirmed) return
-
     try {
       const endpoint = moment.inGallery ? "/api/gallery/remove" : "/api/gallery/add"
       const response = await fetch(endpoint, {
