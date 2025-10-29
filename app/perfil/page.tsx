@@ -139,40 +139,60 @@ export default function PerfilPage() {
 
                 const metadataResponse = await fetch(metadataUrl)
                 console.log(`[v0] Metadata response status: ${metadataResponse.status}`)
+                console.log(`[v0] Metadata response headers:`, Object.fromEntries(metadataResponse.headers.entries()))
+
+                const responseText = await metadataResponse.text()
+                console.log(`[v0] Metadata response text (first 500 chars):`, responseText.substring(0, 500))
+                console.log(`[v0] Metadata response text length:`, responseText.length)
 
                 if (metadataResponse.ok) {
-                  const metadata = await metadataResponse.json()
-                  console.log(`[v0] Successfully fetched metadata:`, metadata)
+                  try {
+                    const metadata = JSON.parse(responseText)
+                    console.log(`[v0] Successfully parsed metadata:`, metadata)
 
-                  let imageUrl = metadata.image
-                  if (imageUrl?.startsWith("ipfs://")) {
-                    imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-                  } else if (imageUrl?.startsWith("ar://")) {
-                    imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+                    let imageUrl = metadata.image
+                    if (imageUrl?.startsWith("ipfs://")) {
+                      imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+                    } else if (imageUrl?.startsWith("ar://")) {
+                      imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+                    }
+
+                    debug.gatewayInfo?.push({
+                      uri: moment.uri,
+                      source: metadataUrl,
+                    })
+
+                    const processedMoment = {
+                      ...moment,
+                      imageUrl: imageUrl || "/placeholder.svg",
+                      title: metadata.name || metadata.title || `Obra de Arte #${moment.tokenId}`,
+                      description: metadata.description || "Obra de arte digital única",
+                    }
+
+                    console.log(`[v0] Final processed moment:`, {
+                      tokenId: processedMoment.tokenId,
+                      title: processedMoment.title,
+                      description: processedMoment.description,
+                    })
+
+                    return processedMoment
+                  } catch (parseError) {
+                    const errorMsg = `JSON parse error for token ${moment.tokenId}: ${parseError}`
+                    console.error(`[v0] ${errorMsg}`)
+                    console.error(`[v0] Response was not valid JSON. Full response text:`, responseText)
+                    debug.errors?.push(errorMsg)
+
+                    return {
+                      ...moment,
+                      imageUrl: "/placeholder.svg",
+                      title: `Obra de Arte #${moment.tokenId}`,
+                      description: "Obra de arte digital única de la colección oficial",
+                    }
                   }
-
-                  debug.gatewayInfo?.push({
-                    uri: moment.uri,
-                    source: metadataUrl,
-                  })
-
-                  const processedMoment = {
-                    ...moment,
-                    imageUrl: imageUrl || "/placeholder.svg",
-                    title: metadata.name || metadata.title || `Obra de Arte #${moment.tokenId}`,
-                    description: metadata.description || "Obra de arte digital única",
-                  }
-
-                  console.log(`[v0] Final processed moment:`, {
-                    tokenId: processedMoment.tokenId,
-                    title: processedMoment.title,
-                    description: processedMoment.description,
-                  })
-
-                  return processedMoment
                 } else {
                   const errorMsg = `Metadata fetch failed with status: ${metadataResponse.status}`
                   console.error(`[v0] ${errorMsg}`)
+                  console.error(`[v0] Response text:`, responseText)
                   debug.errors?.push(`Token ${moment.tokenId}: ${errorMsg}`)
 
                   return {
