@@ -119,103 +119,81 @@ export default function PerfilPage() {
           console.log("[v0] Filtered moments count:", filteredMoments.length)
           console.log("[v0] Filtered moments:", JSON.stringify(debug.filteredMoments, null, 2))
 
-          const momentsWithMetadata = await Promise.all(
-            filteredMoments.map(async (moment, index) => {
-              console.log(`[v0] ===== Processing moment ${index + 1}/${filteredMoments.length} =====`)
-              console.log(`[v0] Moment ID: ${moment.id}`)
-              console.log(`[v0] Token ID: ${moment.tokenId}`)
-              console.log(`[v0] Contract Address: ${moment.address}`)
-              console.log(`[v0] URI from API: ${moment.uri}`)
+          const momentsWithMetadata: MomentWithImage[] = []
 
-              try {
-                let metadataUrl = moment.uri
-                if (metadataUrl.startsWith("ar://")) {
-                  metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
-                } else if (metadataUrl.startsWith("ipfs://")) {
-                  metadataUrl = metadataUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+          for (let index = 0; index < filteredMoments.length; index++) {
+            const moment = filteredMoments[index]
+            console.log(`[v0] ===== Processing moment ${index + 1}/${filteredMoments.length} =====`)
+            console.log(`[v0] Moment ID: ${moment.id}`)
+            console.log(`[v0] Token ID: ${moment.tokenId}`)
+            console.log(`[v0] Contract Address: ${moment.address}`)
+            console.log(`[v0] URI from API: ${moment.uri}`)
+
+            try {
+              let metadataUrl = moment.uri
+              if (metadataUrl.startsWith("ar://")) {
+                metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
+              } else if (metadataUrl.startsWith("ipfs://")) {
+                metadataUrl = metadataUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+              }
+
+              console.log(`[v0] Fetching metadata from: ${metadataUrl}`)
+
+              const metadataResponse = await fetch(metadataUrl)
+
+              if (metadataResponse.ok) {
+                const metadata = await metadataResponse.json()
+                console.log(`[v0] Successfully fetched metadata:`, metadata)
+
+                let imageUrl = metadata.image
+                if (imageUrl?.startsWith("ipfs://")) {
+                  imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+                } else if (imageUrl?.startsWith("ar://")) {
+                  imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
                 }
 
-                console.log(`[v0] Fetching metadata from: ${metadataUrl}`)
+                debug.gatewayInfo?.push({
+                  uri: moment.uri,
+                  source: metadataUrl,
+                })
 
-                const metadataResponse = await fetch(metadataUrl)
-                console.log(`[v0] Metadata response status: ${metadataResponse.status}`)
-                console.log(`[v0] Metadata response headers:`, Object.fromEntries(metadataResponse.headers.entries()))
-
-                const responseText = await metadataResponse.text()
-                console.log(`[v0] Metadata response text (first 500 chars):`, responseText.substring(0, 500))
-                console.log(`[v0] Metadata response text length:`, responseText.length)
-
-                if (metadataResponse.ok) {
-                  try {
-                    const metadata = JSON.parse(responseText)
-                    console.log(`[v0] Successfully parsed metadata:`, metadata)
-
-                    let imageUrl = metadata.image
-                    if (imageUrl?.startsWith("ipfs://")) {
-                      imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-                    } else if (imageUrl?.startsWith("ar://")) {
-                      imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
-                    }
-
-                    debug.gatewayInfo?.push({
-                      uri: moment.uri,
-                      source: metadataUrl,
-                    })
-
-                    const processedMoment = {
-                      ...moment,
-                      imageUrl: imageUrl || "/placeholder.svg",
-                      title: metadata.name || metadata.title || `Obra de Arte #${moment.tokenId}`,
-                      description: metadata.description || "Obra de arte digital única",
-                    }
-
-                    console.log(`[v0] Final processed moment:`, {
-                      tokenId: processedMoment.tokenId,
-                      title: processedMoment.title,
-                      description: processedMoment.description,
-                    })
-
-                    return processedMoment
-                  } catch (parseError) {
-                    const errorMsg = `JSON parse error for token ${moment.tokenId}: ${parseError}`
-                    console.error(`[v0] ${errorMsg}`)
-                    console.error(`[v0] Response was not valid JSON. Full response text:`, responseText)
-                    debug.errors?.push(errorMsg)
-
-                    return {
-                      ...moment,
-                      imageUrl: "/placeholder.svg",
-                      title: `Obra de Arte #${moment.tokenId}`,
-                      description: "Obra de arte digital única de la colección oficial",
-                    }
-                  }
-                } else {
-                  const errorMsg = `Metadata fetch failed with status: ${metadataResponse.status}`
-                  console.error(`[v0] ${errorMsg}`)
-                  console.error(`[v0] Response text:`, responseText)
-                  debug.errors?.push(`Token ${moment.tokenId}: ${errorMsg}`)
-
-                  return {
-                    ...moment,
-                    imageUrl: "/placeholder.svg",
-                    title: `Obra de Arte #${moment.tokenId}`,
-                    description: "Obra de arte digital única de la colección oficial",
-                  }
+                const processedMoment: MomentWithImage = {
+                  ...moment,
+                  imageUrl: imageUrl || "/placeholder.svg",
+                  title: metadata.name || `Obra de Arte #${moment.tokenId}`,
+                  description: metadata.description || "Obra de arte digital única",
                 }
-              } catch (error) {
-                const errorMsg = `Error fetching metadata for token ${moment.tokenId}: ${error}`
-                console.error(`[v0] ${errorMsg}`, error)
-                debug.errors?.push(errorMsg)
 
-                return {
+                console.log(`[v0] Successfully processed moment:`, {
+                  tokenId: processedMoment.tokenId,
+                  title: processedMoment.title,
+                })
+
+                momentsWithMetadata.push(processedMoment)
+              } else {
+                console.error(`[v0] Metadata fetch failed with status: ${metadataResponse.status}`)
+                debug.errors?.push(`Token ${moment.tokenId}: HTTP ${metadataResponse.status}`)
+
+                momentsWithMetadata.push({
                   ...moment,
                   imageUrl: "/placeholder.svg",
                   title: `Obra de Arte #${moment.tokenId}`,
                   description: "Obra de arte digital única de la colección oficial",
-                }
+                })
               }
-            }),
-          )
+            } catch (error) {
+              const errorMsg = `Error fetching metadata for token ${moment.tokenId}: ${error}`
+              console.error(`[v0] ${errorMsg}`, error)
+              debug.errors?.push(errorMsg)
+
+              momentsWithMetadata.push({
+                ...moment,
+                imageUrl: "/placeholder.svg",
+                title: `Obra de Arte #${moment.tokenId}`,
+                description: "Obra de arte digital única de la colección oficial",
+              })
+            }
+          }
 
           debug.processedMoments = momentsWithMetadata.map((m) => ({
             id: m.id,
