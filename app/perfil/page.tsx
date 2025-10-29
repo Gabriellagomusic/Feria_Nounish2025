@@ -128,29 +128,37 @@ export default function PerfilPage() {
               console.log(`[v0] URI from API: ${moment.uri}`)
 
               try {
-                // Use server-side API route to fetch metadata with gateway retries
-                const apiUrl = `/api/token-metadata?uri=${encodeURIComponent(moment.uri)}`
-                console.log(`[v0] Calling metadata API: ${apiUrl}`)
+                let metadataUrl = moment.uri
+                if (metadataUrl.startsWith("ar://")) {
+                  metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
+                } else if (metadataUrl.startsWith("ipfs://")) {
+                  metadataUrl = metadataUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+                }
 
-                const response = await fetch(apiUrl)
-                const result = await response.json()
+                console.log(`[v0] Fetching metadata from: ${metadataUrl}`)
 
-                console.log(`[v0] Metadata API response:`, result)
+                const metadataResponse = await fetch(metadataUrl)
+                console.log(`[v0] Metadata response status: ${metadataResponse.status}`)
 
-                if (result.ok && result.metadata) {
-                  const metadata = result.metadata
+                if (metadataResponse.ok) {
+                  const metadata = await metadataResponse.json()
+                  console.log(`[v0] Successfully fetched metadata:`, metadata)
+
+                  let imageUrl = metadata.image
+                  if (imageUrl?.startsWith("ipfs://")) {
+                    imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+                  } else if (imageUrl?.startsWith("ar://")) {
+                    imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+                  }
 
                   debug.gatewayInfo?.push({
                     uri: moment.uri,
-                    source: result.source,
+                    source: metadataUrl,
                   })
-
-                  console.log(`[v0] Successfully fetched metadata from: ${result.source}`)
-                  console.log(`[v0] Metadata:`, metadata)
 
                   const processedMoment = {
                     ...moment,
-                    imageUrl: metadata.image || "/placeholder.svg",
+                    imageUrl: imageUrl || "/placeholder.svg",
                     title: metadata.name || metadata.title || `Obra de Arte #${moment.tokenId}`,
                     description: metadata.description || "Obra de arte digital única",
                   }
@@ -163,7 +171,7 @@ export default function PerfilPage() {
 
                   return processedMoment
                 } else {
-                  const errorMsg = `Metadata API failed: ${result.error || "Unknown error"}`
+                  const errorMsg = `Metadata fetch failed with status: ${metadataResponse.status}`
                   console.error(`[v0] ${errorMsg}`)
                   debug.errors?.push(`Token ${moment.tokenId}: ${errorMsg}`)
 
