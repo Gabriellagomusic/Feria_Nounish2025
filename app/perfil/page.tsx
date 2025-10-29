@@ -30,6 +30,18 @@ const ERC1155_ABI = [
   },
 ] as const
 
+const formatTokenId = (tokenId: string): string => {
+  try {
+    // Convert to BigInt then to hex, remove '0x' prefix
+    const hex = BigInt(tokenId).toString(16)
+    // Pad to 64 characters (standard for ERC1155)
+    return hex.padStart(64, "0")
+  } catch (error) {
+    console.error("[v0] Error formatting tokenId:", error)
+    return tokenId
+  }
+}
+
 export default function PerfilPage() {
   const router = useRouter()
   const { address, isConnected } = useAccount()
@@ -124,6 +136,8 @@ export default function PerfilPage() {
             (moment) => moment.admin.toLowerCase() === address.toLowerCase(),
           )
 
+          console.log("[v0] Filtered moments count:", filteredMoments.length)
+
           const publicClient = createPublicClient({
             chain: base,
             transport: http(),
@@ -132,24 +146,62 @@ export default function PerfilPage() {
           const momentsWithMetadata = await Promise.all(
             filteredMoments.map(async (moment) => {
               try {
+                console.log("[v0] Fetching metadata for token:", {
+                  address: moment.address,
+                  tokenId: moment.tokenId,
+                  tokenIdType: typeof moment.tokenId,
+                })
+
+                let tokenIdBigInt: bigint
+                try {
+                  tokenIdBigInt = BigInt(moment.tokenId)
+                  console.log("[v0] Converted tokenId to BigInt:", tokenIdBigInt.toString())
+                } catch (conversionError) {
+                  console.error("[v0] Failed to convert tokenId to BigInt:", conversionError)
+                  throw new Error(`Invalid tokenId format: ${moment.tokenId}`)
+                }
+
                 const tokenURI = await publicClient.readContract({
                   address: moment.address as `0x${string}`,
                   abi: ERC1155_ABI,
                   functionName: "uri",
-                  args: [BigInt(moment.tokenId)],
+                  args: [tokenIdBigInt],
                 })
 
+                console.log("[v0] Token URI received:", tokenURI)
+
                 if (tokenURI) {
-                  let metadataUrl = tokenURI.replace("{id}", moment.tokenId.toString())
+                  const formattedTokenId = formatTokenId(moment.tokenId)
+                  console.log("[v0] Formatted tokenId:", formattedTokenId)
+
+                  let metadataUrl = tokenURI
+
+                  // Try replacing with formatted hex first (ERC1155 standard)
+                  if (metadataUrl.includes("{id}")) {
+                    metadataUrl = metadataUrl.replace("{id}", formattedTokenId)
+                    console.log("[v0] Replaced {id} with formatted tokenId:", metadataUrl)
+                  }
+
+                  // Also try replacing with decimal tokenId as fallback
+                  if (metadataUrl.includes("{tokenId}")) {
+                    metadataUrl = metadataUrl.replace("{tokenId}", moment.tokenId)
+                    console.log("[v0] Replaced {tokenId} with decimal:", metadataUrl)
+                  }
 
                   if (metadataUrl.startsWith("ar://")) {
                     metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
+                  } else if (metadataUrl.startsWith("ipfs://")) {
+                    metadataUrl = metadataUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
                   }
 
+                  console.log("[v0] Final metadata URL:", metadataUrl)
+
                   const metadataResponse = await fetch(metadataUrl)
+                  console.log("[v0] Metadata response status:", metadataResponse.status)
 
                   if (metadataResponse.ok) {
                     const contentType = metadataResponse.headers.get("content-type")
+                    console.log("[v0] Content-Type:", contentType)
 
                     if (contentType?.includes("image/")) {
                       return {
@@ -179,6 +231,7 @@ export default function PerfilPage() {
 
                     try {
                       const metadata = JSON.parse(responseText)
+                      console.log("[v0] Parsed metadata:", metadata)
 
                       let imageUrl = metadata.image
                       if (imageUrl?.startsWith("ipfs://")) {
@@ -194,6 +247,7 @@ export default function PerfilPage() {
                         description: metadata.description || "",
                       }
                     } catch (parseError) {
+                      console.error("[v0] Failed to parse JSON, treating as image:", parseError)
                       return {
                         ...moment,
                         imageUrl: metadataUrl,
@@ -212,7 +266,7 @@ export default function PerfilPage() {
                   metadataError: "Failed to fetch metadata",
                 }
               } catch (error) {
-                console.error(`Error fetching metadata for token ${moment.tokenId}:`, error)
+                console.error(`[v0] Error fetching metadata for token ${moment.tokenId}:`, error)
                 return {
                   ...moment,
                   imageUrl: convertToGatewayUrl(moment.uri),
@@ -224,13 +278,14 @@ export default function PerfilPage() {
             }),
           )
 
+          console.log("[v0] Moments with metadata:", momentsWithMetadata.length)
           setMoments(momentsWithMetadata)
         } else {
           setMoments([])
         }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : "Unknown error"
-        console.error("Error in fetchData:", errorMsg, error)
+        console.error("[v0] Error in fetchData:", errorMsg, error)
         setError(errorMsg)
         setMoments([])
       } finally {
