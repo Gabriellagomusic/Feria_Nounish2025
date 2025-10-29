@@ -184,6 +184,14 @@ export default function GaleriaPage() {
     return Array.from(new Set(tokens.map((token) => token.artist)))
   }, [tokens])
 
+  const artistDisplayMap = useMemo(() => {
+    const map = new Map<string, string>()
+    tokens.forEach((token) => {
+      map.set(token.artist, token.artistDisplay)
+    })
+    return map
+  }, [tokens])
+
   return (
     <div className="min-h-screen relative overflow-hidden">
       <div
@@ -227,7 +235,7 @@ export default function GaleriaPage() {
                 </option>
                 {artists.map((artist) => (
                   <option key={artist} value={artist} className="bg-gray-800">
-                    {artist}
+                    {artistDisplayMap.get(artist) || artist}
                   </option>
                 ))}
               </select>

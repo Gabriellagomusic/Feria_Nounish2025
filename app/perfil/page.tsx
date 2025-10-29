@@ -336,6 +336,12 @@ export default function PerfilPage() {
                         )}
                         <p className="text-xs text-gray-500 mb-4">Por: {moment.username || userName}</p>
 
+                        <div className="mb-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                          <p className="text-xs text-gray-500 font-semibold mb-1">NFT Hash:</p>
+                          <p className="text-xs text-gray-700 font-mono break-all mb-1">{moment.address}</p>
+                          <p className="text-xs text-gray-700 font-mono">Token ID: {moment.tokenId}</p>
+                        </div>
+
                         {moment.metadataError && (
                           <details className="mb-4 p-3 bg-yellow-50 border border-yellow-300 rounded text-xs">
                             <summary className="font-semibold text-yellow-800 cursor-pointer">
