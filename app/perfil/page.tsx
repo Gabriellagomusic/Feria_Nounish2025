@@ -63,8 +63,8 @@ const KNOWN_TOKENS: Record<
 > = {
   // TokenId 0 mappings
   "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5-0": {
-    name: "Gabriella Go Music NFT",
-    description: "Obra de arte digital única de gabriellagomusic",
+    name: "Experimental Music Sessions",
+    description: "🎶🎵🎤",
     artistName: "gabriellagomusic",
   },
   "0xfaa54c8258b419ab0411da8ddc1985f42f98f59b-0": {
@@ -74,8 +74,8 @@ const KNOWN_TOKENS: Record<
   },
   // TokenId 1 mappings (keeping for compatibility)
   "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5-1": {
-    name: "Gabriella Go Music NFT",
-    description: "Obra de arte digital única de gabriellagomusic",
+    name: "Experimental Music Sessions",
+    description: "🎶🎵🎤",
     artistName: "gabriellagomusic",
   },
   "0xfaa54c8258b419ab0411da8ddc1985f42f98f59b-1": {
@@ -229,18 +229,40 @@ export default function PerfilPage() {
               try {
                 console.log(`[v0] Processing token ${moment.tokenId} at ${moment.address}`)
 
-                const artistName = moment.username || userName || "Artista Desconocido"
-                const imageUrl = convertToGatewayUrl(moment.uri)
-                const title = `${artistName} - Obra #${moment.tokenId}`
-                const description = `Obra de arte digital única creada por ${artistName}`
+                const knownToken = getKnownTokenMetadata(moment.address, moment.tokenId)
 
-                logEntry.step = "Using data from API response"
-                logEntry.data = {
-                  username: moment.username,
-                  uri: moment.uri,
-                  convertedImageUrl: imageUrl,
-                  generatedTitle: title,
+                let artistName: string
+                let title: string
+                let description: string
+
+                if (knownToken) {
+                  // Use hardcoded metadata for known tokens
+                  artistName = knownToken.artistName
+                  title = knownToken.name
+                  description = knownToken.description
+
+                  logEntry.step = "Using hardcoded metadata for known token"
+                  logEntry.data = {
+                    knownToken,
+                    contractAddress: moment.address,
+                    tokenId: moment.tokenId,
+                  }
+                } else {
+                  // Generate fallback metadata
+                  artistName = moment.username || userName || "Artista Desconocido"
+                  title = `${artistName} - Obra #${moment.tokenId}`
+                  description = `Obra de arte digital única creada por ${artistName}`
+
+                  logEntry.step = "Using generated fallback metadata"
+                  logEntry.data = {
+                    username: moment.username,
+                    generatedArtistName: artistName,
+                    generatedTitle: title,
+                  }
                 }
+
+                const imageUrl = convertToGatewayUrl(moment.uri)
+
                 newDebugInfo.metadataFetchLogs.push(logEntry)
 
                 return {
