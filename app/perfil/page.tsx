@@ -10,8 +10,6 @@ import { useAccount } from "wagmi"
 import { getDisplayName, getFarcasterProfilePic } from "@/lib/farcaster"
 import { getNounAvatarUrl } from "@/lib/noun-avatar"
 import { getTimeline, type Moment } from "@/lib/inprocess"
-import { createPublicClient, http } from "viem"
-import { base } from "viem/chains"
 
 interface MomentWithImage extends Moment {
   imageUrl: string
@@ -206,11 +204,6 @@ export default function PerfilPage() {
           newDebugInfo.filteredMoments = filteredMoments
           console.log("[v0] Filtered moments:", filteredMoments)
 
-          const publicClient = createPublicClient({
-            chain: base,
-            transport: http(),
-          })
-
           const momentsWithMetadata = await Promise.all(
             filteredMoments.map(async (moment) => {
               const logEntry = {
@@ -220,15 +213,10 @@ export default function PerfilPage() {
                 data: {} as any,
               }
 
-              const tokenDebugInfo: MomentWithImage["debugInfo"] = {
-                apiUri: moment.uri,
-                fetchedUrl: "",
-                isDirectImage: false,
-              }
-
               try {
                 console.log(`[v0] Processing token ${moment.tokenId} at ${moment.address}`)
 
+                // Check for hardcoded metadata first (always use tokenId 1 for lookups)
                 const knownToken = getKnownTokenMetadata(moment.address, "1")
 
                 let artistName: string
@@ -245,22 +233,23 @@ export default function PerfilPage() {
                   logEntry.data = {
                     knownToken,
                     contractAddress: moment.address,
-                    tokenId: moment.tokenId,
+                    tokenId: "1",
                   }
                 } else {
-                  // Generate fallback metadata
+                  // Use inprocess API data or generate fallback
                   artistName = moment.username || userName || "Artista Desconocido"
                   title = `${artistName} - Obra #1`
                   description = `Obra de arte digital única creada por ${artistName}`
 
-                  logEntry.step = "Using generated fallback metadata"
+                  logEntry.step = "Using inprocess API data + generated fallback"
                   logEntry.data = {
-                    username: moment.username,
+                    inprocessUsername: moment.username,
                     generatedArtistName: artistName,
                     generatedTitle: title,
                   }
                 }
 
+                // Convert URI to gateway URL for image display
                 const imageUrl = convertToGatewayUrl(moment.uri)
 
                 newDebugInfo.metadataFetchLogs.push(logEntry)
@@ -270,11 +259,6 @@ export default function PerfilPage() {
                   imageUrl,
                   title,
                   description,
-                  debugInfo: {
-                    ...tokenDebugInfo,
-                    fetchedUrl: imageUrl,
-                    isDirectImage: true,
-                  },
                 }
               } catch (error) {
                 console.error(`[v0] Error processing token ${moment.tokenId}:`, error)
@@ -282,14 +266,13 @@ export default function PerfilPage() {
                 logEntry.data.error = error instanceof Error ? error.message : String(error)
                 newDebugInfo.metadataFetchLogs.push(logEntry)
 
-                // Fallback
+                // Fallback on error
                 return {
                   ...moment,
                   imageUrl: convertToGatewayUrl(moment.uri),
                   title: `Obra de Arte #1`,
                   description: "Obra de arte digital única",
                   metadataError: error instanceof Error ? error.message : "Unknown error",
-                  debugInfo: tokenDebugInfo,
                 }
               }
             }),
@@ -474,82 +457,10 @@ export default function PerfilPage() {
                           <p className="text-xs text-gray-700 font-mono">Token ID: 1</p>
                         </div>
 
-                        {moment.debugInfo && (
-                          <details className="mb-4 p-3 bg-blue-50 border border-blue-300 rounded text-xs">
-                            <summary className="font-semibold text-blue-800 cursor-pointer">
-                              🔍 Token Debug Info (Click to expand)
-                            </summary>
-                            <div className="mt-3 space-y-2 font-mono">
-                              <div className="bg-white p-2 rounded border border-blue-200">
-                                <p className="font-semibold text-blue-900 mb-1">URI from API:</p>
-                                <p className="text-blue-700 break-all">{moment.debugInfo.apiUri}</p>
-                              </div>
-
-                              {moment.debugInfo.contractUri && (
-                                <div className="bg-white p-2 rounded border border-blue-200">
-                                  <p className="font-semibold text-blue-900 mb-1">URI from Contract:</p>
-                                  <p className="text-blue-700 break-all">{moment.debugInfo.contractUri}</p>
-                                </div>
-                              )}
-
-                              <div className="bg-white p-2 rounded border border-blue-200">
-                                <p className="font-semibold text-blue-900 mb-1">Fetched URL:</p>
-                                <p className="text-blue-700 break-all">{moment.debugInfo.fetchedUrl}</p>
-                              </div>
-
-                              {moment.debugInfo.responseStatus && (
-                                <div className="bg-white p-2 rounded border border-blue-200">
-                                  <p className="font-semibold text-blue-900 mb-1">Response Status:</p>
-                                  <p className="text-blue-700">{moment.debugInfo.responseStatus}</p>
-                                </div>
-                              )}
-
-                              {moment.debugInfo.contentType && (
-                                <div className="bg-white p-2 rounded border border-blue-200">
-                                  <p className="font-semibold text-blue-900 mb-1">Content-Type:</p>
-                                  <p className="text-blue-700">{moment.debugInfo.contentType}</p>
-                                </div>
-                              )}
-
-                              <div className="bg-white p-2 rounded border border-blue-200">
-                                <p className="font-semibold text-blue-900 mb-1">Is Direct Image:</p>
-                                <p className={moment.debugInfo.isDirectImage ? "text-green-700" : "text-red-700"}>
-                                  {moment.debugInfo.isDirectImage
-                                    ? "✓ Yes - URI points to image file"
-                                    : "✗ No - Expected JSON metadata"}
-                                </p>
-                              </div>
-
-                              {moment.debugInfo.parseError && (
-                                <div className="bg-red-50 p-2 rounded border border-red-300">
-                                  <p className="font-semibold text-red-900 mb-1">Parse Error:</p>
-                                  <p className="text-red-700">{moment.debugInfo.parseError}</p>
-                                </div>
-                              )}
-
-                              {moment.debugInfo.rawResponse && (
-                                <div className="bg-white p-2 rounded border border-blue-200">
-                                  <p className="font-semibold text-blue-900 mb-1">Raw Response (first 500 chars):</p>
-                                  <p className="text-blue-700 break-all text-[10px]">{moment.debugInfo.rawResponse}</p>
-                                </div>
-                              )}
-
-                              <div className="bg-yellow-50 p-2 rounded border border-yellow-300">
-                                <p className="font-semibold text-yellow-900 mb-1">⚠️ Issue:</p>
-                                <p className="text-yellow-800">
-                                  {moment.debugInfo.isDirectImage
-                                    ? "The URI points directly to an image file, not a JSON metadata file. This NFT doesn't have separate metadata (name/description) stored on Arweave."
-                                    : "Expected JSON metadata but got something else. Check the raw response above."}
-                                </p>
-                              </div>
-                            </div>
-                          </details>
-                        )}
-
                         {moment.metadataError && (
                           <details className="mb-4 p-3 bg-yellow-50 border border-yellow-300 rounded text-xs">
                             <summary className="font-semibold text-yellow-800 cursor-pointer">
-                              ⚠️ Metadata Error (Click to expand)
+                              ⚠️ Error (Click to expand)
                             </summary>
                             <div className="mt-2 space-y-1">
                               <p className="text-yellow-700 font-mono">{moment.metadataError}</p>
@@ -558,9 +469,6 @@ export default function PerfilPage() {
                               </p>
                               <p className="text-yellow-600">
                                 <span className="font-semibold">Token ID:</span> 1
-                              </p>
-                              <p className="text-yellow-600">
-                                <span className="font-semibold">Chain:</span> Base ({moment.chainId})
                               </p>
                             </div>
                           </details>
