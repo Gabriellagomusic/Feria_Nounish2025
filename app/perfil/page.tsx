@@ -17,7 +17,6 @@ interface MomentWithImage extends Moment {
   imageUrl: string
   title: string
   description?: string
-  metadataError?: string
 }
 
 const ERC1155_ABI = [
@@ -29,18 +28,6 @@ const ERC1155_ABI = [
     type: "function",
   },
 ] as const
-
-const formatTokenId = (tokenId: string): string => {
-  try {
-    // Convert to BigInt then to hex, remove '0x' prefix
-    const hex = BigInt(tokenId).toString(16)
-    // Pad to 64 characters (standard for ERC1155)
-    return hex.padStart(64, "0")
-  } catch (error) {
-    console.error("[v0] Error formatting tokenId:", error)
-    return tokenId
-  }
-}
 
 export default function PerfilPage() {
   const router = useRouter()
@@ -136,8 +123,6 @@ export default function PerfilPage() {
             (moment) => moment.admin.toLowerCase() === address.toLowerCase(),
           )
 
-          console.log("[v0] Filtered moments count:", filteredMoments.length)
-
           const publicClient = createPublicClient({
             chain: base,
             transport: http(),
@@ -146,114 +131,37 @@ export default function PerfilPage() {
           const momentsWithMetadata = await Promise.all(
             filteredMoments.map(async (moment) => {
               try {
-                console.log("[v0] Fetching metadata for token:", {
-                  address: moment.address,
-                  tokenId: moment.tokenId,
-                  tokenIdType: typeof moment.tokenId,
-                })
-
-                let tokenIdBigInt: bigint
-                try {
-                  tokenIdBigInt = BigInt(moment.tokenId)
-                  console.log("[v0] Converted tokenId to BigInt:", tokenIdBigInt.toString())
-                } catch (conversionError) {
-                  console.error("[v0] Failed to convert tokenId to BigInt:", conversionError)
-                  throw new Error(`Invalid tokenId format: ${moment.tokenId}`)
-                }
-
                 const tokenURI = await publicClient.readContract({
                   address: moment.address as `0x${string}`,
                   abi: ERC1155_ABI,
                   functionName: "uri",
-                  args: [tokenIdBigInt],
+                  args: [BigInt(moment.tokenId)],
                 })
 
-                console.log("[v0] Token URI received:", tokenURI)
-
                 if (tokenURI) {
-                  const formattedTokenId = formatTokenId(moment.tokenId)
-                  console.log("[v0] Formatted tokenId:", formattedTokenId)
-
-                  let metadataUrl = tokenURI
-
-                  // Try replacing with formatted hex first (ERC1155 standard)
-                  if (metadataUrl.includes("{id}")) {
-                    metadataUrl = metadataUrl.replace("{id}", formattedTokenId)
-                    console.log("[v0] Replaced {id} with formatted tokenId:", metadataUrl)
-                  }
-
-                  // Also try replacing with decimal tokenId as fallback
-                  if (metadataUrl.includes("{tokenId}")) {
-                    metadataUrl = metadataUrl.replace("{tokenId}", moment.tokenId)
-                    console.log("[v0] Replaced {tokenId} with decimal:", metadataUrl)
-                  }
-
+                  let metadataUrl = tokenURI.replace("{id}", moment.tokenId)
                   if (metadataUrl.startsWith("ar://")) {
                     metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
                   } else if (metadataUrl.startsWith("ipfs://")) {
                     metadataUrl = metadataUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
                   }
 
-                  console.log("[v0] Final metadata URL:", metadataUrl)
-
                   const metadataResponse = await fetch(metadataUrl)
-                  console.log("[v0] Metadata response status:", metadataResponse.status)
-
                   if (metadataResponse.ok) {
-                    const contentType = metadataResponse.headers.get("content-type")
-                    console.log("[v0] Content-Type:", contentType)
+                    const metadata = await metadataResponse.json()
 
-                    if (contentType?.includes("image/")) {
-                      return {
-                        ...moment,
-                        imageUrl: metadataUrl,
-                        title: moment.title || `NFT #${moment.tokenId}`,
-                        description: moment.description || "Digital collectible from Feria Nounish",
-                      }
+                    let imageUrl = metadata.image
+                    if (imageUrl?.startsWith("ipfs://")) {
+                      imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+                    } else if (imageUrl?.startsWith("ar://")) {
+                      imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
                     }
 
-                    const responseText = await metadataResponse.text()
-
-                    const isJPEG =
-                      responseText.includes("JFIF") ||
-                      responseText.includes("EXIF") ||
-                      responseText.startsWith("\xFF\xD8\xFF")
-                    const isPNG = responseText.startsWith("\x89PNG")
-
-                    if (isJPEG || isPNG) {
-                      return {
-                        ...moment,
-                        imageUrl: metadataUrl,
-                        title: moment.title || `NFT #${moment.tokenId}`,
-                        description: moment.description || "Digital collectible from Feria Nounish",
-                      }
-                    }
-
-                    try {
-                      const metadata = JSON.parse(responseText)
-                      console.log("[v0] Parsed metadata:", metadata)
-
-                      let imageUrl = metadata.image
-                      if (imageUrl?.startsWith("ipfs://")) {
-                        imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-                      } else if (imageUrl?.startsWith("ar://")) {
-                        imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
-                      }
-
-                      return {
-                        ...moment,
-                        imageUrl: imageUrl || "/placeholder.svg",
-                        title: metadata.name || `Token #${moment.tokenId}`,
-                        description: metadata.description || "",
-                      }
-                    } catch (parseError) {
-                      console.error("[v0] Failed to parse JSON, treating as image:", parseError)
-                      return {
-                        ...moment,
-                        imageUrl: metadataUrl,
-                        title: moment.title || `NFT #${moment.tokenId}`,
-                        description: moment.description || "Digital collectible from Feria Nounish",
-                      }
+                    return {
+                      ...moment,
+                      imageUrl: imageUrl || "/placeholder.svg",
+                      title: metadata.name || `Obra de Arte #${moment.tokenId}`,
+                      description: metadata.description || "Obra de arte digital única",
                     }
                   }
                 }
@@ -261,31 +169,28 @@ export default function PerfilPage() {
                 return {
                   ...moment,
                   imageUrl: convertToGatewayUrl(moment.uri),
-                  title: `Token #${moment.tokenId}`,
-                  description: "NFT from Feria Nounish",
-                  metadataError: "Failed to fetch metadata",
+                  title: `Obra de Arte #${moment.tokenId}`,
+                  description: "Obra de arte digital única de la colección oficial",
                 }
               } catch (error) {
-                console.error(`[v0] Error fetching metadata for token ${moment.tokenId}:`, error)
+                console.error(`Error fetching metadata for token ${moment.tokenId}:`, error)
                 return {
                   ...moment,
                   imageUrl: convertToGatewayUrl(moment.uri),
-                  title: `Token #${moment.tokenId}`,
-                  description: "NFT from Feria Nounish",
-                  metadataError: error instanceof Error ? error.message : "Unknown error",
+                  title: `Obra de Arte #${moment.tokenId}`,
+                  description: "Obra de arte digital única de la colección oficial",
                 }
               }
             }),
           )
 
-          console.log("[v0] Moments with metadata:", momentsWithMetadata.length)
           setMoments(momentsWithMetadata)
         } else {
           setMoments([])
         }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : "Unknown error"
-        console.error("[v0] Error in fetchData:", errorMsg, error)
+        console.error("Error in fetchData:", errorMsg, error)
         setError(errorMsg)
         setMoments([])
       } finally {
@@ -396,26 +301,6 @@ export default function PerfilPage() {
                           <p className="text-xs text-gray-700 font-mono break-all mb-1">{moment.address}</p>
                           <p className="text-xs text-gray-700 font-mono">Token ID: {moment.tokenId}</p>
                         </div>
-
-                        {moment.metadataError && (
-                          <details className="mb-4 p-3 bg-yellow-50 border border-yellow-300 rounded text-xs">
-                            <summary className="font-semibold text-yellow-800 cursor-pointer">
-                              ⚠️ Metadata Error (Click to expand)
-                            </summary>
-                            <div className="mt-2 space-y-1">
-                              <p className="text-yellow-700 font-mono">{moment.metadataError}</p>
-                              <p className="text-yellow-600">
-                                <span className="font-semibold">Contract:</span> {moment.address}
-                              </p>
-                              <p className="text-yellow-600">
-                                <span className="font-semibold">Token ID:</span> {moment.tokenId}
-                              </p>
-                              <p className="text-yellow-600">
-                                <span className="font-semibold">Chain:</span> Base ({moment.chainId})
-                              </p>
-                            </div>
-                          </details>
-                        )}
 
                         <Button
                           onClick={() => handleAddToGallery(moment)}
