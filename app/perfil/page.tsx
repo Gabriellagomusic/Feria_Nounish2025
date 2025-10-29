@@ -250,7 +250,7 @@ export default function PerfilPage() {
                 } else {
                   // Generate fallback metadata
                   artistName = moment.username || userName || "Artista Desconocido"
-                  title = `${artistName} - Obra #${moment.tokenId}`
+                  title = `${artistName} - Obra #1`
                   description = `Obra de arte digital única creada por ${artistName}`
 
                   logEntry.step = "Using generated fallback metadata"
@@ -286,7 +286,7 @@ export default function PerfilPage() {
                 return {
                   ...moment,
                   imageUrl: convertToGatewayUrl(moment.uri),
-                  title: `Obra de Arte #${moment.tokenId}`,
+                  title: `Obra de Arte #1`,
                   description: "Obra de arte digital única",
                   metadataError: error instanceof Error ? error.message : "Unknown error",
                   debugInfo: tokenDebugInfo,
@@ -471,7 +471,7 @@ export default function PerfilPage() {
                         <div className="mb-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
                           <p className="text-xs text-gray-500 font-semibold mb-1">NFT Hash:</p>
                           <p className="text-xs text-gray-700 font-mono break-all mb-1">{moment.address}</p>
-                          <p className="text-xs text-gray-700 font-mono">Token ID: {moment.tokenId}</p>
+                          <p className="text-xs text-gray-700 font-mono">Token ID: 1</p>
                         </div>
 
                         {moment.debugInfo && (
@@ -557,7 +557,7 @@ export default function PerfilPage() {
                                 <span className="font-semibold">Contract:</span> {moment.address}
                               </p>
                               <p className="text-yellow-600">
-                                <span className="font-semibold">Token ID:</span> {moment.tokenId}
+                                <span className="font-semibold">Token ID:</span> 1
                               </p>
                               <p className="text-yellow-600">
                                 <span className="font-semibold">Chain:</span> Base ({moment.chainId})
