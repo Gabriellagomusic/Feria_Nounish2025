@@ -140,38 +140,58 @@ export default function PerfilPage() {
               console.log(`[v0] Fetching metadata from: ${metadataUrl}`)
 
               const metadataResponse = await fetch(metadataUrl)
+              console.log(`[v0] Response status: ${metadataResponse.status}`)
+              console.log(`[v0] Response headers:`, Object.fromEntries(metadataResponse.headers.entries()))
 
               if (metadataResponse.ok) {
-                const metadata = await metadataResponse.json()
-                console.log(`[v0] Successfully fetched metadata:`, metadata)
+                const responseText = await metadataResponse.text()
+                console.log(`[v0] Response text (first 500 chars):`, responseText.substring(0, 500))
 
-                let imageUrl = metadata.image
-                if (imageUrl?.startsWith("ipfs://")) {
-                  imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-                } else if (imageUrl?.startsWith("ar://")) {
-                  imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+                try {
+                  const metadata = JSON.parse(responseText)
+                  console.log(`[v0] Successfully parsed metadata:`, metadata)
+
+                  let imageUrl = metadata.image
+                  if (imageUrl?.startsWith("ipfs://")) {
+                    imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+                  } else if (imageUrl?.startsWith("ar://")) {
+                    imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+                  }
+
+                  debug.gatewayInfo?.push({
+                    uri: moment.uri,
+                    source: metadataUrl,
+                  })
+
+                  const processedMoment: MomentWithImage = {
+                    ...moment,
+                    imageUrl: imageUrl || "/placeholder.svg",
+                    title: metadata.name || `Obra de Arte #${moment.tokenId}`,
+                    description: metadata.description || "Obra de arte digital única",
+                  }
+
+                  console.log(`[v0] Successfully processed moment:`, {
+                    tokenId: processedMoment.tokenId,
+                    title: processedMoment.title,
+                  })
+
+                  momentsWithMetadata.push(processedMoment)
+                } catch (parseError) {
+                  console.error(`[v0] JSON parse error:`, parseError)
+                  console.error(`[v0] Full response text:`, responseText)
+                  debug.errors?.push(`Token ${moment.tokenId}: JSON parse failed - ${parseError}`)
+
+                  momentsWithMetadata.push({
+                    ...moment,
+                    imageUrl: "/placeholder.svg",
+                    title: `Obra de Arte #${moment.tokenId}`,
+                    description: "Obra de arte digital única de la colección oficial",
+                  })
                 }
-
-                debug.gatewayInfo?.push({
-                  uri: moment.uri,
-                  source: metadataUrl,
-                })
-
-                const processedMoment: MomentWithImage = {
-                  ...moment,
-                  imageUrl: imageUrl || "/placeholder.svg",
-                  title: metadata.name || `Obra de Arte #${moment.tokenId}`,
-                  description: metadata.description || "Obra de arte digital única",
-                }
-
-                console.log(`[v0] Successfully processed moment:`, {
-                  tokenId: processedMoment.tokenId,
-                  title: processedMoment.title,
-                })
-
-                momentsWithMetadata.push(processedMoment)
               } else {
                 console.error(`[v0] Metadata fetch failed with status: ${metadataResponse.status}`)
+                const errorText = await metadataResponse.text()
+                console.error(`[v0] Error response:`, errorText.substring(0, 500))
                 debug.errors?.push(`Token ${moment.tokenId}: HTTP ${metadataResponse.status}`)
 
                 momentsWithMetadata.push({
