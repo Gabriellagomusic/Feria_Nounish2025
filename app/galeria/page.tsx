@@ -50,109 +50,94 @@ export default function GaleriaPage() {
   useEffect(() => {
     const fetchTokenMetadata = async () => {
       try {
+        const galleryResponse = await fetch("/api/gallery/list")
+        const galleryData = await galleryResponse.json()
+
+        if (!galleryData.tokens || galleryData.tokens.length === 0) {
+          setTokens([])
+          setIsLoading(false)
+          return
+        }
+
         const publicClient = createPublicClient({
           chain: base,
           transport: http(),
         })
 
-        const tokenConfigs = [
-          {
-            contractAddress: "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5",
-            tokenId: "1",
-            artist: "0x697C7720dc08F1eb1fde54420432eFC6aD594244",
-            artistName: "gabriellagomusic",
-          },
-          {
-            contractAddress: "0xfaa54c8258b419ab0411da8ddc1985f42f98f59b",
-            tokenId: "1",
-            artist: "0x697C7720dc08F1eb1fde54420432eFC6aD594244",
-            artistName: "ferianounish",
-          },
-        ]
+        const tokenDataPromises = galleryData.tokens.map(
+          async (config: { contractAddress: string; tokenId: string }) => {
+            try {
+              const tokenURI = await publicClient.readContract({
+                address: config.contractAddress as `0x${string}`,
+                abi: ERC1155_ABI,
+                functionName: "uri",
+                args: [BigInt(config.tokenId)],
+              })
 
-        const tokenDataPromises = tokenConfigs.map(async (config) => {
-          try {
-            const tokenURI = await publicClient.readContract({
-              address: config.contractAddress as `0x${string}`,
-              abi: ERC1155_ABI,
-              functionName: "uri",
-              args: [BigInt(config.tokenId)],
-            })
-
-            if (tokenURI) {
-              let metadataUrl = tokenURI.replace("{id}", config.tokenId)
-              if (metadataUrl.startsWith("ar://")) {
-                metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
-              }
-
-              const metadataResponse = await fetch(metadataUrl)
-              if (metadataResponse.ok) {
-                const metadata = await metadataResponse.json()
-
-                let imageUrl = metadata.image
-                if (imageUrl?.startsWith("ipfs://")) {
-                  imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-                } else if (imageUrl?.startsWith("ar://")) {
-                  imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+              if (tokenURI) {
+                let metadataUrl = tokenURI.replace("{id}", config.tokenId)
+                if (metadataUrl.startsWith("ar://")) {
+                  metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
                 }
 
-                const artistDisplay = config.artistName || (await getDisplayName(config.artist))
+                const metadataResponse = await fetch(metadataUrl)
+                if (metadataResponse.ok) {
+                  const metadata = await metadataResponse.json()
 
-                return {
-                  name: metadata.name || `Obra de Arte #${config.tokenId}`,
-                  description: metadata.description || "Obra de arte digital única",
-                  image: imageUrl || "/placeholder.svg",
-                  artist: config.artist,
-                  artistDisplay: artistDisplay,
-                  contractAddress: config.contractAddress,
-                  tokenId: config.tokenId,
+                  let imageUrl = metadata.image
+                  if (imageUrl?.startsWith("ipfs://")) {
+                    imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+                  } else if (imageUrl?.startsWith("ar://")) {
+                    imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+                  }
+
+                  // Get artist display name from contract
+                  const artistDisplay = await getDisplayName(config.contractAddress)
+
+                  return {
+                    name: metadata.name || `Obra de Arte #${config.tokenId}`,
+                    description: metadata.description || "Obra de arte digital única",
+                    image: imageUrl || "/placeholder.svg",
+                    artist: config.contractAddress,
+                    artistDisplay: artistDisplay,
+                    contractAddress: config.contractAddress,
+                    tokenId: config.tokenId,
+                  }
                 }
               }
-            }
 
-            const artistDisplay = config.artistName || (await getDisplayName(config.artist))
-            return {
-              name: `Obra de Arte #${config.tokenId}`,
-              description: "Obra de arte digital única de la colección oficial",
-              image: "/placeholder.svg",
-              artist: config.artist,
-              artistDisplay: artistDisplay,
-              contractAddress: config.contractAddress,
-              tokenId: config.tokenId,
+              // Fallback
+              const artistDisplay = await getDisplayName(config.contractAddress)
+              return {
+                name: `Obra de Arte #${config.tokenId}`,
+                description: "Obra de arte digital única de la colección oficial",
+                image: "/placeholder.svg",
+                artist: config.contractAddress,
+                artistDisplay: artistDisplay,
+                contractAddress: config.contractAddress,
+                tokenId: config.tokenId,
+              }
+            } catch (error) {
+              console.error(`Error fetching token ${config.contractAddress}/${config.tokenId}:`, error)
+              const artistDisplay = await getDisplayName(config.contractAddress)
+              return {
+                name: `Obra de Arte #${config.tokenId}`,
+                description: "Obra de arte digital única de la colección oficial",
+                image: "/placeholder.svg",
+                artist: config.contractAddress,
+                artistDisplay: artistDisplay,
+                contractAddress: config.contractAddress,
+                tokenId: config.tokenId,
+              }
             }
-          } catch (error) {
-            console.error(`Error fetching token ${config.contractAddress}/${config.tokenId}:`, error)
-            const artistDisplay = config.artistName || (await getDisplayName(config.artist))
-            return {
-              name: `Obra de Arte #${config.tokenId}`,
-              description: "Obra de arte digital única de la colección oficial",
-              image: "/placeholder.svg",
-              artist: config.artist,
-              artistDisplay: artistDisplay,
-              contractAddress: config.contractAddress,
-              tokenId: config.tokenId,
-            }
-          }
-        })
+          },
+        )
 
         const tokenData = await Promise.all(tokenDataPromises)
         setTokens(shuffleArray(tokenData))
       } catch (error) {
         console.error("Error fetching token metadata:", error)
-        const fallbackArtist = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
-
-        const fallbackData: TokenMetadata[] = [
-          {
-            name: "Obra de Arte #1",
-            description: "Obra de arte digital única de la colección oficial",
-            image: "/placeholder.svg",
-            artist: fallbackArtist,
-            artistDisplay: "ferianounish",
-            contractAddress: "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5",
-            tokenId: "1",
-          },
-        ]
-        setTokens(shuffleArray(fallbackData))
+        setTokens([])
       } finally {
         setIsLoading(false)
       }
@@ -213,7 +198,6 @@ export default function GaleriaPage() {
 
           <div className="mt-4">
             <div className="flex items-center gap-3">
-              {/* Search Icon Button */}
               <button
                 onClick={() => setIsSearchOpen(!isSearchOpen)}
                 className="flex items-center justify-center w-12 h-12 rounded-full bg-white/20 backdrop-blur-md hover:bg-white/30 transition-all flex-shrink-0"
@@ -223,7 +207,6 @@ export default function GaleriaPage() {
                 <Search className="w-5 h-5 text-white" />
               </button>
 
-              {/* Artist Dropdown - smaller and same height */}
               <select
                 value={selectedArtist}
                 onChange={(e) => setSelectedArtist(e.target.value)}
@@ -241,7 +224,6 @@ export default function GaleriaPage() {
               </select>
             </div>
 
-            {/* Collapsible Search Input */}
             {isSearchOpen && (
               <div className="mt-3 animate-in slide-in-from-top-2 duration-200">
                 <input
@@ -294,7 +276,7 @@ export default function GaleriaPage() {
             </div>
           ) : (
             <div className="text-center py-16">
-              <p className="text-white text-lg">No se encontraron obras</p>
+              <p className="text-white text-lg">No hay obras en la galería todavía</p>
             </div>
           )}
         </main>

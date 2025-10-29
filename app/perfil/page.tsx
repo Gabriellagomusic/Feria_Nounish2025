@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
-import { ArrowLeft, Plus, ChevronDown, ChevronUp } from "lucide-react"
+import { ArrowLeft, Plus, Trash2 } from "lucide-react"
 import { useAccount } from "wagmi"
 import { getDisplayName, getFarcasterProfilePic } from "@/lib/farcaster"
 import { getNounAvatarUrl } from "@/lib/noun-avatar"
@@ -17,30 +17,7 @@ interface MomentWithImage extends Moment {
   imageUrl: string
   title: string
   description?: string
-  metadataError?: string
-  debugInfo?: {
-    apiUri: string
-    contractUri?: string
-    fetchedUrl: string
-    responseStatus?: number
-    contentType?: string
-    isDirectImage: boolean
-    parseError?: string
-    rawResponse?: string
-  }
-}
-
-interface DebugInfo {
-  rawApiResponse: any
-  filteredMoments: any[]
-  processedMoments: any[]
-  metadataFetchLogs: Array<{
-    tokenId: string
-    contractAddress: string
-    step: string
-    data: any
-    error?: string
-  }>
+  inGallery?: boolean
 }
 
 const ERC1155_ABI = [
@@ -53,43 +30,6 @@ const ERC1155_ABI = [
   },
 ] as const
 
-const KNOWN_TOKENS: Record<
-  string,
-  {
-    name: string
-    description: string
-    artistName: string
-  }
-> = {
-  // TokenId 0 mappings
-  "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5-0": {
-    name: "Experimental Music Sessions",
-    description: "🎶🎵🎤",
-    artistName: "gabriellagomusic",
-  },
-  "0xfaa54c8258b419ab0411da8ddc1985f42f98f59b-0": {
-    name: "Feria Nounish NFT",
-    description: "Obra de arte digital única de ferianounish",
-    artistName: "ferianounish",
-  },
-  // TokenId 1 mappings (keeping for compatibility)
-  "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5-1": {
-    name: "Experimental Music Sessions",
-    description: "🎶🎵🎤",
-    artistName: "gabriellagomusic",
-  },
-  "0xfaa54c8258b419ab0411da8ddc1985f42f98f59b-1": {
-    name: "Feria Nounish NFT",
-    description: "Obra de arte digital única de ferianounish",
-    artistName: "ferianounish",
-  },
-}
-
-function getKnownTokenMetadata(contractAddress: string, tokenId: string) {
-  const key = `${contractAddress.toLowerCase()}-${tokenId}`
-  return KNOWN_TOKENS[key]
-}
-
 export default function PerfilPage() {
   const router = useRouter()
   const { address, isConnected } = useAccount()
@@ -100,32 +40,6 @@ export default function PerfilPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isWhitelisted, setIsWhitelisted] = useState<boolean | null>(null)
-
-  const [debugInfo, setDebugInfo] = useState<DebugInfo>({
-    rawApiResponse: null,
-    filteredMoments: [],
-    processedMoments: [],
-    metadataFetchLogs: [],
-  })
-  const [showDebug, setShowDebug] = useState(false)
-
-  useEffect(() => {
-    console.log("[v0] PerfilPage - Component mounted")
-    console.log("[v0] PerfilPage - Initial state:", {
-      address,
-      isConnected,
-      isLoading,
-    })
-  }, [])
-
-  useEffect(() => {
-    console.log("[v0] PerfilPage - Account state changed:", {
-      address,
-      isConnected,
-      addressType: typeof address,
-      addressValue: address,
-    })
-  }, [address, isConnected])
 
   const convertToGatewayUrl = (uri: string): string => {
     if (uri.startsWith("ar://")) {
@@ -179,32 +93,18 @@ export default function PerfilPage() {
         setIsLoading(true)
         setError(null)
 
-        const newDebugInfo: DebugInfo = {
-          rawApiResponse: null,
-          filteredMoments: [],
-          processedMoments: [],
-          metadataFetchLogs: [],
-        }
-
         const picUrl = await getFarcasterProfilePic(address)
         setProfilePicUrl(picUrl)
 
         const displayName = await getDisplayName(address)
         setUserName(displayName)
 
-        console.log("[v0] Fetching timeline for address:", address)
         const timelineData = await getTimeline(1, 100, true, address, 8453, false)
-
-        newDebugInfo.rawApiResponse = timelineData
-        console.log("[v0] Raw API response:", timelineData)
 
         if (timelineData.moments && timelineData.moments.length > 0) {
           const filteredMoments = timelineData.moments.filter(
             (moment) => moment.admin.toLowerCase() === address.toLowerCase(),
           )
-
-          newDebugInfo.filteredMoments = filteredMoments
-          console.log("[v0] Filtered moments:", filteredMoments)
 
           const publicClient = createPublicClient({
             chain: base,
@@ -213,48 +113,26 @@ export default function PerfilPage() {
 
           const momentsWithMetadata = await Promise.all(
             filteredMoments.map(async (moment) => {
-              const logEntry = {
-                tokenId: "1", // Always use tokenId 1
-                contractAddress: moment.address,
-                step: "",
-                data: {} as any,
-              }
-
               try {
-                console.log(`[v0] Processing token at ${moment.address} with tokenId 1`)
-
-                // Step 1: Get URI from contract using tokenId 1 (same as galeria)
                 const tokenURI = await publicClient.readContract({
                   address: moment.address as `0x${string}`,
                   abi: ERC1155_ABI,
                   functionName: "uri",
-                  args: [BigInt(1)], // Always use tokenId 1
+                  args: [BigInt(1)],
                 })
 
-                logEntry.step = "Got URI from contract"
-                logEntry.data.tokenURI = tokenURI
-
                 if (tokenURI) {
-                  // Step 2: Replace {id} with tokenId (same as galeria)
                   let metadataUrl = tokenURI.replace("{id}", "1")
 
-                  // Step 3: Convert ar:// to gateway URL (same as galeria)
                   if (metadataUrl.startsWith("ar://")) {
                     metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
                   }
 
-                  logEntry.data.metadataUrl = metadataUrl
-
-                  // Step 4: Fetch and parse metadata (same as galeria)
                   const metadataResponse = await fetch(metadataUrl)
 
                   if (metadataResponse.ok) {
                     const metadata = await metadataResponse.json()
 
-                    logEntry.step = "Successfully fetched and parsed metadata"
-                    logEntry.data.metadata = metadata
-
-                    // Step 5: Convert image URLs (same as galeria)
                     let imageUrl = metadata.image
                     if (imageUrl?.startsWith("ipfs://")) {
                       imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
@@ -262,57 +140,50 @@ export default function PerfilPage() {
                       imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
                     }
 
-                    newDebugInfo.metadataFetchLogs.push(logEntry)
+                    const galleryCheck = await fetch(`/api/gallery/check?contractAddress=${moment.address}&tokenId=1`)
+                    const galleryData = await galleryCheck.json()
 
                     return {
                       ...moment,
                       imageUrl: imageUrl || "/placeholder.svg",
                       title: metadata.name || `Obra de Arte #1`,
                       description: metadata.description || "Obra de arte digital única",
+                      inGallery: galleryData.inGallery || false,
                     }
                   }
                 }
 
-                // Fallback if metadata fetch fails (same as galeria)
-                logEntry.step = "Using fallback data"
-                newDebugInfo.metadataFetchLogs.push(logEntry)
+                const galleryCheck = await fetch(`/api/gallery/check?contractAddress=${moment.address}&tokenId=1`)
+                const galleryData = await galleryCheck.json()
 
                 return {
                   ...moment,
                   imageUrl: "/placeholder.svg",
                   title: `Obra de Arte #1`,
                   description: "Obra de arte digital única de la colección oficial",
+                  inGallery: galleryData.inGallery || false,
                 }
               } catch (error) {
-                console.error(`[v0] Error processing token at ${moment.address}:`, error)
-                logEntry.step = "Error occurred"
-                logEntry.data.error = error instanceof Error ? error.message : String(error)
-                newDebugInfo.metadataFetchLogs.push(logEntry)
+                console.error(`Error processing token at ${moment.address}:`, error)
 
-                // Fallback on error (same as galeria)
                 return {
                   ...moment,
                   imageUrl: "/placeholder.svg",
                   title: `Obra de Arte #1`,
                   description: "Obra de arte digital única de la colección oficial",
-                  metadataError: error instanceof Error ? error.message : "Unknown error",
+                  inGallery: false,
                 }
               }
             }),
           )
 
-          newDebugInfo.processedMoments = momentsWithMetadata
-          console.log("[v0] Processed moments with metadata:", momentsWithMetadata)
-
           setMoments(momentsWithMetadata)
-          setDebugInfo(newDebugInfo)
         } else {
           setMoments([])
-          setDebugInfo(newDebugInfo)
         }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : "Unknown error"
-        console.error("[v0] Error in fetchData:", errorMsg, error)
+        console.error("Error in fetchData:", errorMsg, error)
         setError(errorMsg)
         setMoments([])
       } finally {
@@ -323,8 +194,34 @@ export default function PerfilPage() {
     fetchData()
   }, [address, isConnected, isWhitelisted])
 
-  const handleAddToGallery = async (moment: MomentWithImage) => {
-    alert(`Agregar ${moment.title} a la galería (funcionalidad pendiente)`)
+  const handleGalleryToggle = async (moment: MomentWithImage) => {
+    const action = moment.inGallery ? "remover de" : "agregar a"
+    const confirmed = window.confirm(`¿Estás seguro de que quieres ${action} la galería "${moment.title}"?`)
+
+    if (!confirmed) return
+
+    try {
+      const endpoint = moment.inGallery ? "/api/gallery/remove" : "/api/gallery/add"
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contractAddress: moment.address,
+          tokenId: "1",
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to update gallery")
+      }
+
+      setMoments((prev) => prev.map((m) => (m.id === moment.id ? { ...m, inGallery: !m.inGallery } : m)))
+
+      alert(`${moment.title} ${moment.inGallery ? "removido de" : "agregado a"} la galería exitosamente`)
+    } catch (error) {
+      console.error("Error updating gallery:", error)
+      alert("Error al actualizar la galería. Por favor intenta de nuevo.")
+    }
   }
 
   if (isWhitelisted === null) {
@@ -381,62 +278,6 @@ export default function PerfilPage() {
             </p>
           </div>
 
-          <div className="max-w-6xl mx-auto mb-8">
-            <Button
-              onClick={() => setShowDebug(!showDebug)}
-              className="w-full bg-yellow-500 hover:bg-yellow-600 text-black font-bold py-3 flex items-center justify-center gap-2"
-            >
-              {showDebug ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
-              Debug Information
-              {showDebug ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
-            </Button>
-
-            {showDebug && (
-              <Card className="mt-4 bg-black/90 border-yellow-500">
-                <CardContent className="p-6 text-white font-mono text-xs max-h-[600px] overflow-y-auto">
-                  <div className="space-y-6">
-                    <div>
-                      <h3 className="text-yellow-400 font-bold text-sm mb-2">Raw API Response:</h3>
-                      <pre className="bg-gray-900 p-3 rounded overflow-x-auto">
-                        {JSON.stringify(debugInfo.rawApiResponse, null, 2)}
-                      </pre>
-                    </div>
-
-                    <div>
-                      <h3 className="text-yellow-400 font-bold text-sm mb-2">
-                        Filtered Moments ({debugInfo.filteredMoments.length}):
-                      </h3>
-                      <pre className="bg-gray-900 p-3 rounded overflow-x-auto">
-                        {JSON.stringify(debugInfo.filteredMoments, null, 2)}
-                      </pre>
-                    </div>
-
-                    <div>
-                      <h3 className="text-yellow-400 font-bold text-sm mb-2">Metadata Fetch Logs:</h3>
-                      {debugInfo.metadataFetchLogs.map((log, index) => (
-                        <div key={index} className="bg-gray-900 p-3 rounded mb-2">
-                          <p className="text-green-400 font-bold">
-                            Token {log.tokenId} - {log.step}
-                          </p>
-                          <pre className="mt-2 text-xs overflow-x-auto">{JSON.stringify(log.data, null, 2)}</pre>
-                        </div>
-                      ))}
-                    </div>
-
-                    <div>
-                      <h3 className="text-yellow-400 font-bold text-sm mb-2">
-                        Processed Moments ({debugInfo.processedMoments.length}):
-                      </h3>
-                      <pre className="bg-gray-900 p-3 rounded overflow-x-auto">
-                        {JSON.stringify(debugInfo.processedMoments, null, 2)}
-                      </pre>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-
           <div className="max-w-6xl mx-auto">
             {error && (
               <div className="text-center py-8 mb-4">
@@ -480,30 +321,24 @@ export default function PerfilPage() {
                           <p className="text-xs text-gray-700 font-mono">Token ID: 1</p>
                         </div>
 
-                        {moment.metadataError && (
-                          <details className="mb-4 p-3 bg-yellow-50 border border-yellow-300 rounded text-xs">
-                            <summary className="font-semibold text-yellow-800 cursor-pointer">
-                              ⚠️ Error (Click to expand)
-                            </summary>
-                            <div className="mt-2 space-y-1">
-                              <p className="text-yellow-700 font-mono">{moment.metadataError}</p>
-                              <p className="text-yellow-600">
-                                <span className="font-semibold">Contract:</span> {moment.address}
-                              </p>
-                              <p className="text-yellow-600">
-                                <span className="font-semibold">Token ID:</span> 1
-                              </p>
-                            </div>
-                          </details>
-                        )}
-
                         <Button
-                          onClick={() => handleAddToGallery(moment)}
-                          className="w-full bg-[#FF0B00] hover:bg-[#CC0900] text-white font-semibold"
+                          onClick={() => handleGalleryToggle(moment)}
+                          className={`w-full font-semibold ${
+                            moment.inGallery ? "bg-gray-700 hover:bg-gray-800" : "bg-[#FF0B00] hover:bg-[#CC0900]"
+                          } text-white`}
                           size="sm"
                         >
-                          <Plus className="w-4 h-4 mr-2" />
-                          Agregar a Galería
+                          {moment.inGallery ? (
+                            <>
+                              <Trash2 className="w-4 h-4 mr-2" />
+                              Remover de Galería
+                            </>
+                          ) : (
+                            <>
+                              <Plus className="w-4 h-4 mr-2" />
+                              Agregar a Galería
+                            </>
+                          )}
                         </Button>
                       </div>
                     </CardContent>
