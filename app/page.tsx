@@ -55,42 +55,21 @@ export default function Home() {
 
   useEffect(() => {
     const checkWhitelist = async () => {
-      setDebugLogs([])
-
       if (!address) {
-        addDebugLog("No wallet address connected")
         setIsWhitelisted(false)
         setIsCheckingWhitelist(false)
         return
       }
 
       try {
-        addDebugLog("Starting whitelist check", { address })
-        addDebugLog("Normalized address", { normalized: address.toLowerCase() })
-
-        const apiUrl = `/api/whitelist/check?address=${address}`
-        addDebugLog("Calling API", { url: apiUrl })
-
-        const response = await fetch(apiUrl)
-        addDebugLog("API response received", {
-          status: response.status,
-          statusText: response.statusText,
-        })
-
+        const response = await fetch(`/api/whitelist/check?address=${address}`)
         const data = await response.json()
-        setApiResponse(data)
-        addDebugLog("API response data", data)
-
-        const whitelisted = data.isWhitelisted || false
-        setIsWhitelisted(whitelisted)
-        addDebugLog("Whitelist status determined", { isWhitelisted: whitelisted })
+        setIsWhitelisted(data.isWhitelisted || false)
       } catch (error) {
-        addDebugLog("Error checking whitelist", { error: String(error) })
-        console.error("[v0] Error checking whitelist:", error)
+        console.error("Error checking whitelist:", error)
         setIsWhitelisted(false)
       } finally {
         setIsCheckingWhitelist(false)
-        addDebugLog("Whitelist check complete")
       }
     }
 
@@ -105,12 +84,10 @@ export default function Home() {
       }
 
       try {
-        console.log("[v0] Landing - Fetching Farcaster profile pic for:", address)
         const picUrl = await getFarcasterProfilePic(address)
         setProfilePicUrl(picUrl)
-        console.log("[v0] Landing - Profile pic URL:", picUrl)
       } catch (error) {
-        console.error("[v0] Landing - Error fetching profile pic:", error)
+        console.error("Error fetching profile pic:", error)
         setProfilePicUrl(null)
       }
     }
@@ -126,74 +103,6 @@ export default function Home() {
           backgroundImage: "url(/images/fondolanding.png)",
         }}
       />
-
-      <div className="absolute top-4 left-4 z-30 max-w-md bg-black/80 backdrop-blur-md text-white p-4 rounded-lg text-xs font-mono max-h-[80vh] overflow-y-auto">
-        <h3 className="font-bold mb-2 text-sm">🔍 WHITELIST DEBUG PANEL</h3>
-
-        <div className="mb-3 pb-3 border-b border-white/20">
-          <p className="text-yellow-300 font-semibold">Connection Status:</p>
-          <p>Connected: {isConnected ? "✅ Yes" : "❌ No"}</p>
-          <p>Address: {address || "Not connected"}</p>
-          <p>Normalized: {address ? address.toLowerCase() : "N/A"}</p>
-        </div>
-
-        <div className="mb-3 pb-3 border-b border-white/20">
-          <p className="text-yellow-300 font-semibold">Whitelist Status:</p>
-          <p>Checking: {isCheckingWhitelist ? "⏳ Yes" : "✅ Done"}</p>
-          <p>Is Whitelisted: {isWhitelisted ? "✅ YES" : "❌ NO"}</p>
-        </div>
-
-        {apiResponse && (
-          <>
-            <div className="mb-3 pb-3 border-b border-white/20">
-              <p className="text-yellow-300 font-semibold">API Response:</p>
-              <pre className="text-xs overflow-x-auto">{JSON.stringify(apiResponse, null, 2)}</pre>
-            </div>
-
-            {apiResponse.debug && (
-              <div className="mb-3 pb-3 border-b border-white/20">
-                <p className="text-yellow-300 font-semibold">Database Contents:</p>
-                <p className="text-gray-300">Total rows: {apiResponse.debug.totalRows}</p>
-                <p className="text-gray-300 mt-2">Addresses in table:</p>
-                {apiResponse.debug.allAddressesInTable && apiResponse.debug.allAddressesInTable.length > 0 ? (
-                  <ul className="ml-4 mt-1 space-y-1">
-                    {apiResponse.debug.allAddressesInTable.map((addr: string, idx: number) => (
-                      <li key={idx} className="text-blue-300">
-                        {addr}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-red-300 ml-4">⚠️ No addresses found in table!</p>
-                )}
-                <p className="text-gray-300 mt-2">Searched for:</p>
-                <p className="text-purple-300 ml-4">{apiResponse.debug.searchedAddress}</p>
-              </div>
-            )}
-          </>
-        )}
-
-        <div>
-          <p className="text-yellow-300 font-semibold mb-2">Debug Logs:</p>
-          {debugLogs.length === 0 ? (
-            <p className="text-gray-400">No logs yet...</p>
-          ) : (
-            <div className="space-y-1">
-              {debugLogs.map((log, index) => (
-                <div key={index} className="text-xs">
-                  <span className="text-gray-400">[{log.timestamp}]</span>{" "}
-                  <span className="text-green-300">{log.message}</span>
-                  {log.data && (
-                    <pre className="ml-4 text-xs overflow-x-auto text-blue-300">
-                      {JSON.stringify(log.data, null, 2)}
-                    </pre>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
 
       {isWhitelisted && (
         <div className="absolute top-4 right-4 z-20">
