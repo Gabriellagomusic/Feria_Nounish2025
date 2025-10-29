@@ -12,12 +12,14 @@ import { getNounAvatarUrl } from "@/lib/noun-avatar"
 import { getTimeline, type Moment } from "@/lib/inprocess"
 import { createPublicClient, http } from "viem"
 import { base } from "viem/chains"
+import { ShareToFarcasterButton } from "@/components/share/ShareToFarcasterButton"
 
 interface MomentWithImage extends Moment {
   imageUrl: string
   title: string
   description?: string
   inGallery?: boolean
+  showShareButton?: boolean
 }
 
 const ERC1155_ABI = [
@@ -210,7 +212,10 @@ export default function PerfilPage() {
         throw new Error("Failed to update gallery")
       }
 
-      setMoments((prev) => prev.map((m) => (m.id === moment.id ? { ...m, inGallery: !m.inGallery } : m)))
+      const wasAdded = !moment.inGallery
+      setMoments((prev) =>
+        prev.map((m) => (m.id === moment.id ? { ...m, inGallery: !m.inGallery, showShareButton: wasAdded } : m)),
+      )
 
       alert(`${moment.title} ${moment.inGallery ? "removido de" : "agregado a"} la galería exitosamente`)
     } catch (error) {
@@ -316,25 +321,42 @@ export default function PerfilPage() {
                           <p className="text-xs text-gray-700 font-mono">Token ID: 1</p>
                         </div>
 
-                        <Button
-                          onClick={() => handleGalleryToggle(moment)}
-                          className={`w-full font-semibold ${
-                            moment.inGallery ? "bg-gray-700 hover:bg-gray-800" : "bg-[#FF0B00] hover:bg-[#CC0900]"
-                          } text-white`}
-                          size="sm"
-                        >
-                          {moment.inGallery ? (
-                            <>
-                              <Trash2 className="w-4 h-4 mr-2" />
-                              Remover de Galería
-                            </>
-                          ) : (
-                            <>
-                              <Plus className="w-4 h-4 mr-2" />
-                              Agregar a Galería
-                            </>
+                        <div className="space-y-2">
+                          <Button
+                            onClick={() => handleGalleryToggle(moment)}
+                            className={`w-full font-semibold ${
+                              moment.inGallery ? "bg-gray-700 hover:bg-gray-800" : "bg-[#FF0B00] hover:bg-[#CC0900]"
+                            } text-white`}
+                            size="sm"
+                          >
+                            {moment.inGallery ? (
+                              <>
+                                <Trash2 className="w-4 h-4 mr-2" />
+                                Remover de Galería
+                              </>
+                            ) : (
+                              <>
+                                <Plus className="w-4 h-4 mr-2" />
+                                Agregar a Galería
+                              </>
+                            )}
+                          </Button>
+
+                          {moment.showShareButton && moment.inGallery && (
+                            <ShareToFarcasterButton
+                              mode="add"
+                              pieceId={moment.id}
+                              pieceTitle={moment.title}
+                              contractAddress={moment.address}
+                              tokenId="1"
+                              onShareComplete={() => {
+                                setMoments((prev) =>
+                                  prev.map((m) => (m.id === moment.id ? { ...m, showShareButton: false } : m)),
+                                )
+                              }}
+                            />
                           )}
-                        </Button>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>

@@ -10,6 +10,7 @@ import { base } from "viem/chains"
 import { useAccount } from "wagmi"
 import { ArrowLeft } from "lucide-react"
 import { getDisplayName } from "@/lib/farcaster"
+import { ShareToFarcasterButton } from "@/components/share/ShareToFarcasterButton"
 
 interface TokenMetadata {
   name: string
@@ -51,6 +52,7 @@ export default function TokenDetailPage() {
   const [quantity, setQuantity] = useState(1)
   const [creator, setCreator] = useState<string>("")
   const [artistName, setArtistName] = useState<string>("")
+  const [justCollected, setJustCollected] = useState(false)
 
   useEffect(() => {
     const fetchTokenMetadata = async () => {
@@ -202,13 +204,24 @@ export default function TokenDetailPage() {
                     <p className="text-gray-600 leading-relaxed font-normal">{tokenData?.description}</p>
                   </div>
 
-                  <div className="border-t border-gray-200 pt-4 shadow-sm">
-                    <Button
-                      disabled
-                      className="w-full bg-gray-500 text-white font-extrabold py-6 text-base cursor-not-allowed opacity-60"
-                    >
-                      Collection Drops November 1st!
-                    </Button>
+                  <div className="border-t border-gray-200 pt-4 shadow-sm space-y-2">
+                    {justCollected ? (
+                      <ShareToFarcasterButton
+                        mode="collect"
+                        pieceId={`${contractAddress}-${tokenId}`}
+                        pieceTitle={tokenData?.name}
+                        contractAddress={contractAddress}
+                        tokenId={tokenId}
+                        onShareComplete={() => setJustCollected(false)}
+                      />
+                    ) : (
+                      <Button
+                        disabled
+                        className="w-full bg-gray-500 text-white font-extrabold py-6 text-base cursor-not-allowed opacity-60"
+                      >
+                        Collection Drops November 1st!
+                      </Button>
+                    )}
                   </div>
                 </CardContent>
               </Card>
