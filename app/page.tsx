@@ -144,10 +144,33 @@ export default function Home() {
         </div>
 
         {apiResponse && (
-          <div className="mb-3 pb-3 border-b border-white/20">
-            <p className="text-yellow-300 font-semibold">API Response:</p>
-            <pre className="text-xs overflow-x-auto">{JSON.stringify(apiResponse, null, 2)}</pre>
-          </div>
+          <>
+            <div className="mb-3 pb-3 border-b border-white/20">
+              <p className="text-yellow-300 font-semibold">API Response:</p>
+              <pre className="text-xs overflow-x-auto">{JSON.stringify(apiResponse, null, 2)}</pre>
+            </div>
+
+            {apiResponse.debug && (
+              <div className="mb-3 pb-3 border-b border-white/20">
+                <p className="text-yellow-300 font-semibold">Database Contents:</p>
+                <p className="text-gray-300">Total rows: {apiResponse.debug.totalRows}</p>
+                <p className="text-gray-300 mt-2">Addresses in table:</p>
+                {apiResponse.debug.allAddressesInTable && apiResponse.debug.allAddressesInTable.length > 0 ? (
+                  <ul className="ml-4 mt-1 space-y-1">
+                    {apiResponse.debug.allAddressesInTable.map((addr: string, idx: number) => (
+                      <li key={idx} className="text-blue-300">
+                        {addr}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-red-300 ml-4">⚠️ No addresses found in table!</p>
+                )}
+                <p className="text-gray-300 mt-2">Searched for:</p>
+                <p className="text-purple-300 ml-4">{apiResponse.debug.searchedAddress}</p>
+              </div>
+            )}
+          </>
         )}
 
         <div>
