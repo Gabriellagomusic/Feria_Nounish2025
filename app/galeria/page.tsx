@@ -39,6 +39,10 @@ function shuffleArray<T>(array: T[]): T[] {
   return shuffled
 }
 
+function formatAddress(address: string): string {
+  return address.slice(0, 6) + "..." + address.slice(-4)
+}
+
 export default function GaleriaPage() {
   const router = useRouter()
   const [tokens, setTokens] = useState<TokenMetadata[]>([])
@@ -64,6 +68,21 @@ export default function GaleriaPage() {
           transport: http(),
         })
 
+        const uniqueArtists = Array.from(
+          new Set(galleryData.tokens.map((t: { contractAddress: string }) => t.contractAddress)),
+        )
+        const artistDisplayPromises = uniqueArtists.map(async (address) => {
+          try {
+            const displayName = await getDisplayName(address)
+            return { address, displayName }
+          } catch (error) {
+            console.error(`Error fetching display name for ${address}:`, error)
+            return { address, displayName: formatAddress(address) }
+          }
+        })
+        const artistDisplayResults = await Promise.all(artistDisplayPromises)
+        const artistDisplayCache = new Map(artistDisplayResults.map((r) => [r.address, r.displayName]))
+
         const tokenDataPromises = galleryData.tokens.map(
           async (config: { contractAddress: string; tokenId: string }) => {
             try {
@@ -71,63 +90,63 @@ export default function GaleriaPage() {
                 address: config.contractAddress as `0x${string}`,
                 abi: ERC1155_ABI,
                 functionName: "uri",
-                args: [BigInt(config.tokenId)],
+                args: [BigInt("1")],
               })
 
               if (tokenURI) {
-                let metadataUrl = tokenURI.replace("{id}", config.tokenId)
+                let metadataUrl = tokenURI.replace("{id}", "1")
                 if (metadataUrl.startsWith("ar://")) {
                   metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
                 }
 
-                const metadataResponse = await fetch(metadataUrl)
-                if (metadataResponse.ok) {
-                  const metadata = await metadataResponse.json()
+                try {
+                  const metadataResponse = await fetch(metadataUrl)
+                  if (metadataResponse.ok) {
+                    const metadata = await metadataResponse.json()
 
-                  let imageUrl = metadata.image
-                  if (imageUrl?.startsWith("ipfs://")) {
-                    imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-                  } else if (imageUrl?.startsWith("ar://")) {
-                    imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+                    let imageUrl = metadata.image
+                    if (imageUrl?.startsWith("ipfs://")) {
+                      imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+                    } else if (imageUrl?.startsWith("ar://")) {
+                      imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+                    }
+
+                    return {
+                      name: metadata.name || `Obra de Arte #1`,
+                      description: metadata.description || "Obra de arte digital única",
+                      image: imageUrl || "/placeholder.svg",
+                      artist: config.contractAddress,
+                      artistDisplay:
+                        artistDisplayCache.get(config.contractAddress) || formatAddress(config.contractAddress),
+                      contractAddress: config.contractAddress,
+                      tokenId: "1",
+                    }
                   }
-
-                  // Get artist display name from contract
-                  const artistDisplay = await getDisplayName(config.contractAddress)
-
-                  return {
-                    name: metadata.name || `Obra de Arte #${config.tokenId}`,
-                    description: metadata.description || "Obra de arte digital única",
-                    image: imageUrl || "/placeholder.svg",
-                    artist: config.contractAddress,
-                    artistDisplay: artistDisplay,
-                    contractAddress: config.contractAddress,
-                    tokenId: config.tokenId,
-                  }
+                } catch (fetchError) {
+                  console.error(`Error fetching metadata from ${metadataUrl}:`, fetchError)
                 }
               }
 
               // Fallback
-              const artistDisplay = await getDisplayName(config.contractAddress)
               return {
-                name: `Obra de Arte #${config.tokenId}`,
+                name: `Obra de Arte #1`,
                 description: "Obra de arte digital única de la colección oficial",
                 image: "/placeholder.svg",
                 artist: config.contractAddress,
-                artistDisplay: artistDisplay,
+                artistDisplay: artistDisplayCache.get(config.contractAddress) || formatAddress(config.contractAddress),
                 contractAddress: config.contractAddress,
-                tokenId: config.tokenId,
+                tokenId: "1",
               }
             } catch (error) {
-              console.error(`Error fetching token ${config.contractAddress}/${config.tokenId}:`, error)
-              const artistDisplay = await getDisplayName(config.contractAddress)
+              console.error(`Error fetching token ${config.contractAddress}/1:`, error)
               return {
-                name: `Obra de Arte #${config.tokenId}`,
+                name: `Obra de Arte #1`,
                 description: "Obra de arte digital única de la colección oficial",
                 image: "/placeholder.svg",
                 artist: config.contractAddress,
-                artistDisplay: artistDisplay,
+                artistDisplay: artistDisplayCache.get(config.contractAddress) || formatAddress(config.contractAddress),
                 contractAddress: config.contractAddress,
-                tokenId: config.tokenId,
+                tokenId: "1",
               }
             }
           },

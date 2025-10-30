@@ -49,6 +49,13 @@ export function formatAddress(address: string): string {
  * Gets display name: Farcaster username or formatted address
  */
 export async function getDisplayName(address: string): Promise<string> {
-  const farcasterUsername = await getFarcasterUsername(address)
-  return farcasterUsername || formatAddress(address)
+  try {
+    const farcasterUsername = await getFarcasterUsername(address)
+    if (farcasterUsername) {
+      return farcasterUsername
+    }
+  } catch (error) {
+    console.error("[v0] Error in getDisplayName:", error)
+  }
+  return formatAddress(address)
 }
