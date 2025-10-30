@@ -3,9 +3,9 @@
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Image from "next/image"
-import { useRouter } from "next/navigation"
+import { useRouter } from 'next/navigation'
 import { useEffect, useState } from "react"
-import { ArrowLeft, Plus, Trash2 } from "lucide-react"
+import { ArrowLeft, Plus, Trash2 } from 'lucide-react'
 import { useAccount } from "wagmi"
 import { getDisplayName, getFarcasterProfilePic } from "@/lib/farcaster"
 import { getNounAvatarUrl } from "@/lib/noun-avatar"
@@ -342,18 +342,13 @@ export default function PerfilPage() {
                             )}
                           </Button>
 
-                          {moment.showShareButton && moment.inGallery && (
+                          {moment.inGallery && (
                             <ShareToFarcasterButton
                               mode="add"
                               pieceId={moment.id}
                               pieceTitle={moment.title}
                               contractAddress={moment.address}
                               tokenId="1"
-                              onShareComplete={() => {
-                                setMoments((prev) =>
-                                  prev.map((m) => (m.id === moment.id ? { ...m, showShareButton: false } : m)),
-                                )
-                              }}
                             />
                           )}
                         </div>
