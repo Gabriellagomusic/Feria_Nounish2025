@@ -9,6 +9,7 @@ import { createPublicClient, http } from "viem"
 import { base } from "viem/chains"
 import { ArrowLeft, Search } from "lucide-react"
 import { getDisplayName } from "@/lib/farcaster"
+import { getTimeline } from "@/lib/inprocess"
 
 interface TokenMetadata {
   name: string
@@ -54,7 +55,11 @@ export default function GaleriaPage() {
   useEffect(() => {
     const fetchTokenMetadata = async () => {
       try {
-        const galleryResponse = await fetch("/api/gallery/list")
+        const [galleryResponse, inprocessData] = await Promise.all([
+          fetch("/api/gallery/list"),
+          getTimeline(1, 100, true, undefined, 8453, false),
+        ])
+
         const galleryData = await galleryResponse.json()
 
         if (!galleryData.tokens || galleryData.tokens.length === 0) {
@@ -63,24 +68,47 @@ export default function GaleriaPage() {
           return
         }
 
+        const momentMap = new Map()
+        inprocessData.moments.forEach((moment) => {
+          const key = `${moment.address.toLowerCase()}-${moment.tokenId}`
+          momentMap.set(key, moment)
+        })
+
+        const artistAddresses = new Set<string>()
+        galleryData.tokens.forEach((config: { contractAddress: string; tokenId: string }) => {
+          const key = `${config.contractAddress.toLowerCase()}-${config.tokenId}`
+          const moment = momentMap.get(key)
+          if (moment?.admin) {
+            artistAddresses.add(moment.admin.toLowerCase())
+          }
+        })
+
+        const artistDisplayCache = new Map<string, string>()
+        await Promise.all(
+          Array.from(artistAddresses).map(async (address) => {
+            try {
+              const displayName = await getDisplayName(address)
+              artistDisplayCache.set(address, displayName)
+            } catch (error) {
+              console.error(`Error fetching display name for ${address}:`, error)
+              artistDisplayCache.set(address, formatAddress(address))
+            }
+          }),
+        )
+
         const publicClient = createPublicClient({
           chain: base,
           transport: http(),
         })
 
-        const creatorAddress = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
-
-        let artistDisplayName: string
-        try {
-          artistDisplayName = await getDisplayName(creatorAddress)
-        } catch (error) {
-          console.error(`Error fetching display name for creator:`, error)
-          artistDisplayName = formatAddress(creatorAddress)
-        }
-
         const tokenDataPromises = galleryData.tokens.map(
           async (config: { contractAddress: string; tokenId: string }) => {
             try {
+              const key = `${config.contractAddress.toLowerCase()}-${config.tokenId}`
+              const moment = momentMap.get(key)
+              const artistAddress = moment?.admin || "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
+              const artistDisplay = artistDisplayCache.get(artistAddress.toLowerCase()) || formatAddress(artistAddress)
+
               const tokenURI = await publicClient.readContract({
                 address: config.contractAddress as `0x${string}`,
                 abi: ERC1155_ABI,
@@ -110,8 +138,8 @@ export default function GaleriaPage() {
                       name: metadata.name || `Obra de Arte #1`,
                       description: metadata.description || "Obra de arte digital única",
                       image: imageUrl || "/placeholder.svg",
-                      artist: creatorAddress,
-                      artistDisplay: artistDisplayName,
+                      artist: artistAddress,
+                      artistDisplay: artistDisplay,
                       contractAddress: config.contractAddress,
                       tokenId: "1",
                     }
@@ -125,19 +153,20 @@ export default function GaleriaPage() {
                 name: `Obra de Arte #1`,
                 description: "Obra de arte digital única de la colección oficial",
                 image: "/placeholder.svg",
-                artist: creatorAddress,
-                artistDisplay: artistDisplayName,
+                artist: artistAddress,
+                artistDisplay: artistDisplay,
                 contractAddress: config.contractAddress,
                 tokenId: "1",
               }
             } catch (error) {
               console.error(`Error fetching token ${config.contractAddress}/1:`, error)
+              const fallbackArtist = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
               return {
                 name: `Obra de Arte #1`,
                 description: "Obra de arte digital única de la colección oficial",
                 image: "/placeholder.svg",
-                artist: creatorAddress,
-                artistDisplay: artistDisplayName,
+                artist: fallbackArtist,
+                artistDisplay: formatAddress(fallbackArtist),
                 contractAddress: config.contractAddress,
                 tokenId: "1",
               }
