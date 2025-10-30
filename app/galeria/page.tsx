@@ -43,24 +43,36 @@ function formatAddress(address: string): string {
   return address.slice(0, 6) + "..." + address.slice(-4)
 }
 
-async function getArtistNameForToken(contractAddress: string, tokenId: string): Promise<string> {
+async function getArtistInfoForContract(contractAddress: string): Promise<{ address: string; displayName: string }> {
   // Check for hardcoded artist names (same as individual token page)
-  if (contractAddress.toLowerCase() === "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5" && tokenId === "1") {
-    return "gabriellagomusic"
+  if (contractAddress.toLowerCase() === "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5") {
+    return {
+      address: contractAddress.toLowerCase(),
+      displayName: "gabriellagomusic",
+    }
   }
 
-  if (contractAddress.toLowerCase() === "0xfaa54c8258b419ab0411da8ddc1985f42f98f59b" && tokenId === "1") {
-    return "ferianounish"
+  if (contractAddress.toLowerCase() === "0xfaa54c8258b419ab0411da8ddc1985f42f98f59b") {
+    return {
+      address: contractAddress.toLowerCase(),
+      displayName: "ferianounish",
+    }
   }
 
   // Otherwise use the same hardcoded creator address as individual page
   const creator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
   try {
     const displayName = await getDisplayName(creator)
-    return displayName
+    return {
+      address: creator.toLowerCase(),
+      displayName: displayName,
+    }
   } catch (error) {
     console.error("Error fetching artist name:", error)
-    return formatAddress(creator)
+    return {
+      address: creator.toLowerCase(),
+      displayName: formatAddress(creator),
+    }
   }
 }
 
@@ -84,6 +96,18 @@ export default function GaleriaPage() {
           return
         }
 
+        const uniqueContracts = Array.from(
+          new Set(galleryData.tokens.map((t: { contractAddress: string }) => t.contractAddress.toLowerCase())),
+        )
+
+        const artistInfoMap = new Map<string, { address: string; displayName: string }>()
+        await Promise.all(
+          uniqueContracts.map(async (contract) => {
+            const info = await getArtistInfoForContract(contract)
+            artistInfoMap.set(contract, info)
+          }),
+        )
+
         const publicClient = createPublicClient({
           chain: base,
           transport: http(),
@@ -92,9 +116,10 @@ export default function GaleriaPage() {
         const tokenDataPromises = galleryData.tokens.map(
           async (config: { contractAddress: string; tokenId: string }) => {
             try {
-              // Get artist name using same logic as individual page
-              const artistDisplay = await getArtistNameForToken(config.contractAddress, "1")
-              const artistAddress = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
+              const artistInfo = artistInfoMap.get(config.contractAddress.toLowerCase()) || {
+                address: "0x697C7720dc08F1eb1fde54420432eFC6aD594244",
+                displayName: "Unknown Artist",
+              }
 
               const tokenURI = await publicClient.readContract({
                 address: config.contractAddress as `0x${string}`,
@@ -125,8 +150,8 @@ export default function GaleriaPage() {
                       name: metadata.name || `Obra de Arte #1`,
                       description: metadata.description || "Obra de arte digital única",
                       image: imageUrl || "/placeholder.svg",
-                      artist: artistAddress,
-                      artistDisplay: artistDisplay,
+                      artist: artistInfo.address,
+                      artistDisplay: artistInfo.displayName,
                       contractAddress: config.contractAddress,
                       tokenId: "1",
                     }
@@ -140,8 +165,8 @@ export default function GaleriaPage() {
                 name: `Obra de Arte #1`,
                 description: "Obra de arte digital única de la colección oficial",
                 image: "/placeholder.svg",
-                artist: artistAddress,
-                artistDisplay: artistDisplay,
+                artist: artistInfo.address,
+                artistDisplay: artistInfo.displayName,
                 contractAddress: config.contractAddress,
                 tokenId: "1",
               }
@@ -193,16 +218,17 @@ export default function GaleriaPage() {
     return filtered
   }, [tokens, searchQuery, selectedArtist])
 
-  const artists = useMemo(() => {
-    return Array.from(new Set(tokens.map((token) => token.artist)))
-  }, [tokens])
-
-  const artistDisplayMap = useMemo(() => {
-    const map = new Map<string, string>()
+  const uniqueArtists = useMemo(() => {
+    const artistMap = new Map<string, string>()
     tokens.forEach((token) => {
-      map.set(token.artist, token.artistDisplay)
+      if (!artistMap.has(token.artist)) {
+        artistMap.set(token.artist, token.artistDisplay)
+      }
     })
-    return map
+    return Array.from(artistMap.entries()).map(([address, displayName]) => ({
+      address,
+      displayName,
+    }))
   }, [tokens])
 
   return (
@@ -244,9 +270,9 @@ export default function GaleriaPage() {
                 <option value="" className="bg-gray-800">
                   TODOS LOS ARTISTAS
                 </option>
-                {artists.map((artist) => (
-                  <option key={artist} value={artist} className="bg-gray-800">
-                    {artistDisplayMap.get(artist) || artist}
+                {uniqueArtists.map((artist) => (
+                  <option key={artist.address} value={artist.address} className="bg-gray-800">
+                    {artist.displayName}
                   </option>
                 ))}
               </select>
