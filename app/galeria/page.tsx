@@ -68,20 +68,15 @@ export default function GaleriaPage() {
           transport: http(),
         })
 
-        const uniqueArtists = Array.from(
-          new Set(galleryData.tokens.map((t: { contractAddress: string }) => t.contractAddress)),
-        )
-        const artistDisplayPromises = uniqueArtists.map(async (address) => {
-          try {
-            const displayName = await getDisplayName(address)
-            return { address, displayName }
-          } catch (error) {
-            console.error(`Error fetching display name for ${address}:`, error)
-            return { address, displayName: formatAddress(address) }
-          }
-        })
-        const artistDisplayResults = await Promise.all(artistDisplayPromises)
-        const artistDisplayCache = new Map(artistDisplayResults.map((r) => [r.address, r.displayName]))
+        const creatorAddress = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
+
+        let artistDisplayName: string
+        try {
+          artistDisplayName = await getDisplayName(creatorAddress)
+        } catch (error) {
+          console.error(`Error fetching display name for creator:`, error)
+          artistDisplayName = formatAddress(creatorAddress)
+        }
 
         const tokenDataPromises = galleryData.tokens.map(
           async (config: { contractAddress: string; tokenId: string }) => {
@@ -115,9 +110,8 @@ export default function GaleriaPage() {
                       name: metadata.name || `Obra de Arte #1`,
                       description: metadata.description || "Obra de arte digital única",
                       image: imageUrl || "/placeholder.svg",
-                      artist: config.contractAddress,
-                      artistDisplay:
-                        artistDisplayCache.get(config.contractAddress) || formatAddress(config.contractAddress),
+                      artist: creatorAddress,
+                      artistDisplay: artistDisplayName,
                       contractAddress: config.contractAddress,
                       tokenId: "1",
                     }
@@ -127,13 +121,12 @@ export default function GaleriaPage() {
                 }
               }
 
-              // Fallback
               return {
                 name: `Obra de Arte #1`,
                 description: "Obra de arte digital única de la colección oficial",
                 image: "/placeholder.svg",
-                artist: config.contractAddress,
-                artistDisplay: artistDisplayCache.get(config.contractAddress) || formatAddress(config.contractAddress),
+                artist: creatorAddress,
+                artistDisplay: artistDisplayName,
                 contractAddress: config.contractAddress,
                 tokenId: "1",
               }
@@ -143,8 +136,8 @@ export default function GaleriaPage() {
                 name: `Obra de Arte #1`,
                 description: "Obra de arte digital única de la colección oficial",
                 image: "/placeholder.svg",
-                artist: config.contractAddress,
-                artistDisplay: artistDisplayCache.get(config.contractAddress) || formatAddress(config.contractAddress),
+                artist: creatorAddress,
+                artistDisplay: artistDisplayName,
                 contractAddress: config.contractAddress,
                 tokenId: "1",
               }
