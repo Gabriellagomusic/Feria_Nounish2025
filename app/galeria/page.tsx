@@ -9,7 +9,6 @@ import { createPublicClient, http } from "viem"
 import { base } from "viem/chains"
 import { ArrowLeft, Search } from "lucide-react"
 import { getDisplayName } from "@/lib/farcaster"
-import { getTimeline } from "@/lib/inprocess"
 
 interface TokenMetadata {
   name: string
@@ -44,6 +43,27 @@ function formatAddress(address: string): string {
   return address.slice(0, 6) + "..." + address.slice(-4)
 }
 
+async function getArtistNameForToken(contractAddress: string, tokenId: string): Promise<string> {
+  // Check for hardcoded artist names (same as individual token page)
+  if (contractAddress.toLowerCase() === "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5" && tokenId === "1") {
+    return "gabriellagomusic"
+  }
+
+  if (contractAddress.toLowerCase() === "0xfaa54c8258b419ab0411da8ddc1985f42f98f59b" && tokenId === "1") {
+    return "ferianounish"
+  }
+
+  // Otherwise use the same hardcoded creator address as individual page
+  const creator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
+  try {
+    const displayName = await getDisplayName(creator)
+    return displayName
+  } catch (error) {
+    console.error("Error fetching artist name:", error)
+    return formatAddress(creator)
+  }
+}
+
 export default function GaleriaPage() {
   const router = useRouter()
   const [tokens, setTokens] = useState<TokenMetadata[]>([])
@@ -55,11 +75,7 @@ export default function GaleriaPage() {
   useEffect(() => {
     const fetchTokenMetadata = async () => {
       try {
-        const [galleryResponse, inprocessData] = await Promise.all([
-          fetch("/api/gallery/list"),
-          getTimeline(1, 100, true, undefined, 8453, false),
-        ])
-
+        const galleryResponse = await fetch("/api/gallery/list")
         const galleryData = await galleryResponse.json()
 
         if (!galleryData.tokens || galleryData.tokens.length === 0) {
@@ -67,34 +83,6 @@ export default function GaleriaPage() {
           setIsLoading(false)
           return
         }
-
-        const momentMap = new Map()
-        inprocessData.moments.forEach((moment) => {
-          const key = `${moment.address.toLowerCase()}-${moment.tokenId}`
-          momentMap.set(key, moment)
-        })
-
-        const artistAddresses = new Set<string>()
-        galleryData.tokens.forEach((config: { contractAddress: string; tokenId: string }) => {
-          const key = `${config.contractAddress.toLowerCase()}-${config.tokenId}`
-          const moment = momentMap.get(key)
-          if (moment?.admin) {
-            artistAddresses.add(moment.admin.toLowerCase())
-          }
-        })
-
-        const artistDisplayCache = new Map<string, string>()
-        await Promise.all(
-          Array.from(artistAddresses).map(async (address) => {
-            try {
-              const displayName = await getDisplayName(address)
-              artistDisplayCache.set(address, displayName)
-            } catch (error) {
-              console.error(`Error fetching display name for ${address}:`, error)
-              artistDisplayCache.set(address, formatAddress(address))
-            }
-          }),
-        )
 
         const publicClient = createPublicClient({
           chain: base,
@@ -104,10 +92,9 @@ export default function GaleriaPage() {
         const tokenDataPromises = galleryData.tokens.map(
           async (config: { contractAddress: string; tokenId: string }) => {
             try {
-              const key = `${config.contractAddress.toLowerCase()}-${config.tokenId}`
-              const moment = momentMap.get(key)
-              const artistAddress = moment?.admin || "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
-              const artistDisplay = artistDisplayCache.get(artistAddress.toLowerCase()) || formatAddress(artistAddress)
+              // Get artist name using same logic as individual page
+              const artistDisplay = await getArtistNameForToken(config.contractAddress, "1")
+              const artistAddress = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
 
               const tokenURI = await publicClient.readContract({
                 address: config.contractAddress as `0x${string}`,
