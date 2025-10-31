@@ -146,6 +146,17 @@ export default function TokenDetailPage() {
     fetchArtistName()
   }, [creator, contractAddress, tokenId])
 
+  useEffect(() => {
+    if (justCollected) {
+      // Give user 3 seconds to see the success state and share button
+      const redirectTimer = setTimeout(() => {
+        router.push("/perfil")
+      }, 3000)
+
+      return () => clearTimeout(redirectTimer)
+    }
+  }, [justCollected, router])
+
   if (isLoading) {
     return (
       <div className="min-h-screen relative overflow-hidden flex items-center justify-center">
@@ -206,14 +217,26 @@ export default function TokenDetailPage() {
 
                   <div className="border-t border-gray-200 pt-4 shadow-sm space-y-2">
                     {justCollected ? (
-                      <ShareToFarcasterButton
-                        mode="collect"
-                        pieceId={`${contractAddress}-${tokenId}`}
-                        pieceTitle={tokenData?.name}
-                        contractAddress={contractAddress}
-                        tokenId={tokenId}
-                        onShareComplete={() => setJustCollected(false)}
-                      />
+                      <div className="space-y-3">
+                        <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
+                          <p className="text-green-800 font-semibold mb-1">¡Colección exitosa!</p>
+                          <p className="text-green-600 text-sm">Redirigiendo a tu perfil en 3 segundos...</p>
+                        </div>
+                        <ShareToFarcasterButton
+                          mode="collect"
+                          pieceId={`${contractAddress}-${tokenId}`}
+                          pieceTitle={tokenData?.name}
+                          contractAddress={contractAddress}
+                          tokenId={tokenId}
+                          onShareComplete={() => setJustCollected(false)}
+                        />
+                        <Button
+                          onClick={() => router.push("/perfil")}
+                          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-6 text-base"
+                        >
+                          Ir a Mi Perfil Ahora
+                        </Button>
+                      </div>
                     ) : (
                       <Button
                         disabled

@@ -25,7 +25,7 @@ export async function GET() {
       splashBackgroundColor: "#1E40AF",
       homeUrl: URL,
       webhookUrl: `${URL}/api/webhook`,
-      primaryCategory: "art",
+      primaryCategory: "art-creativity",
       tags: ["feria", "grafica", "nounish", "cali", "colombia"],
       heroImageUrl: "https://ferianounish2025.vercel.app/images/feria-logo.png",
       tagline: "Feria Nousnish",
