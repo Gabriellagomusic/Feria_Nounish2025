@@ -150,7 +150,7 @@ export default function CrearPage() {
 
       if (response.ok) {
         alert(`Momento creado exitosamente!\nContract: ${data.contractAddress}\nToken ID: ${data.tokenId}`)
-        router.push("/galeria")
+        router.push("/perfil")
       } else {
         alert(`Error al crear momento: ${data.message || "Error desconocido"}`)
       }
