@@ -400,8 +400,7 @@ export default function TokenDetailPage() {
             } else {
               const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
               setCreator(fallbackCreator)
-              const displayName = await getDisplayName(fallbackCreator)
-              setArtistName(displayName)
+              setArtistName(await getDisplayName(fallbackCreator))
             }
           }
         } catch (error) {
@@ -446,7 +445,7 @@ export default function TokenDetailPage() {
     try {
       setIsApproving(true)
       addDebugLog(
-        ` morphOutput Approving ${usdcAmountNeeded.toString()} USDC (${quantity} USDC) for contract ${contractAddress}`,
+        `morphOutput Approving ${usdcAmountNeeded.toString()} USDC (${quantity} USDC) for contract ${contractAddress}`,
       )
 
       writeContract({
@@ -478,25 +477,48 @@ export default function TokenDetailPage() {
       addDebugLog(`📝 Contract address: ${contractAddress}`)
       addDebugLog(`📝 Token ID: ${tokenId}`)
       addDebugLog(`📝 Quantity: ${quantity}`)
+      addDebugLog(`📝 Checking ETH balance for gas...`)
+
+      try {
+        const publicClient = createPublicClient({
+          chain: base,
+          transport: http(),
+        })
+
+        const ethBalance = await publicClient.getBalance({ address })
+        const ethBalanceFormatted = (Number(ethBalance) / 1e18).toFixed(6)
+        addDebugLog(`💎 ETH balance: ${ethBalanceFormatted} ETH`)
+
+        if (Number(ethBalance) < 1e15) {
+          // Less than 0.001 ETH
+          addDebugLog(`⚠️ WARNING: Low ETH balance for gas fees!`)
+        }
+      } catch (error: any) {
+        addDebugLog(`⚠️ Could not check ETH balance: ${error.message}`)
+      }
 
       addDebugLog("📤 Calling InProcess collect API...")
       setIsMinting(true)
+
+      const requestBody = {
+        contractAddress,
+        tokenId,
+        amount: quantity,
+        comment: "Collected via Feria Nounish!",
+      }
+      addDebugLog(`📤 Request body: ${JSON.stringify(requestBody, null, 2)}`)
 
       const response = await fetch("/api/inprocess/collect", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          contractAddress,
-          tokenId,
-          amount: quantity,
-          comment: "Collected via Feria Nounish!",
-        }),
+        body: JSON.stringify(requestBody),
       })
 
       addDebugLog(`📥 API response status: ${response.status}`)
       addDebugLog(`📥 API response ok: ${response.ok}`)
+      addDebugLog(`📥 API response headers: ${JSON.stringify(Object.fromEntries(response.headers.entries()), null, 2)}`)
 
       const responseText = await response.text()
       addDebugLog(`📥 API response body: ${responseText}`)
@@ -521,6 +543,9 @@ export default function TokenDetailPage() {
         if (data.status) {
           addDebugLog(`❌ HTTP status: ${data.status}`)
         }
+        if (data.stack) {
+          addDebugLog(`❌ Error stack: ${data.stack}`)
+        }
         throw new Error(errorMessage)
       }
 
@@ -534,9 +559,58 @@ export default function TokenDetailPage() {
     } catch (error: any) {
       console.error("[v0] Error in handleMint:", error)
       addDebugLog(`❌ Error in handleMint: ${error.message}`)
+      if (error.stack) {
+        addDebugLog(`❌ Error stack: ${error.stack}`)
+      }
       setIsMinting(false)
       setMintError(error.message || "Error desconocido al coleccionar")
     }
+  }
+
+  const copyDebugLogs = () => {
+    const debugText = `🔍 Debug Information:
+Connected: ${isConnected ? "✅ Yes" : "❌ No"}
+Address: ${address || "N/A"}
+Contract: ${contractAddress}
+Token ID: ${tokenId}
+Is Experimental Token: ${isExperimentalMusicToken ? "✅ Yes" : "❌ No"}
+USDC Approved: ${isApproved ? "✅ Yes" : "❌ No"}
+Approving: ${isApproving ? "✅ Yes" : "❌ No"}
+Minting: ${isMinting ? "✅ Yes" : "❌ No"}
+Pending: ${isPending ? "✅ Yes" : "❌ No"}
+Confirming: ${isConfirming ? "✅ Yes" : "❌ No"}
+
+📊 Contract State:
+${
+  contractInfo
+    ? `User Token Balance: ${contractInfo.userBalance}
+Total Supply: ${contractInfo.totalSupply}
+User USDC Balance: ${contractInfo.usdcBalance} USDC
+${contractInfo.maxPerAddress ? `Max Per Address: ${contractInfo.maxPerAddress}` : ""}`
+    : "Not loaded yet"
+}
+
+${
+  mintError
+    ? `❌ Mint Error:
+${mintError}
+`
+    : ""
+}
+${hash ? `Tx Hash: ${hash}` : ""}
+
+📋 Transaction Log:
+${debugInfo.join("\n")}`
+
+    navigator.clipboard.writeText(debugText).then(
+      () => {
+        alert("Debug logs copiados al portapapeles!")
+      },
+      (err) => {
+        console.error("[v0] Could not copy text: ", err)
+        alert("Error al copiar los logs")
+      },
+    )
   }
 
   if (isLoading) {
@@ -753,6 +827,9 @@ export default function TokenDetailPage() {
                                 ))
                               )}
                             </div>
+                            <Button onClick={copyDebugLogs} variant="outline" className="w-full mt-4 bg-transparent">
+                              📋 Copiar Debug Logs
+                            </Button>
                           </div>
                         )}
                       </>

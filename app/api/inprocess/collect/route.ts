@@ -6,6 +6,7 @@ export async function POST(request: NextRequest) {
     const { contractAddress, tokenId, amount, comment } = body
 
     console.log("[v0] 🔍 Collect API called with body:", JSON.stringify(body, null, 2))
+    console.log("[v0] 📥 Request headers:", JSON.stringify(Object.fromEntries(request.headers.entries()), null, 2))
 
     if (!contractAddress || !tokenId || !amount) {
       console.log("[v0] ❌ Missing required fields")
@@ -16,6 +17,10 @@ export async function POST(request: NextRequest) {
 
     if (!apiKey) {
       console.log("[v0] ❌ INPROCESS_API_KEY environment variable is not set")
+      console.log(
+        "[v0] 📋 Available env vars:",
+        Object.keys(process.env).filter((k) => k.includes("INPROCESS")),
+      )
       return NextResponse.json(
         { error: "INPROCESS_API_KEY environment variable is not configured. Please add it in the Vars section." },
         { status: 500 },
@@ -25,6 +30,7 @@ export async function POST(request: NextRequest) {
     const maskedKey = apiKey.substring(0, 8) + "..." + apiKey.substring(apiKey.length - 4)
     console.log("[v0] ✅ API key found:", maskedKey)
     console.log("[v0] 📝 API key length:", apiKey.length)
+    console.log("[v0] 📝 API key starts with:", apiKey.substring(0, 3))
 
     const requestBody = {
       moment: {
@@ -40,6 +46,8 @@ export async function POST(request: NextRequest) {
     console.log("[v0] Body:", JSON.stringify(requestBody, null, 2))
     console.log("[v0] Headers: Content-Type: application/json, x-api-key: [MASKED]")
 
+    const startTime = Date.now()
+
     // Call the InProcess API to collect the moment
     const response = await fetch("https://inprocess.fun/api/moment/collect", {
       method: "POST",
@@ -50,11 +58,19 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify(requestBody),
     })
 
+    const endTime = Date.now()
+    console.log("[v0] ⏱️ Request took:", endTime - startTime, "ms")
+
     console.log("[v0] 📥 InProcess API response status:", response.status)
     console.log("[v0] 📥 InProcess API response ok:", response.ok)
+    console.log(
+      "[v0] 📥 InProcess API response headers:",
+      JSON.stringify(Object.fromEntries(response.headers.entries()), null, 2),
+    )
 
     const responseText = await response.text()
     console.log("[v0] 📥 InProcess API response body:", responseText)
+    console.log("[v0] 📥 Response body length:", responseText.length, "characters")
 
     if (!response.ok) {
       let errorData
@@ -64,12 +80,22 @@ export async function POST(request: NextRequest) {
         errorData = { message: responseText }
       }
       console.error("[v0] ❌ InProcess API error:", JSON.stringify(errorData, null, 2))
+      console.error("[v0] ❌ Error type:", typeof errorData)
+      console.error("[v0] ❌ Error keys:", Object.keys(errorData))
+
       return NextResponse.json(
         {
           error: "Failed to collect moment via InProcess API",
           details: errorData,
           status: response.status,
           statusText: response.statusText,
+          requestInfo: {
+            contractAddress,
+            tokenId,
+            amount,
+            apiKeyPresent: !!apiKey,
+            apiKeyLength: apiKey.length,
+          },
         },
         { status: response.status },
       )
@@ -86,8 +112,17 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error("[v0] ❌ Error in collect API route:", error)
     console.error("[v0] ❌ Error stack:", error.stack)
+    console.error("[v0] ❌ Error type:", error.constructor.name)
+    console.error("[v0] ❌ Error name:", error.name)
+
     return NextResponse.json(
-      { error: "Internal server error", details: error.message, stack: error.stack },
+      {
+        error: "Internal server error",
+        details: error.message,
+        stack: error.stack,
+        errorType: error.constructor.name,
+        errorName: error.name,
+      },
       { status: 500 },
     )
   }
