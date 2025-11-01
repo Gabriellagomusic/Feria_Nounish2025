@@ -535,14 +535,22 @@ export default function TokenDetailPage() {
       addDebugLog("📋 Step 0: Checking ERC20 sales configuration...", true)
       const salesConfig = await checkSalesConfig()
 
-      const pricePerToken = parseUnits("1", 6) // Always 1 USDC
-
-      if (salesConfig) {
-        addDebugLog(`✅ Sales config found! Price from config: ${Number(salesConfig.pricePerToken) / 1e6} USDC`, true)
-      } else {
-        addDebugLog(`⚠️ No sales config found, using default price`, true)
+      if (!salesConfig) {
+        addDebugLog("❌ STOPPING: No valid ERC20 sales config found", true)
+        setIsMinting(false)
+        setMintError(
+          "❌ Este token NO tiene configurado ERC20 minting.\n\n" +
+            "El artista debe configurar el ERC20 sales config primero.\n\n" +
+            (isOwner
+              ? "💡 Como dueño del contrato, usa el botón 'Configurar Sales Config' arriba."
+              : "💡 Contacta al artista para que configure el sales config."),
+        )
+        return
       }
 
+      const pricePerToken = salesConfig.pricePerToken || parseUnits("1", 6) // Use config price or default to 1 USDC
+
+      addDebugLog(`✅ Sales config found! Price: ${Number(pricePerToken) / 1e6} USDC`, true)
       addDebugLog(`💰 Using price: ${Number(pricePerToken) / 1e6} USDC per token`, true)
 
       // Step 1: Check USDC allowance
@@ -567,7 +575,7 @@ export default function TokenDetailPage() {
         mintTo: address,
         quantity: BigInt(quantity),
         currency: USDC_ADDRESS,
-        pricePerToken: pricePerToken, // Always 1 USDC
+        pricePerToken: pricePerToken,
         mintReferral: "0x0000000000000000000000000000000000000000" as Address,
         comment: "Collected via Feria Nounish on Base!",
       }
