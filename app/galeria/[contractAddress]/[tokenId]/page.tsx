@@ -102,14 +102,45 @@ export default function TokenDetailPage() {
     setDebugInfo((prev) => [...prev, logMessage])
   }
 
+  useEffect(() => {
+    console.log("[v0] ========== TOKEN DETAIL PAGE MOUNTED ==========")
+    addDebugLog("🚀 Token Detail Page Mounted")
+    addDebugLog(`📝 Contract Address: ${contractAddress}`)
+    addDebugLog(`📝 Token ID: ${tokenId}`)
+    addDebugLog(`📝 Is Experimental Music Token: ${isExperimentalMusicToken}`)
+  }, [])
+
+  useEffect(() => {
+    console.log("[v0] ========== WALLET CONNECTION STATUS CHANGED ==========")
+    console.log("[v0] Is Connected:", isConnected)
+    console.log("[v0] Address:", address)
+    addDebugLog(`🔌 Wallet Connection Status: ${isConnected ? "Connected" : "Disconnected"}`)
+    if (address) {
+      addDebugLog(`👛 Wallet Address: ${address}`)
+    }
+  }, [isConnected, address])
+
+  useEffect(() => {
+    console.log("[v0] ========== QUANTITY CHANGED ==========")
+    console.log("[v0] New Quantity:", quantity)
+    addDebugLog(`🔢 Quantity changed to: ${quantity}`)
+  }, [quantity])
+
   const checkContractState = async () => {
     if (!address || !isExperimentalMusicToken) return
+
+    console.log("[v0] ========== CHECKING CONTRACT STATE ==========")
+    addDebugLog("🔍 Checking contract state on Base chain...")
 
     try {
       const publicClient = createPublicClient({
         chain: base,
         transport: http(),
       })
+
+      addDebugLog(`📡 Created public client for Base chain`)
+      addDebugLog(`📡 Reading balanceOf for address: ${address}`)
+      addDebugLog(`📡 Reading totalSupply for token ID: ${tokenId}`)
 
       const [userBalance, totalSupply] = await Promise.all([
         publicClient
@@ -119,7 +150,10 @@ export default function TokenDetailPage() {
             functionName: "balanceOf",
             args: [address, BigInt(tokenId)],
           })
-          .catch(() => BigInt(0)),
+          .catch((error) => {
+            addDebugLog(`⚠️ Error reading balanceOf: ${error.message}`)
+            return BigInt(0)
+          }),
         publicClient
           .readContract({
             address: contractAddress,
@@ -127,7 +161,10 @@ export default function TokenDetailPage() {
             functionName: "totalSupply",
             args: [BigInt(tokenId)],
           })
-          .catch(() => BigInt(0)),
+          .catch((error) => {
+            addDebugLog(`⚠️ Error reading totalSupply: ${error.message}`)
+            return BigInt(0)
+          }),
       ])
 
       const info = {
@@ -136,10 +173,12 @@ export default function TokenDetailPage() {
       }
 
       setContractInfo(info)
-      addDebugLog(`📊 [Base Chain] User already owns: ${info.userBalance} of this token`)
-      addDebugLog(`📊 [Base Chain] Total supply of this token: ${info.totalSupply}`)
+      addDebugLog(`📊 [Base Chain] User Balance: ${info.userBalance}`)
+      addDebugLog(`📊 [Base Chain] Total Supply: ${info.totalSupply}`)
     } catch (error: any) {
-      addDebugLog(`⚠️ Could not fetch contract state: ${error.message}`)
+      console.log("[v0] Error checking contract state:", error)
+      addDebugLog(`❌ Error checking contract state: ${error.message}`)
+      addDebugLog(`❌ Full error: ${JSON.stringify(error, Object.getOwnPropertyNames(error), 2)}`)
     }
   }
 
@@ -262,16 +301,24 @@ export default function TokenDetailPage() {
 
   const handleMint = async () => {
     console.log("[v0] ========== COLECCIONAR BUTTON CLICKED ==========")
-    addDebugLog("🔘 COLECCIONAR BUTTON CLICKED")
+    console.log("[v0] Timestamp:", new Date().toISOString())
+    console.log("[v0] Wallet Address:", address)
+    console.log("[v0] Is Connected:", isConnected)
+    console.log("[v0] Contract Address:", contractAddress)
+    console.log("[v0] Token ID:", tokenId)
+    console.log("[v0] Quantity:", quantity)
+
+    addDebugLog("🔘 ========== COLECCIONAR BUTTON CLICKED ==========")
+    addDebugLog(`⏰ Timestamp: ${new Date().toISOString()}`)
 
     if (!address) {
       console.log("[v0] ERROR: No wallet connected")
-      addDebugLog("❌ No wallet connected")
+      addDebugLog("❌ ERROR: No wallet connected")
       setMintError("Por favor conecta tu wallet primero")
       return
     }
 
-    console.log("[v0] Wallet connected:", address)
+    console.log("[v0] ✅ Wallet connected:", address)
     addDebugLog(`✅ Wallet connected: ${address}`)
 
     try {
@@ -279,85 +326,140 @@ export default function TokenDetailPage() {
       setIsMinting(true)
       setMintHash(null)
 
-      addDebugLog("🚀 ========== MINTING VIA INPROCESS API (GASLESS) ==========")
+      addDebugLog("🚀 ========== STARTING MINT PROCESS ==========")
       addDebugLog(`📝 Chain: Base (8453)`)
       addDebugLog(`📝 Wallet: ${address}`)
       addDebugLog(`📝 Contract: ${contractAddress}`)
       addDebugLog(`📝 Token ID: ${tokenId}`)
       addDebugLog(`📝 Quantity: ${quantity}`)
       addDebugLog(`💰 Price: 1 USDC per edition (fixed price)`)
-      addDebugLog(`✨ Minting is GASLESS for collector (artist sponsors via InProcess)`)
-      addDebugLog(`📤 Calling InProcess API /api/inprocess/collect...`)
+      addDebugLog(`✨ Minting Type: GASLESS (artist sponsors via InProcess)`)
 
+      const requestBody = {
+        contractAddress,
+        tokenId,
+        amount: quantity,
+        comment: "Collected via Feria Nounish on Base!",
+        walletAddress: address,
+        chainId: 8453,
+      }
+
+      console.log("[v0] Request Body:", JSON.stringify(requestBody, null, 2))
+      addDebugLog(`📤 Request Body: ${JSON.stringify(requestBody, null, 2)}`)
+      addDebugLog(`📤 Calling InProcess API: POST /api/inprocess/collect`)
+
+      const fetchStartTime = Date.now()
       const response = await fetch("/api/inprocess/collect", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          contractAddress,
-          tokenId,
-          amount: quantity,
-          comment: "Collected via Feria Nounish on Base!",
-          walletAddress: address,
-          chainId: 8453, // Base chain
-        }),
+        body: JSON.stringify(requestBody),
       })
+      const fetchEndTime = Date.now()
+      const fetchDuration = fetchEndTime - fetchStartTime
+
+      console.log("[v0] API Response received in", fetchDuration, "ms")
+      console.log("[v0] Response Status:", response.status)
+      console.log("[v0] Response Status Text:", response.statusText)
+      console.log("[v0] Response Headers:", Object.fromEntries(response.headers.entries()))
+
+      addDebugLog(`📥 API Response received in ${fetchDuration}ms`)
+      addDebugLog(`📥 Response Status: ${response.status} ${response.statusText}`)
+      addDebugLog(`📥 Response Headers: ${JSON.stringify(Object.fromEntries(response.headers.entries()), null, 2)}`)
 
       const responseText = await response.text()
-      addDebugLog(`📥 API Response Status: ${response.status}`)
-      addDebugLog(`📥 API Response: ${responseText}`)
+      console.log("[v0] Response Text:", responseText)
+      addDebugLog(`📥 Response Text: ${responseText}`)
 
       if (!response.ok) {
+        console.log("[v0] ❌ API Response NOT OK")
+        addDebugLog(`❌ API Response NOT OK (Status: ${response.status})`)
+
         let errorData
         try {
           errorData = JSON.parse(responseText)
-        } catch {
+          console.log("[v0] Parsed Error Data:", errorData)
+          addDebugLog(`❌ Parsed Error Data: ${JSON.stringify(errorData, null, 2)}`)
+        } catch (parseError) {
+          console.log("[v0] Could not parse error response as JSON")
+          addDebugLog(`⚠️ Could not parse error response as JSON`)
           errorData = { message: responseText }
         }
 
         addDebugLog(`❌ InProcess API Error: ${JSON.stringify(errorData, null, 2)}`)
 
         if (errorData.details?.message?.includes("Insufficient balance")) {
-          setMintError(
-            "El artista necesita recargar su cuenta de InProcess con ETH en Base para patrocinar el minteo gasless. Por favor contacta al artista.",
-          )
+          const errorMsg =
+            "El artista necesita recargar su cuenta de InProcess con ETH en Base para patrocinar el minteo gasless. Por favor contacta al artista."
+          console.log("[v0] Error:", errorMsg)
+          addDebugLog(`❌ ${errorMsg}`)
+          setMintError(errorMsg)
         } else {
-          setMintError(`Error del API de InProcess: ${errorData.error || errorData.message || "Error desconocido"}`)
+          const errorMsg = `Error del API de InProcess: ${errorData.error || errorData.message || "Error desconocido"}`
+          console.log("[v0] Error:", errorMsg)
+          addDebugLog(`❌ ${errorMsg}`)
+          setMintError(errorMsg)
         }
 
         setIsMinting(false)
         return
       }
 
+      console.log("[v0] ✅ API Response OK")
+      addDebugLog(`✅ API Response OK (Status: ${response.status})`)
+
       let data
       try {
         data = JSON.parse(responseText)
-      } catch {
+        console.log("[v0] Parsed Response Data:", data)
+        addDebugLog(`📦 Parsed Response Data: ${JSON.stringify(data, null, 2)}`)
+      } catch (parseError) {
+        console.log("[v0] Could not parse response as JSON, using raw text")
+        addDebugLog(`⚠️ Could not parse response as JSON, using raw text`)
         data = { message: responseText }
       }
 
       addDebugLog(`✅ InProcess API Success!`)
-      addDebugLog(`📦 Response Data: ${JSON.stringify(data, null, 2)}`)
 
       if (data.transactionHash || data.hash || data.txHash) {
         const hash = data.transactionHash || data.hash || data.txHash
         setMintHash(hash)
+        console.log("[v0] 🎉 Transaction Hash:", hash)
         addDebugLog(`🎉 Transaction Hash: ${hash}`)
+        addDebugLog(`🔗 View on BaseScan: https://basescan.org/tx/${hash}`)
+      } else {
+        console.log("[v0] ⚠️ No transaction hash in response")
+        addDebugLog(`⚠️ No transaction hash found in response`)
       }
 
-      addDebugLog("✅ Mint successful via InProcess API!")
+      console.log("[v0] ✅ Mint successful!")
+      addDebugLog("✅ ========== MINT SUCCESSFUL ==========")
       setJustCollected(true)
       setIsMinting(false)
-      checkContractState()
+
+      console.log("[v0] Checking contract state after mint...")
+      addDebugLog("🔍 Checking contract state after mint...")
+      await checkContractState()
     } catch (error: any) {
       console.log("[v0] ========== ERROR IN MINT ==========")
-      console.log("[v0] Error:", error)
-      console.log("[v0] Error message:", error.message)
+      console.log("[v0] Error Type:", error.constructor.name)
+      console.log("[v0] Error Message:", error.message)
+      console.log("[v0] Error Stack:", error.stack)
+      console.log("[v0] Full Error Object:", error)
+      console.log("[v0] Error Properties:", Object.getOwnPropertyNames(error))
 
       addDebugLog("❌ ========== MINT ERROR ==========")
-      addDebugLog(`❌ Error: ${error.message}`)
+      addDebugLog(`❌ Error Type: ${error.constructor.name}`)
+      addDebugLog(`❌ Error Message: ${error.message}`)
+      addDebugLog(`❌ Error Stack: ${error.stack}`)
       addDebugLog(`❌ Full Error: ${JSON.stringify(error, Object.getOwnPropertyNames(error), 2)}`)
+
+      if (error.cause) {
+        console.log("[v0] Error Cause:", error.cause)
+        addDebugLog(`❌ Error Cause: ${JSON.stringify(error.cause, null, 2)}`)
+      }
+
       addDebugLog("❌ ==================================")
 
       setMintError(`Error al coleccionar: ${error.message}`)
