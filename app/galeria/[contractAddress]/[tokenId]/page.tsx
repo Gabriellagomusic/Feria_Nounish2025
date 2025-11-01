@@ -92,45 +92,51 @@ export default function TokenDetailPage() {
   const [mintError, setMintError] = useState<string | null>(null)
   const [mintHash, setMintHash] = useState<string | null>(null)
 
+  const [persistentLogs, setPersistentLogs] = useState<string[]>([])
+
   const isExperimentalMusicToken =
     contractAddress.toLowerCase() === "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5" && tokenId === "1"
 
-  const addDebugLog = (message: string) => {
+  const addDebugLog = (message: string, persist = false) => {
     const timestamp = new Date().toISOString()
     const logMessage = `[${timestamp}] ${message}`
     console.log("[v0]", logMessage)
     setDebugInfo((prev) => [...prev, logMessage])
+
+    if (persist) {
+      setPersistentLogs((prev) => [...prev, logMessage])
+    }
   }
 
   useEffect(() => {
     console.log("[v0] ========== TOKEN DETAIL PAGE MOUNTED ==========")
-    addDebugLog("🚀 Token Detail Page Mounted")
-    addDebugLog(`📝 Contract Address: ${contractAddress}`)
-    addDebugLog(`📝 Token ID: ${tokenId}`)
-    addDebugLog(`📝 Is Experimental Music Token: ${isExperimentalMusicToken}`)
+    addDebugLog("🚀 Token Detail Page Mounted", true)
+    addDebugLog(`📝 Contract Address: ${contractAddress}`, true)
+    addDebugLog(`📝 Token ID: ${tokenId}`, true)
+    addDebugLog(`📝 Is Experimental Music Token: ${isExperimentalMusicToken}`, true)
   }, [])
 
   useEffect(() => {
     console.log("[v0] ========== WALLET CONNECTION STATUS CHANGED ==========")
     console.log("[v0] Is Connected:", isConnected)
     console.log("[v0] Address:", address)
-    addDebugLog(`🔌 Wallet Connection Status: ${isConnected ? "Connected" : "Disconnected"}`)
+    addDebugLog(`🔌 Wallet Connection Status: ${isConnected ? "Connected" : "Disconnected"}`, true)
     if (address) {
-      addDebugLog(`👛 Wallet Address: ${address}`)
+      addDebugLog(`👛 Wallet Address: ${address}`, true)
     }
   }, [isConnected, address])
 
   useEffect(() => {
     console.log("[v0] ========== QUANTITY CHANGED ==========")
     console.log("[v0] New Quantity:", quantity)
-    addDebugLog(`🔢 Quantity changed to: ${quantity}`)
+    addDebugLog(`🔢 Quantity changed to: ${quantity}`, true)
   }, [quantity])
 
   const checkContractState = async () => {
     if (!address || !isExperimentalMusicToken) return
 
     console.log("[v0] ========== CHECKING CONTRACT STATE ==========")
-    addDebugLog("🔍 Checking contract state on Base chain...")
+    addDebugLog("🔍 Checking contract state on Base chain...", true)
 
     try {
       const publicClient = createPublicClient({
@@ -138,9 +144,9 @@ export default function TokenDetailPage() {
         transport: http(),
       })
 
-      addDebugLog(`📡 Created public client for Base chain`)
-      addDebugLog(`📡 Reading balanceOf for address: ${address}`)
-      addDebugLog(`📡 Reading totalSupply for token ID: ${tokenId}`)
+      addDebugLog(`📡 Created public client for Base chain`, true)
+      addDebugLog(`📡 Reading balanceOf for address: ${address}`, true)
+      addDebugLog(`📡 Reading totalSupply for token ID: ${tokenId}`, true)
 
       const [userBalance, totalSupply] = await Promise.all([
         publicClient
@@ -151,7 +157,7 @@ export default function TokenDetailPage() {
             args: [address, BigInt(tokenId)],
           })
           .catch((error) => {
-            addDebugLog(`⚠️ Error reading balanceOf: ${error.message}`)
+            addDebugLog(`⚠️ Error reading balanceOf: ${error.message}`, true)
             return BigInt(0)
           }),
         publicClient
@@ -162,7 +168,7 @@ export default function TokenDetailPage() {
             args: [BigInt(tokenId)],
           })
           .catch((error) => {
-            addDebugLog(`⚠️ Error reading totalSupply: ${error.message}`)
+            addDebugLog(`⚠️ Error reading totalSupply: ${error.message}`, true)
             return BigInt(0)
           }),
       ])
@@ -173,12 +179,12 @@ export default function TokenDetailPage() {
       }
 
       setContractInfo(info)
-      addDebugLog(`📊 [Base Chain] User Balance: ${info.userBalance}`)
-      addDebugLog(`📊 [Base Chain] Total Supply: ${info.totalSupply}`)
+      addDebugLog(`📊 [Base Chain] User Balance: ${info.userBalance}`, true)
+      addDebugLog(`📊 [Base Chain] Total Supply: ${info.totalSupply}`, true)
     } catch (error: any) {
       console.log("[v0] Error checking contract state:", error)
-      addDebugLog(`❌ Error checking contract state: ${error.message}`)
-      addDebugLog(`❌ Full error: ${JSON.stringify(error, Object.getOwnPropertyNames(error), 2)}`)
+      addDebugLog(`❌ Error checking contract state: ${error.message}`, true)
+      addDebugLog(`❌ Full error: ${JSON.stringify(error, Object.getOwnPropertyNames(error), 2)}`, true)
     }
   }
 
@@ -308,32 +314,37 @@ export default function TokenDetailPage() {
     console.log("[v0] Token ID:", tokenId)
     console.log("[v0] Quantity:", quantity)
 
-    addDebugLog("🔘 ========== COLECCIONAR BUTTON CLICKED ==========")
-    addDebugLog(`⏰ Timestamp: ${new Date().toISOString()}`)
+    addDebugLog("🔘 ========== COLECCIONAR BUTTON CLICKED ==========", true)
+    addDebugLog(`⏰ Timestamp: ${new Date().toISOString()}`, true)
 
     if (!address) {
       console.log("[v0] ERROR: No wallet connected")
-      addDebugLog("❌ ERROR: No wallet connected")
+      addDebugLog("❌ ERROR: No wallet connected", true)
       setMintError("Por favor conecta tu wallet primero")
       return
     }
 
     console.log("[v0] ✅ Wallet connected:", address)
-    addDebugLog(`✅ Wallet connected: ${address}`)
+    addDebugLog(`✅ Wallet connected: ${address}`, true)
+    addDebugLog(`💡 IMPORTANTE: Tu wallet (${address}) NO paga por el minteo`, true)
+    addDebugLog(`💡 El ARTISTA paga el gas a través de su cuenta de InProcess`, true)
+    addDebugLog(`💡 El artista necesita tener ETH en su cuenta de InProcess en Base`, true)
 
     try {
       setMintError(null)
       setIsMinting(true)
       setMintHash(null)
 
-      addDebugLog("🚀 ========== STARTING MINT PROCESS ==========")
-      addDebugLog(`📝 Chain: Base (8453)`)
-      addDebugLog(`📝 Wallet: ${address}`)
-      addDebugLog(`📝 Contract: ${contractAddress}`)
-      addDebugLog(`📝 Token ID: ${tokenId}`)
-      addDebugLog(`📝 Quantity: ${quantity}`)
-      addDebugLog(`💰 Price: 1 USDC per edition (fixed price)`)
-      addDebugLog(`✨ Minting Type: GASLESS (artist sponsors via InProcess)`)
+      addDebugLog("🚀 ========== STARTING MINT PROCESS ==========", true)
+      addDebugLog(`📝 Chain: Base (8453)`, true)
+      addDebugLog(`📝 Collector Wallet (TU): ${address}`, true)
+      addDebugLog(`📝 Artist Wallet: ${creator || "Loading..."}`, true)
+      addDebugLog(`📝 Contract: ${contractAddress}`, true)
+      addDebugLog(`📝 Token ID: ${tokenId}`, true)
+      addDebugLog(`📝 Quantity: ${quantity}`, true)
+      addDebugLog(`💰 Price: 1 USDC per edition (fixed price)`, true)
+      addDebugLog(`✨ Minting Type: GASLESS (artist sponsors via InProcess)`, true)
+      addDebugLog(`🔍 Checking: Artist's InProcess account balance on Base`, true)
 
       const requestBody = {
         contractAddress,
@@ -345,8 +356,8 @@ export default function TokenDetailPage() {
       }
 
       console.log("[v0] Request Body:", JSON.stringify(requestBody, null, 2))
-      addDebugLog(`📤 Request Body: ${JSON.stringify(requestBody, null, 2)}`)
-      addDebugLog(`📤 Calling InProcess API: POST /api/inprocess/collect`)
+      addDebugLog(`📤 Request Body: ${JSON.stringify(requestBody, null, 2)}`, true)
+      addDebugLog(`📤 Calling InProcess API: POST /api/inprocess/collect`, true)
 
       const fetchStartTime = Date.now()
       const response = await fetch("/api/inprocess/collect", {
@@ -364,82 +375,102 @@ export default function TokenDetailPage() {
       console.log("[v0] Response Status Text:", response.statusText)
       console.log("[v0] Response Headers:", Object.fromEntries(response.headers.entries()))
 
-      addDebugLog(`📥 API Response received in ${fetchDuration}ms`)
-      addDebugLog(`📥 Response Status: ${response.status} ${response.statusText}`)
-      addDebugLog(`📥 Response Headers: ${JSON.stringify(Object.fromEntries(response.headers.entries()), null, 2)}`)
+      addDebugLog(`📥 API Response received in ${fetchDuration}ms`, true)
+      addDebugLog(`📥 Response Status: ${response.status} ${response.statusText}`, true)
+      addDebugLog(
+        `📥 Response Headers: ${JSON.stringify(Object.fromEntries(response.headers.entries()), null, 2)}`,
+        true,
+      )
 
       const responseText = await response.text()
       console.log("[v0] Response Text:", responseText)
-      addDebugLog(`📥 Response Text: ${responseText}`)
+      addDebugLog(`📥 Response Text: ${responseText}`, true)
 
       if (!response.ok) {
         console.log("[v0] ❌ API Response NOT OK")
-        addDebugLog(`❌ API Response NOT OK (Status: ${response.status})`)
+        addDebugLog(`❌ API Response NOT OK (Status: ${response.status})`, true)
 
         let errorData
         try {
           errorData = JSON.parse(responseText)
           console.log("[v0] Parsed Error Data:", errorData)
-          addDebugLog(`❌ Parsed Error Data: ${JSON.stringify(errorData, null, 2)}`)
+          addDebugLog(`❌ Parsed Error Data: ${JSON.stringify(errorData, null, 2)}`, true)
         } catch (parseError) {
           console.log("[v0] Could not parse error response as JSON")
-          addDebugLog(`⚠️ Could not parse error response as JSON`)
+          addDebugLog(`⚠️ Could not parse error response as JSON`, true)
           errorData = { message: responseText }
         }
 
-        addDebugLog(`❌ InProcess API Error: ${JSON.stringify(errorData, null, 2)}`)
+        addDebugLog(`❌ InProcess API Error: ${JSON.stringify(errorData, null, 2)}`, true)
+
+        addDebugLog(`🔍 ========== ERROR ANALYSIS ==========`, true)
+        addDebugLog(`🔍 Error Type: ${errorData.error || "Unknown"}`, true)
+        addDebugLog(`🔍 Error Message: ${errorData.message || errorData.details?.message || "No message"}`, true)
+
+        if (errorData.details) {
+          addDebugLog(`🔍 Error Details: ${JSON.stringify(errorData.details, null, 2)}`, true)
+        }
 
         if (errorData.details?.message?.includes("Insufficient balance")) {
+          addDebugLog(`💡 ========== INSUFFICIENT BALANCE ERROR ==========`, true)
+          addDebugLog(`💡 This error means: The ARTIST's InProcess account doesn't have enough ETH`, true)
+          addDebugLog(`💡 NOT your wallet (${address})`, true)
+          addDebugLog(`💡 The artist (${creator || "unknown"}) needs to add ETH to their InProcess account`, true)
+          addDebugLog(`💡 InProcess account is separate from the artist's regular wallet`, true)
+          addDebugLog(`💡 The artist needs to deposit ETH on Base chain to their InProcess account`, true)
+
           const errorMsg =
             "El artista necesita recargar su cuenta de InProcess con ETH en Base para patrocinar el minteo gasless. Por favor contacta al artista."
           console.log("[v0] Error:", errorMsg)
-          addDebugLog(`❌ ${errorMsg}`)
+          addDebugLog(`❌ ${errorMsg}`, true)
           setMintError(errorMsg)
         } else {
           const errorMsg = `Error del API de InProcess: ${errorData.error || errorData.message || "Error desconocido"}`
           console.log("[v0] Error:", errorMsg)
-          addDebugLog(`❌ ${errorMsg}`)
+          addDebugLog(`❌ ${errorMsg}`, true)
+          addDebugLog(`❌ Full error details: ${JSON.stringify(errorData, null, 2)}`, true)
           setMintError(errorMsg)
         }
 
+        addDebugLog(`❌ ========== MINT FAILED ==========`, true)
         setIsMinting(false)
         return
       }
 
       console.log("[v0] ✅ API Response OK")
-      addDebugLog(`✅ API Response OK (Status: ${response.status})`)
+      addDebugLog(`✅ API Response OK (Status: ${response.status})`, true)
 
       let data
       try {
         data = JSON.parse(responseText)
         console.log("[v0] Parsed Response Data:", data)
-        addDebugLog(`📦 Parsed Response Data: ${JSON.stringify(data, null, 2)}`)
+        addDebugLog(`📦 Parsed Response Data: ${JSON.stringify(data, null, 2)}`, true)
       } catch (parseError) {
         console.log("[v0] Could not parse response as JSON, using raw text")
-        addDebugLog(`⚠️ Could not parse response as JSON, using raw text`)
+        addDebugLog(`⚠️ Could not parse response as JSON, using raw text`, true)
         data = { message: responseText }
       }
 
-      addDebugLog(`✅ InProcess API Success!`)
+      addDebugLog(`✅ InProcess API Success!`, true)
 
       if (data.transactionHash || data.hash || data.txHash) {
         const hash = data.transactionHash || data.hash || data.txHash
         setMintHash(hash)
         console.log("[v0] 🎉 Transaction Hash:", hash)
-        addDebugLog(`🎉 Transaction Hash: ${hash}`)
-        addDebugLog(`🔗 View on BaseScan: https://basescan.org/tx/${hash}`)
+        addDebugLog(`🎉 Transaction Hash: ${hash}`, true)
+        addDebugLog(`🔗 View on BaseScan: https://basescan.org/tx/${hash}`, true)
       } else {
         console.log("[v0] ⚠️ No transaction hash in response")
-        addDebugLog(`⚠️ No transaction hash found in response`)
+        addDebugLog(`⚠️ No transaction hash found in response`, true)
       }
 
       console.log("[v0] ✅ Mint successful!")
-      addDebugLog("✅ ========== MINT SUCCESSFUL ==========")
+      addDebugLog("✅ ========== MINT SUCCESSFUL ==========", true)
       setJustCollected(true)
       setIsMinting(false)
 
       console.log("[v0] Checking contract state after mint...")
-      addDebugLog("🔍 Checking contract state after mint...")
+      addDebugLog("🔍 Checking contract state after mint...", true)
       await checkContractState()
     } catch (error: any) {
       console.log("[v0] ========== ERROR IN MINT ==========")
@@ -449,18 +480,18 @@ export default function TokenDetailPage() {
       console.log("[v0] Full Error Object:", error)
       console.log("[v0] Error Properties:", Object.getOwnPropertyNames(error))
 
-      addDebugLog("❌ ========== MINT ERROR ==========")
-      addDebugLog(`❌ Error Type: ${error.constructor.name}`)
-      addDebugLog(`❌ Error Message: ${error.message}`)
-      addDebugLog(`❌ Error Stack: ${error.stack}`)
-      addDebugLog(`❌ Full Error: ${JSON.stringify(error, Object.getOwnPropertyNames(error), 2)}`)
+      addDebugLog("❌ ========== MINT ERROR ==========", true)
+      addDebugLog(`❌ Error Type: ${error.constructor.name}`, true)
+      addDebugLog(`❌ Error Message: ${error.message}`, true)
+      addDebugLog(`❌ Error Stack: ${error.stack}`, true)
+      addDebugLog(`❌ Full Error: ${JSON.stringify(error, Object.getOwnPropertyNames(error), 2)}`, true)
 
       if (error.cause) {
         console.log("[v0] Error Cause:", error.cause)
-        addDebugLog(`❌ Error Cause: ${JSON.stringify(error.cause, null, 2)}`)
+        addDebugLog(`❌ Error Cause: ${JSON.stringify(error.cause, null, 2)}`, true)
       }
 
-      addDebugLog("❌ ==================================")
+      addDebugLog("❌ ==================================", true)
 
       setMintError(`Error al coleccionar: ${error.message}`)
       setIsMinting(false)
@@ -501,33 +532,51 @@ export default function TokenDetailPage() {
         </header>
 
         <main className="container mx-auto px-4 py-8">
-          {showDebugPanel && debugInfo.length > 0 && (
+          {showDebugPanel && (debugInfo.length > 0 || persistentLogs.length > 0) && (
             <div className="mb-8 max-w-6xl mx-auto">
               <Card className="bg-gray-900 border-gray-700">
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-white font-bold text-sm">🐛 Debug Logs</h3>
-                    <Button
-                      onClick={() => setShowDebugPanel(false)}
-                      variant="ghost"
-                      size="sm"
-                      className="text-white hover:bg-gray-800"
-                    >
-                      Ocultar
-                    </Button>
+                    <h3 className="text-white font-bold text-sm">🐛 Debug Logs (Persistent)</h3>
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={() => {
+                          setDebugInfo([])
+                          setPersistentLogs([])
+                        }}
+                        variant="ghost"
+                        size="sm"
+                        className="text-white hover:bg-gray-800"
+                      >
+                        Limpiar
+                      </Button>
+                      <Button
+                        onClick={() => setShowDebugPanel(false)}
+                        variant="ghost"
+                        size="sm"
+                        className="text-white hover:bg-gray-800"
+                      >
+                        Ocultar
+                      </Button>
+                    </div>
                   </div>
                   <div className="bg-black rounded p-3 max-h-96 overflow-y-auto">
-                    <pre className="text-xs text-green-400 font-mono whitespace-pre-wrap">{debugInfo.join("\n")}</pre>
+                    <pre className="text-xs text-green-400 font-mono whitespace-pre-wrap">
+                      {[...debugInfo, ...persistentLogs].join("\n")}
+                    </pre>
                   </div>
+                  <p className="text-xs text-gray-400 mt-2">
+                    💡 Los logs marcados como persistentes no se borran al re-renderizar
+                  </p>
                 </CardContent>
               </Card>
             </div>
           )}
 
-          {!showDebugPanel && debugInfo.length > 0 && (
+          {!showDebugPanel && (debugInfo.length > 0 || persistentLogs.length > 0) && (
             <div className="mb-4 max-w-6xl mx-auto">
               <Button onClick={() => setShowDebugPanel(true)} variant="outline" size="sm" className="w-full">
-                🐛 Mostrar Debug Logs ({debugInfo.length})
+                🐛 Mostrar Debug Logs ({debugInfo.length + persistentLogs.length})
               </Button>
             </div>
           )}
