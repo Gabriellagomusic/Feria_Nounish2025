@@ -112,8 +112,6 @@ export default function TokenDetailPage() {
   const [creator, setCreator] = useState<string>("")
   const [artistName, setArtistName] = useState<string>("")
   const [justCollected, setJustCollected] = useState(false)
-  const [apiKey, setApiKey] = useState<string>("")
-  const [showApiKeyInput, setShowApiKeyInput] = useState(false)
 
   const [debugInfo, setDebugInfo] = useState<string[]>([])
   const [showDebug, setShowDebug] = useState(false)
@@ -469,17 +467,6 @@ export default function TokenDetailPage() {
       return
     }
 
-    if (!apiKey && !showApiKeyInput) {
-      setShowApiKeyInput(true)
-      addDebugLog("⚠️ API key required for InProcess collect")
-      return
-    }
-
-    if (!apiKey) {
-      alert("Por favor ingresa tu API key de InProcess")
-      return
-    }
-
     addDebugLog(`📝 Wallet address: ${address}`)
     addDebugLog(`📝 Contract address: ${contractAddress}`)
     addDebugLog(`📝 Token ID: ${tokenId}`)
@@ -499,7 +486,6 @@ export default function TokenDetailPage() {
           tokenId,
           amount: quantity,
           comment: `Collected ${quantity} edition(s) via Feria Nounish!`,
-          apiKey,
         }),
       })
 
@@ -521,8 +507,8 @@ export default function TokenDetailPage() {
       setIsMinting(false)
 
       let errorMessage = "Error al intentar coleccionar: "
-      if (error.message.includes("API key")) {
-        errorMessage += "API key inválida o faltante."
+      if (error.message.includes("API key") || error.message.includes("INPROCESS_API_KEY")) {
+        errorMessage += "La API key de InProcess no está configurada. Por favor agrégala en la sección Vars."
       } else if (error.message.includes("insufficient")) {
         errorMessage += "Fondos insuficientes."
       } else {
@@ -634,30 +620,6 @@ export default function TokenDetailPage() {
                       </div>
                     ) : isExperimentalMusicToken ? (
                       <>
-                        {showApiKeyInput && (
-                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-3">
-                            <p className="text-blue-800 font-semibold mb-2">🔑 API Key de InProcess</p>
-                            <p className="text-blue-600 text-sm mb-3">
-                              Para coleccionar, necesitas un API key de InProcess. Puedes obtener uno en{" "}
-                              <a
-                                href="https://inprocess.fun"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="underline"
-                              >
-                                inprocess.fun
-                              </a>
-                            </p>
-                            <input
-                              type="password"
-                              value={apiKey}
-                              onChange={(e) => setApiKey(e.target.value)}
-                              placeholder="art_sk_..."
-                              className="w-full px-3 py-2 border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            />
-                          </div>
-                        )}
-
                         {!isApproved ? (
                           <Button
                             onClick={handleApprove}
