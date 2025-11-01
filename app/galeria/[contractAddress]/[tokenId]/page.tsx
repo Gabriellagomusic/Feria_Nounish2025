@@ -3,15 +3,16 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useParams } from "next/navigation"
 import { createPublicClient, http, parseUnits, type Address } from "viem"
 import { base } from "viem/chains"
-import { useAccount, useWriteContract } from "wagmi"
+import { useAccount, useWriteContract, useConnect } from "wagmi"
 import { ArrowLeft, Plus, Minus } from "lucide-react"
 import { getDisplayName } from "@/lib/farcaster"
 import { ShareToFarcasterButton } from "@/components/share/ShareToFarcasterButton"
 import { getTimeline, type Moment } from "@/lib/inprocess"
+import { useMiniKit } from "@coinbase/onchainkit/minikit"
 
 const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as Address // USDC on Base
 const ERC20_ABI = [
@@ -131,6 +132,11 @@ export default function TokenDetailPage() {
   const contractAddress = params.contractAddress as `0x${string}`
   const tokenId = params.tokenId as string
   const { address, isConnected } = useAccount()
+  const { connect, connectors } = useConnect()
+  const { setFrameReady, isFrameReady } = useMiniKit()
+
+  const frameReadyCalledRef = useRef(false)
+  const connectAttemptedRef = useRef(false)
 
   const [tokenData, setTokenData] = useState<TokenMetadata | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -171,6 +177,29 @@ export default function TokenDetailPage() {
       setPersistentLogs((prev) => [...prev, logMessage])
     }
   }
+
+  useEffect(() => {
+    if (!isFrameReady && !frameReadyCalledRef.current) {
+      console.log("[v0] Token Detail - Calling setFrameReady() once")
+      addDebugLog("🎬 Calling setFrameReady() once", true)
+      frameReadyCalledRef.current = true
+      setFrameReady()
+    }
+  }, [isFrameReady, setFrameReady])
+
+  useEffect(() => {
+    if (isFrameReady && !isConnected && !connectAttemptedRef.current && connectors.length > 0) {
+      const farcasterConnector = connectors.find((c) => c.name === "Farcaster")
+      if (farcasterConnector) {
+        console.log("[v0] Token Detail - Auto-connecting to Farcaster connector once")
+        addDebugLog("🔌 Auto-connecting to Farcaster connector...", true)
+        connectAttemptedRef.current = true
+        connect({ connector: farcasterConnector })
+      } else {
+        addDebugLog("⚠️ Farcaster connector not found", true)
+      }
+    }
+  }, [isFrameReady, isConnected, connectors, connect])
 
   useEffect(() => {
     console.log("[v0] ========== TOKEN DETAIL PAGE MOUNTED ==========")
@@ -714,7 +743,7 @@ export default function TokenDetailPage() {
                       <div className="space-y-3">
                         <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
                           <p className="text-green-800 font-semibold mb-1">¡Colección exitosa!</p>
-                          <p className="text-green-600 text-sm">
+                          <p className="text-green-600 text-xs">
                             {contractInfo && Number(contractInfo.userBalance) > 0
                               ? `Ahora tienes ${contractInfo.userBalance} de este token`
                               : "Token coleccionado exitosamente"}
