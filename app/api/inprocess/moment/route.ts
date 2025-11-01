@@ -13,14 +13,12 @@ export async function GET(request: NextRequest) {
 
     console.log("[v0] Moment API - Fetching moment:", { contractAddress, tokenId, chainId })
 
-    // 1 USD ≈ 0.0003 ETH (at ~$3,333 per ETH)
-    // 0.0003 ETH = 300000000000000 wei (18 decimals)
     const defaultSalesConfig = {
-      type: "fixedPrice",
-      pricePerToken: "300000000000000", // 0.0003 ETH ≈ 1 USD
+      type: "erc20Mint",
+      pricePerToken: "1000000", // 1 USDC (6 decimals)
+      currency: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // USDC on Base
       saleStart: 0,
       saleEnd: "18446744073709551615", // maxUint64 - no end date
-      // Note: No 'currency' field for fixedPrice - uses native ETH on Base
     }
 
     const momentData = {
@@ -31,7 +29,7 @@ export async function GET(request: NextRequest) {
     }
 
     console.log(
-      "[v0] Moment API - Returning fixedPrice sales config (ETH on Base):",
+      "[v0] Moment API - Returning erc20Mint sales config (1 USDC on Base):",
       JSON.stringify(momentData, null, 2),
     )
 
