@@ -572,26 +572,12 @@ export default function TokenDetailPage() {
         comment: "Collected via Feria Nounish on Base!",
       }
 
-      addDebugLog(
-        `📤 Mint Arguments: ${JSON.stringify({
-          tokenContract: mintArgs.tokenContract,
-          tokenId: mintArgs.tokenId.toString(),
-          mintTo: mintArgs.mintTo,
-          quantity: mintArgs.quantity.toString(),
-          currency: mintArgs.currency,
-          pricePerToken: `${Number(mintArgs.pricePerToken) / 1e6} USDC`,
-          mintReferral: mintArgs.mintReferral,
-          comment: mintArgs.comment,
-        })}`,
-        "info",
-      )
-
       addDebugLog("📤 Sending mint transaction...", "info")
       const hash = await writeContractAsync({
         address: ZORA_ERC20_MINTER,
         abi: ZORA_ERC20_MINTER_ABI,
         functionName: "mint",
-        args: [mintArgs],
+        args: [address,BigInt(quantity), contractAddress, BigInt(tokenId), pricePerToken, USDC_ADDRESS,"0x0000000000000000000000000000000000000000", "Collected via Feria Nounish on Base!"],
       })
 
       setMintHash(hash)
