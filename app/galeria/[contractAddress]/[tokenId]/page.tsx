@@ -70,7 +70,7 @@ const ZORA_ERC20_MINTER_ABI = [
   },
 ] as const
 
-const ZORA_ERC20_MINTER = "0x3678862f04290E565cCA2EF163BAeb92Bb76790C" as Address
+const ZORA_ERC20_MINTER = "0x777777E8850d8D6d98De2B5f64fae401F96eFF31" as Address
 
 interface TokenMetadata {
   name: string
