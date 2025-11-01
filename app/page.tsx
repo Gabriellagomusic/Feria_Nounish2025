@@ -8,6 +8,7 @@ import { useAccount, useConnect } from "wagmi"
 import Link from "next/link"
 import { getNounAvatarUrl } from "@/lib/noun-avatar"
 import { getFarcasterProfilePic } from "@/lib/farcaster"
+import { Instagram } from "lucide-react"
 
 type DebugLog = {
   timestamp: string
@@ -175,11 +176,32 @@ export default function Home() {
           </div>
         )}
 
-        <p className="text-white text-center text-sm md:text-base max-w-2xl px-4">
+        <p className="text-white text-center text-sm md:text-base max-w-2xl px-4 mb-8">
           ¡DESCUBRE LA COLECCIÓN OFICIAL DE NFTS DE LOS ARTISTAS DE LA FERIA NOUNISH
           <br />
           2025 EN CALI COLOMBIA!
         </p>
+
+        <div className="flex gap-6 items-center">
+          <a
+            href="https://farcaster.xyz/ferianounish"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center w-12 h-12 rounded-full bg-white/20 backdrop-blur-md hover:bg-white/30 transition-all shadow-lg"
+            aria-label="Farcaster"
+          >
+            <Image src="/images/farcaster-icon.svg" alt="Farcaster" width={24} height={24} className="w-6 h-6" />
+          </a>
+          <a
+            href="https://www.instagram.com/ferianounish/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center w-12 h-12 rounded-full bg-white/20 backdrop-blur-md hover:bg-white/30 transition-all shadow-lg"
+            aria-label="Instagram"
+          >
+            <Instagram className="w-6 h-6 text-white" />
+          </a>
+        </div>
       </div>
     </div>
   )
