@@ -443,15 +443,6 @@ export default function TokenDetailPage() {
     }
 
     if (contractInfo) {
-      if (Number(contractInfo.userBalance) > 0) {
-        addDebugLog("⚠️ User already owns this token, attempting mint anyway...")
-        const confirmMint = confirm("Ya posees este token. ¿Estás seguro de que quieres coleccionar otro?")
-        if (!confirmMint) {
-          addDebugLog("❌ User cancelled mint due to existing ownership")
-          return
-        }
-      }
-
       if (Number(contractInfo.usdcBalance) < 1) {
         addDebugLog("❌ Insufficient USDC balance")
         alert(`Saldo insuficiente de USDC. Tienes ${contractInfo.usdcBalance} USDC, necesitas al menos 1 USDC`)

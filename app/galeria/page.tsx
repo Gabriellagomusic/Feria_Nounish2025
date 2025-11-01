@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation"
 import { useEffect, useState, useMemo } from "react"
 import { createPublicClient, http } from "viem"
 import { base } from "viem/chains"
-import { ArrowLeft, Search, ChevronDown, ChevronUp } from "lucide-react"
+import { ArrowLeft, Search } from "lucide-react"
 import { getDisplayName } from "@/lib/farcaster"
 import { getAllMoments, buildMomentLookupMap, type Moment } from "@/lib/inprocess"
 
@@ -19,13 +19,6 @@ interface TokenMetadata {
   artistDisplay: string
   contractAddress: string
   tokenId: string
-}
-
-interface DebugLog {
-  timestamp: string
-  type: "info" | "success" | "error" | "warning"
-  message: string
-  data?: any
 }
 
 const ERC1155_ABI = [
@@ -55,31 +48,12 @@ async function fetchArtistForToken(
   contractAddress: string,
   tokenId: string,
   momentLookup: Map<string, Moment>,
-  addDebugLog: (log: DebugLog) => void,
 ): Promise<{ address: string; displayName: string }> {
   try {
-    addDebugLog({
-      timestamp: new Date().toISOString(),
-      type: "info",
-      message: "🔍 Starting fetchArtistForToken - LOOKUP MAP METHOD",
-      data: { contractAddress, tokenId, lookupMapSize: momentLookup.size },
-    })
-
     const normalizedAddress = contractAddress.toLowerCase()
     const moment = momentLookup.get(normalizedAddress)
 
     if (!moment) {
-      addDebugLog({
-        timestamp: new Date().toISOString(),
-        type: "warning",
-        message: "⚠️ No moment found in lookup map for this contract address",
-        data: {
-          contractAddress,
-          normalizedAddress,
-          availableAddresses: Array.from(momentLookup.keys()).slice(0, 5), // Show first 5 for debugging
-        },
-      })
-
       const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
       const displayName = await getDisplayName(fallbackCreator)
       return {
@@ -88,66 +62,20 @@ async function fetchArtistForToken(
       }
     }
 
-    addDebugLog({
-      timestamp: new Date().toISOString(),
-      type: "success",
-      message: "🎉 Found moment in lookup map! Extracting artist info",
-      data: {
-        contractAddress: moment.address,
-        creatorWallet: moment.admin,
-        creatorUsername: moment.username,
-      },
-    })
-
     if (moment.username) {
-      addDebugLog({
-        timestamp: new Date().toISOString(),
-        type: "success",
-        message: "✅ Using moment username directly",
-        data: {
-          creatorWallet: moment.admin,
-          username: moment.username,
-        },
-      })
-
       return {
         address: moment.admin.toLowerCase(),
         displayName: moment.username,
       }
     }
 
-    addDebugLog({
-      timestamp: new Date().toISOString(),
-      type: "info",
-      message: "🔎 Fetching Farcaster username for wallet",
-      data: { wallet: moment.admin },
-    })
-
     const displayName = await getDisplayName(moment.admin)
-
-    addDebugLog({
-      timestamp: new Date().toISOString(),
-      type: "success",
-      message: "✅ Artist resolved successfully",
-      data: {
-        creatorWallet: moment.admin,
-        displayName: displayName,
-        source: "farcaster lookup",
-      },
-    })
 
     return {
       address: moment.admin.toLowerCase(),
       displayName: displayName,
     }
   } catch (error) {
-    addDebugLog({
-      timestamp: new Date().toISOString(),
-      type: "error",
-      message: "💥 Error in fetchArtistForToken",
-      data: { error: error instanceof Error ? error.message : String(error) },
-    })
-
     const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
     return {
       address: fallbackCreator.toLowerCase(),
@@ -163,59 +91,17 @@ export default function GaleriaPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedArtist, setSelectedArtist] = useState<string>("")
   const [isSearchOpen, setIsSearchOpen] = useState(false)
-  const [debugLogs, setDebugLogs] = useState<DebugLog[]>([])
-  const [isDebugOpen, setIsDebugOpen] = useState(false)
-
-  const addDebugLog = (log: DebugLog) => {
-    setDebugLogs((prev) => [...prev, log])
-    console.log(`[v0] [${log.type.toUpperCase()}]`, log.message, log.data || "")
-  }
 
   useEffect(() => {
     const fetchTokenMetadata = async () => {
       try {
-        addDebugLog({
-          timestamp: new Date().toISOString(),
-          type: "info",
-          message: "🚀 Starting gallery fetch",
-        })
-
-        addDebugLog({
-          timestamp: new Date().toISOString(),
-          type: "info",
-          message: "📚 Fetching complete timeline (all pages)...",
-        })
-
         const allMoments = await getAllMoments(8453)
         const momentLookup = buildMomentLookupMap(allMoments)
-
-        addDebugLog({
-          timestamp: new Date().toISOString(),
-          type: "success",
-          message: "✅ Timeline fetched and indexed",
-          data: {
-            totalMoments: allMoments.length,
-            lookupMapSize: momentLookup.size,
-            sampleAddresses: Array.from(momentLookup.keys()).slice(0, 10),
-          },
-        })
 
         const galleryResponse = await fetch("/api/gallery/list")
         const galleryData = await galleryResponse.json()
 
-        addDebugLog({
-          timestamp: new Date().toISOString(),
-          type: "info",
-          message: "Gallery API response",
-          data: { tokenCount: galleryData.tokens?.length || 0 },
-        })
-
         if (!galleryData.tokens || galleryData.tokens.length === 0) {
-          addDebugLog({
-            timestamp: new Date().toISOString(),
-            type: "warning",
-            message: "No tokens in gallery",
-          })
           setTokens([])
           setIsLoading(false)
           return
@@ -229,32 +115,13 @@ export default function GaleriaPage() {
         const tokenDataPromises = galleryData.tokens.map(
           async (config: { contractAddress: string; tokenId: string }) => {
             try {
-              addDebugLog({
-                timestamp: new Date().toISOString(),
-                type: "info",
-                message: "Processing token",
-                data: config,
-              })
-
-              const artistInfo = await fetchArtistForToken(
-                config.contractAddress,
-                config.tokenId,
-                momentLookup,
-                addDebugLog,
-              )
+              const artistInfo = await fetchArtistForToken(config.contractAddress, config.tokenId, momentLookup)
 
               const tokenURI = await publicClient.readContract({
                 address: config.contractAddress as `0x${string}`,
                 abi: ERC1155_ABI,
                 functionName: "uri",
                 args: [BigInt(1)],
-              })
-
-              addDebugLog({
-                timestamp: new Date().toISOString(),
-                type: "info",
-                message: "Token URI fetched",
-                data: { tokenURI },
               })
 
               if (tokenURI) {
@@ -275,16 +142,6 @@ export default function GaleriaPage() {
                       imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
                     }
 
-                    addDebugLog({
-                      timestamp: new Date().toISOString(),
-                      type: "success",
-                      message: "Metadata fetched successfully",
-                      data: {
-                        name: metadata.name,
-                        artist: artistInfo.displayName,
-                      },
-                    })
-
                     return {
                       name: metadata.name || `Obra de Arte #${config.tokenId}`,
                       description: metadata.description || "Obra de arte digital única",
@@ -296,12 +153,7 @@ export default function GaleriaPage() {
                     }
                   }
                 } catch (fetchError) {
-                  addDebugLog({
-                    timestamp: new Date().toISOString(),
-                    type: "error",
-                    message: "Error fetching metadata",
-                    data: fetchError,
-                  })
+                  console.error("[v0] Error fetching metadata:", fetchError)
                 }
               }
 
@@ -315,12 +167,7 @@ export default function GaleriaPage() {
                 tokenId: config.tokenId,
               }
             } catch (error) {
-              addDebugLog({
-                timestamp: new Date().toISOString(),
-                type: "error",
-                message: "Error processing token",
-                data: { config, error },
-              })
+              console.error("[v0] Error processing token:", error)
 
               const fallbackArtist = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
               return {
@@ -338,20 +185,8 @@ export default function GaleriaPage() {
 
         const tokenData = await Promise.all(tokenDataPromises)
         setTokens(shuffleArray(tokenData))
-
-        addDebugLog({
-          timestamp: new Date().toISOString(),
-          type: "success",
-          message: "✅ Gallery fetch complete",
-          data: { totalTokens: tokenData.length },
-        })
       } catch (error) {
-        addDebugLog({
-          timestamp: new Date().toISOString(),
-          type: "error",
-          message: "Fatal error in fetchTokenMetadata",
-          data: error,
-        })
+        console.error("[v0] Fatal error in fetchTokenMetadata:", error)
         setTokens([])
       } finally {
         setIsLoading(false)
@@ -453,66 +288,6 @@ export default function GaleriaPage() {
               </div>
             )}
           </div>
-
-          <div className="mt-4">
-            <button
-              onClick={() => setIsDebugOpen(!isDebugOpen)}
-              className="w-full flex items-center justify-between px-4 py-3 rounded-lg bg-black/40 backdrop-blur-md border border-white/20 hover:bg-black/50 transition-all"
-            >
-              <span className="text-white font-semibold text-sm">🐛 Debug Panel ({debugLogs.length} logs)</span>
-              {isDebugOpen ? (
-                <ChevronUp className="w-5 h-5 text-white" />
-              ) : (
-                <ChevronDown className="w-5 h-5 text-white" />
-              )}
-            </button>
-
-            {isDebugOpen && (
-              <div className="mt-2 max-h-96 overflow-y-auto rounded-lg bg-black/60 backdrop-blur-md border border-white/20 p-4">
-                <div className="space-y-2">
-                  {debugLogs.map((log, index) => (
-                    <div
-                      key={index}
-                      className={`p-3 rounded text-xs font-mono ${
-                        log.type === "success"
-                          ? "bg-green-500/20 border border-green-500/40"
-                          : log.type === "error"
-                            ? "bg-red-500/20 border border-red-500/40"
-                            : log.type === "warning"
-                              ? "bg-yellow-500/20 border border-yellow-500/40"
-                              : "bg-blue-500/20 border border-blue-500/40"
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-2 mb-1">
-                        <span className="text-white/60 text-[10px]">
-                          {new Date(log.timestamp).toLocaleTimeString()}
-                        </span>
-                        <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                            log.type === "success"
-                              ? "bg-green-500 text-white"
-                              : log.type === "error"
-                                ? "bg-red-500 text-white"
-                                : log.type === "warning"
-                                  ? "bg-yellow-500 text-black"
-                                  : "bg-blue-500 text-white"
-                          }`}
-                        >
-                          {log.type.toUpperCase()}
-                        </span>
-                      </div>
-                      <div className="text-white mb-1">{log.message}</div>
-                      {log.data && (
-                        <pre className="text-white/70 text-[10px] overflow-x-auto">
-                          {JSON.stringify(log.data, null, 2)}
-                        </pre>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
         </header>
 
         <main className="container mx-auto px-4 py-8">
@@ -520,7 +295,12 @@ export default function GaleriaPage() {
 
           {isLoading ? (
             <div className="flex justify-center items-center min-h-[400px]">
-              <p className="text-white text-lg">Cargando...</p>
+              <div className="flex flex-col items-center gap-4">
+                <div className="w-16 h-16 rounded-full bg-black flex items-center justify-center">
+                  <div className="w-8 h-8 border-4 border-white border-t-transparent rounded-full animate-spin" />
+                </div>
+                <p className="text-white text-lg">Cargando...</p>
+              </div>
             </div>
           ) : filteredTokens.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
