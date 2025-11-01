@@ -452,29 +452,21 @@ export default function TokenDetailPage() {
   }
 
   const handleMint = async () => {
-    addDebugLog("🚀 Starting collect process via InProcess API...")
-    setMintError(null)
-
-    if (!isConnected) {
-      addDebugLog("❌ Wallet not connected")
-      alert("Por favor conecta tu wallet primero")
-      return
-    }
-
     if (!address) {
-      addDebugLog("❌ No wallet address found")
-      alert("No se pudo obtener la dirección de tu wallet")
+      addDebugLog("❌ No wallet connected")
       return
     }
-
-    addDebugLog(`📝 Wallet address: ${address}`)
-    addDebugLog(`📝 Contract address: ${contractAddress}`)
-    addDebugLog(`📝 Token ID: ${tokenId}`)
-    addDebugLog(`📝 Quantity: ${quantity}`)
 
     try {
-      setIsMinting(true)
+      setMintError(null)
+      addDebugLog("🚀 Starting collect process via InProcess API...")
+      addDebugLog(`📝 Wallet address: ${address}`)
+      addDebugLog(`📝 Contract address: ${contractAddress}`)
+      addDebugLog(`📝 Token ID: ${tokenId}`)
+      addDebugLog(`📝 Quantity: ${quantity}`)
+
       addDebugLog("📤 Calling InProcess collect API...")
+      setIsMinting(true)
 
       const response = await fetch("/api/inprocess/collect", {
         method: "POST",
@@ -485,38 +477,51 @@ export default function TokenDetailPage() {
           contractAddress,
           tokenId,
           amount: quantity,
-          comment: `Collected ${quantity} edition(s) via Feria Nounish!`,
+          comment: "Collected via Feria Nounish!",
         }),
       })
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || "Failed to collect via InProcess API")
+      addDebugLog(`📥 API response status: ${response.status}`)
+      addDebugLog(`📥 API response ok: ${response.ok}`)
+
+      const responseText = await response.text()
+      addDebugLog(`📥 API response body: ${responseText}`)
+
+      let data
+      try {
+        data = JSON.parse(responseText)
+      } catch (e) {
+        addDebugLog(`❌ Failed to parse response as JSON: ${e}`)
+        throw new Error(`Invalid response from API: ${responseText}`)
       }
 
-      const data = await response.json()
+      if (!response.ok) {
+        addDebugLog(`❌ API returned error: ${JSON.stringify(data, null, 2)}`)
+        let errorMessage = data.error || "Failed to collect moment via InProcess API"
+        if (data.details) {
+          addDebugLog(`❌ Error details: ${JSON.stringify(data.details, null, 2)}`)
+          if (typeof data.details === "object" && data.details.message) {
+            errorMessage += `: ${data.details.message}`
+          }
+        }
+        if (data.status) {
+          addDebugLog(`❌ HTTP status: ${data.status}`)
+        }
+        throw new Error(errorMessage)
+      }
+
       addDebugLog(`✅ Collect successful! Transaction hash: ${data.hash}`)
-      addDebugLog(`✅ Chain ID: ${data.chainId}`)
+      addDebugLog(`🔗 Chain ID: ${data.chainId}`)
 
       setJustCollected(true)
       setIsMinting(false)
+
       await checkContractState()
     } catch (error: any) {
+      console.error("[v0] Error in handleMint:", error)
       addDebugLog(`❌ Error in handleMint: ${error.message}`)
-      console.error("[v0] Mint error:", error)
       setIsMinting(false)
-
-      let errorMessage = "Error al intentar coleccionar: "
-      if (error.message.includes("API key") || error.message.includes("INPROCESS_API_KEY")) {
-        errorMessage += "La API key de InProcess no está configurada. Por favor agrégala en la sección Vars."
-      } else if (error.message.includes("insufficient")) {
-        errorMessage += "Fondos insuficientes."
-      } else {
-        errorMessage += error.message
-      }
-
-      setMintError(errorMessage)
-      alert(errorMessage)
+      setMintError(error.message || "Error desconocido al coleccionar")
     }
   }
 
