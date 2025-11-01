@@ -9,6 +9,7 @@ import { uploadToArweave } from "@/app/actions/upload-to-arweave"
 import { uploadJson } from "@/app/actions/upload-json"
 import { useAccount } from "wagmi"
 import { ArrowLeft, Wallet, Check } from "lucide-react"
+import { getFarcasterUsername } from "@/lib/farcaster"
 
 export default function CrearPage() {
   const router = useRouter()
@@ -106,17 +107,33 @@ export default function CrearPage() {
         imageUri = await uploadToArweave(formData)
       }
 
+      let artistName = address ? `${address.slice(0, 6)}...${address.slice(-4)}` : "Unknown Artist"
+
+      if (address) {
+        console.log("[v0] Fetching Farcaster username for artist field:", address)
+        const farcasterUsername = await getFarcasterUsername(address)
+        if (farcasterUsername) {
+          artistName = farcasterUsername
+          console.log("[v0] Using Farcaster username as artist:", artistName)
+        } else {
+          console.log("[v0] No Farcaster username found, using formatted address:", artistName)
+        }
+      }
+
       const metadata = {
         name: tokenName,
         description: tokenDescription,
         external_url: "https://feria-nounish.vercel.app",
         image: imageUri,
         animation_url: imageUri,
+        artist: artistName,
         content: {
           mime: selectedFile?.type || "image/jpeg",
           uri: imageUri,
         },
       }
+
+      console.log("[v0] Creating moment with metadata:", metadata)
 
       const tokenMetadataURI = await uploadJson(metadata)
 

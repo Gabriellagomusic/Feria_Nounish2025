@@ -59,3 +59,80 @@ export async function getTimeline(
 
   return data
 }
+
+export async function getMomentByAddress(address: string, tokenId = 1, chainId = 8453): Promise<Moment | null> {
+  try {
+    console.log("[v0] getMomentByAddress - Fetching moment:", { address, tokenId, chainId })
+
+    const response = await fetch(`/api/inprocess/moment?address=${address}&tokenId=${tokenId}&chainId=${chainId}`)
+
+    console.log("[v0] getMomentByAddress - Response status:", response.status)
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error("[v0] getMomentByAddress - Error response:", errorText)
+      return null
+    }
+
+    const data = await response.json()
+    console.log("[v0] getMomentByAddress - Success! Moment admin:", data.moment?.admin)
+
+    return data.moment
+  } catch (error) {
+    console.error("[v0] getMomentByAddress - Error:", error)
+    return null
+  }
+}
+
+export async function getAllMoments(chainId = 8453): Promise<Moment[]> {
+  try {
+    console.log("[v0] getAllMoments - Starting to fetch all timeline pages")
+
+    // Fetch first page to get total count
+    const firstPage = await getTimeline(1, 100, true, undefined, chainId, false)
+    const allMoments = [...firstPage.moments]
+
+    console.log("[v0] getAllMoments - First page fetched:", {
+      momentsCount: firstPage.moments.length,
+      totalPages: firstPage.pagination.total_pages,
+      totalCount: firstPage.pagination.total_count,
+    })
+
+    // Fetch remaining pages if there are any
+    if (firstPage.pagination.total_pages > 1) {
+      const pagePromises = []
+      for (let page = 2; page <= firstPage.pagination.total_pages; page++) {
+        pagePromises.push(getTimeline(page, 100, true, undefined, chainId, false))
+      }
+
+      const remainingPages = await Promise.all(pagePromises)
+      for (const pageData of remainingPages) {
+        allMoments.push(...pageData.moments)
+      }
+
+      console.log("[v0] getAllMoments - All pages fetched:", {
+        totalMoments: allMoments.length,
+        pagesProcessed: firstPage.pagination.total_pages,
+      })
+    }
+
+    return allMoments
+  } catch (error) {
+    console.error("[v0] getAllMoments - Error:", error)
+    return []
+  }
+}
+
+export function buildMomentLookupMap(moments: Moment[]): Map<string, Moment> {
+  const map = new Map<string, Moment>()
+
+  for (const moment of moments) {
+    // Use lowercase address as key for case-insensitive lookup
+    const key = moment.address.toLowerCase()
+    map.set(key, moment)
+  }
+
+  console.log("[v0] buildMomentLookupMap - Built lookup map with", map.size, "entries")
+
+  return map
+}
