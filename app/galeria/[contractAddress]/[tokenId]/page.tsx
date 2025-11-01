@@ -251,8 +251,8 @@ export default function TokenDetailPage() {
   const [usdcBalance, setUsdcBalance] = useState<bigint>(BigInt(0))
   const [usdcAllowance, setUsdcAllowance] = useState<bigint>(BigInt(0))
 
-  const { writeContract: approveUSDC, data: approveHash } = useWriteContract()
-  const { writeContract: mintToken, data: mintHash } = useWriteContract()
+  const { writeContract: approveUSDC, data: approveHash, error: approveError } = useWriteContract()
+  const { writeContract: mintToken, data: mintHash, error: writeError } = useWriteContract()
 
   const { isSuccess: approveSuccess } = useWaitForTransactionReceipt({
     hash: approveHash,
@@ -485,6 +485,43 @@ export default function TokenDetailPage() {
     }
   }, [mintSuccess])
 
+  useEffect(() => {
+    if (writeError) {
+      addDebugLog("❌ ========== WRITE CONTRACT ERROR ==========")
+      addDebugLog(`❌ Error Name: ${writeError.name}`)
+      addDebugLog(`❌ Error Message: ${writeError.message}`)
+
+      if ("cause" in writeError && writeError.cause) {
+        addDebugLog(`❌ Error Cause: ${JSON.stringify(writeError.cause, null, 2)}`)
+      }
+
+      if ("details" in writeError) {
+        addDebugLog(`❌ Error Details: ${writeError.details}`)
+      }
+
+      if ("data" in writeError) {
+        addDebugLog(`❌ Error Data: ${JSON.stringify(writeError.data, null, 2)}`)
+      }
+
+      addDebugLog(`❌ Full Error Object: ${JSON.stringify(writeError, Object.getOwnPropertyNames(writeError), 2)}`)
+      addDebugLog("❌ ==========================================")
+
+      setMintError(`Error de contrato: ${writeError.message}`)
+      setIsMinting(false)
+    }
+  }, [writeError])
+
+  useEffect(() => {
+    if (approveError) {
+      addDebugLog("❌ ========== APPROVE ERROR ==========")
+      addDebugLog(`❌ Error: ${approveError.message}`)
+      addDebugLog(`❌ Full Error: ${JSON.stringify(approveError, Object.getOwnPropertyNames(approveError), 2)}`)
+      addDebugLog("❌ ====================================")
+      setMintError(`Error al aprobar: ${approveError.message}`)
+      setIsApproving(false)
+    }
+  }, [approveError])
+
   const handleApprove = async () => {
     if (!address) {
       addDebugLog("❌ No wallet connected")
@@ -531,19 +568,21 @@ export default function TokenDetailPage() {
       setIsMinting(true)
 
       const totalCost = PRICE_PER_TOKEN * BigInt(quantity)
-      addDebugLog("🚀 [Base] Starting mint (COLLECTOR PAYS)...")
+      addDebugLog("🚀 ========== STARTING MINT (COLLECTOR PAYS) ==========")
+      addDebugLog(`📝 Chain: Base (8453)`)
       addDebugLog(`📝 Wallet: ${address}`)
       addDebugLog(`📝 Contract: ${contractAddress}`)
       addDebugLog(`📝 Token ID: ${tokenId}`)
       addDebugLog(`📝 Quantity: ${quantity}`)
       addDebugLog(`💰 Total Cost: ${Number(totalCost) / 1e6} USDC on Base`)
       addDebugLog(`💎 Collector pays: ${Number(totalCost) / 1e6} USDC + gas`)
+      addDebugLog(`💵 USDC Balance: ${Number(usdcBalance) / 1e6} USDC`)
+      addDebugLog(`✅ USDC Allowance: ${Number(usdcAllowance) / 1e6} USDC`)
 
       // Try Zora 1155 mint pattern with ERC20 Minter
-      // The minter arguments need to be encoded as:
-      // (address mintTo, uint256 quantity, address tokenAddress, uint256 tokenId, uint256 totalValue, address currency, address mintReferral)
-
       const ERC20_MINTER_ADDRESS = "0x04E2516A2c207E84a1839755675dfd8eF6302F0a" // Zora ERC20 Minter on Base
+
+      addDebugLog(`🎯 Using ERC20 Minter: ${ERC20_MINTER_ADDRESS}`)
 
       const minterArguments = encodeFunctionData({
         abi: [
@@ -575,8 +614,19 @@ export default function TokenDetailPage() {
         ],
       })
 
-      addDebugLog(`📦 Encoded minter arguments: ${minterArguments}`)
-      addDebugLog(`🎯 Calling mint on contract with ERC20 Minter...`)
+      addDebugLog(`📦 Minter Arguments Encoded: ${minterArguments}`)
+      addDebugLog(`📦 Minter Arguments Breakdown:`)
+      addDebugLog(`   - mintTo: ${address}`)
+      addDebugLog(`   - quantity: ${quantity}`)
+      addDebugLog(`   - tokenAddress: ${contractAddress}`)
+      addDebugLog(`   - tokenId: ${tokenId}`)
+      addDebugLog(`   - totalValue: ${totalCost.toString()} (${Number(totalCost) / 1e6} USDC)`)
+      addDebugLog(`   - currency: ${USDC_ADDRESS}`)
+      addDebugLog(`   - mintReferral: 0x0000000000000000000000000000000000000000`)
+
+      addDebugLog(`🎯 Calling mint function on contract...`)
+      addDebugLog(`   Function: mint(address minter, uint256 tokenId, uint256 quantity, bytes minterArguments)`)
+      addDebugLog(`   Args: [${ERC20_MINTER_ADDRESS}, ${tokenId}, ${quantity}, ${minterArguments}]`)
 
       mintToken({
         address: contractAddress,
@@ -584,9 +634,26 @@ export default function TokenDetailPage() {
         functionName: "mint",
         args: [ERC20_MINTER_ADDRESS, BigInt(tokenId), BigInt(quantity), minterArguments],
       })
+
+      addDebugLog("✅ Transaction submitted, waiting for confirmation...")
+      addDebugLog("🔄 If this fails, check the error logs above")
+      addDebugLog("======================================================")
     } catch (error: any) {
-      addDebugLog(`❌ Error minting: ${error.message}`)
-      addDebugLog(`❌ Error details: ${JSON.stringify(error, null, 2)}`)
+      addDebugLog("❌ ========== MINT ERROR (CATCH BLOCK) ==========")
+      addDebugLog(`❌ Error Message: ${error.message}`)
+      addDebugLog(`❌ Error Name: ${error.name}`)
+
+      if (error.cause) {
+        addDebugLog(`❌ Error Cause: ${JSON.stringify(error.cause, null, 2)}`)
+      }
+
+      if (error.stack) {
+        addDebugLog(`❌ Error Stack: ${error.stack}`)
+      }
+
+      addDebugLog(`❌ Full Error: ${JSON.stringify(error, Object.getOwnPropertyNames(error), 2)}`)
+      addDebugLog("❌ ===============================================")
+
       setMintError(`Error al mintear: ${error.message}`)
       setIsMinting(false)
     }
@@ -747,11 +814,7 @@ export default function TokenDetailPage() {
                             disabled={!isConnected || isMinting}
                             className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-extrabold py-6 text-base disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            {!isConnected
-                              ? "Conecta tu Wallet"
-                              : isMinting
-                                ? "Minteando..."
-                                : `Mintear ${quantity} edición${quantity > 1 ? "es" : ""}`}
+                            {!isConnected ? "Conecta tu Wallet" : isMinting ? "Coleccionando..." : "Coleccionar"}
                           </Button>
                         )}
 
