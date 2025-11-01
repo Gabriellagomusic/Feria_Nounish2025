@@ -431,31 +431,40 @@ export default function TokenDetailPage() {
 
       // Step 1: Check sales config
       addDebugLog("========== STEP 1: CHECK SALES CONFIG ==========", "info")
-      let salesConfig = await checkSalesConfig()
+      const salesConfig = await checkSalesConfig()
 
       if (!salesConfig) {
-        addDebugLog("⚠️ No sales config found", "warning")
-        if (!isOwner) {
-          addDebugLog("❌ User is not owner, cannot setup sales config", "error")
-          throw new Error("Este token no tiene configurado ERC20 minting. Contacta al artista.")
+        addDebugLog("❌ No ERC20 sales config found for this token", "error")
+
+        if (isOwner) {
+          addDebugLog("⚠️ You are the owner. Please set up ERC20 minting:", "warning")
+          addDebugLog("1. Go to https://zora.co", "info")
+          addDebugLog("2. Find your collection", "info")
+          addDebugLog("3. Enable ERC20 minting with USDC", "info")
+          addDebugLog("4. Set price to 1 USDC per token", "info")
+          setMintError(
+            "Please set up ERC20 minting on Zora first.\n\n" +
+              "Steps:\n" +
+              "1. Go to https://zora.co\n" +
+              "2. Find your collection\n" +
+              "3. Enable ERC20 minting with USDC\n" +
+              "4. Set price to 1 USDC per token\n\n" +
+              "Check the debug logs for more details.",
+          )
+        } else {
+          addDebugLog("⚠️ This token doesn't have ERC20 minting configured", "warning")
+          addDebugLog("⚠️ Please contact the artist to set it up", "warning")
+          setMintError("Este token no tiene configurado ERC20 minting. Contacta al artista.")
         }
 
-        addDebugLog("✅ User is owner, setting up sales config...", "success")
-        addDebugLog("📢 IMPORTANT: You will be prompted to approve a transaction to set up ERC20 minting.", "warning")
-        addDebugLog("📢 This is a ONE-TIME setup. Please APPROVE the transaction in your wallet.", "warning")
-        addDebugLog("📢 After this setup, anyone will be able to mint this token with USDC.", "info")
-        addDebugLog("📢 If you REJECT the transaction, the minting process will fail.", "warning")
-
-        await setupSalesConfig()
-
-        addDebugLog("🔄 Re-checking sales config after setup...", "info")
-        salesConfig = await checkSalesConfig()
-
-        if (!salesConfig) {
-          addDebugLog("❌ Sales config still not found after setup", "error")
-          throw new Error("Error configurando sales config")
-        }
+        setIsMinting(false)
+        return
       }
+
+      addDebugLog("✅ Sales config found!", "success")
+      addDebugLog(`💰 Price: ${Number(salesConfig.pricePerToken) / 1e6} USDC`, "info")
+      addDebugLog(`💵 Currency: ${salesConfig.currency}`, "info")
+      addDebugLog(`👤 Funds recipient: ${salesConfig.fundsRecipient}`, "info")
 
       const pricePerToken = salesConfig.pricePerToken || parseUnits("1", 6)
       const totalCost = pricePerToken * BigInt(quantity)
