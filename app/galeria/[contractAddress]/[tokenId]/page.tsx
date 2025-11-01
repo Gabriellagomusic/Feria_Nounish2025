@@ -5,9 +5,9 @@ import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { useState, useEffect } from "react"
 import { useParams } from "next/navigation"
-import { createPublicClient, http } from "viem"
+import { createPublicClient, http, parseUnits, erc20Abi } from "viem"
 import { base } from "viem/chains"
-import { useAccount } from "wagmi"
+import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi"
 import { ArrowLeft, Plus, Minus } from "lucide-react"
 import { getDisplayName } from "@/lib/farcaster"
 import { ShareToFarcasterButton } from "@/components/share/ShareToFarcasterButton"
@@ -47,6 +47,29 @@ const ERC1155_ABI = [
   },
 ] as const
 
+const ZORA_ERC20_MINTER_ABI = [
+  {
+    inputs: [
+      { name: "mintTo", type: "address" },
+      { name: "quantity", type: "uint256" },
+      { name: "tokenAddress", type: "address" },
+      { name: "tokenId", type: "uint256" },
+      { name: "totalValue", type: "uint256" },
+      { name: "currency", type: "address" },
+      { name: "mintReferral", type: "address" },
+      { name: "comment", type: "string" },
+    ],
+    name: "mint",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+] as const
+
+const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as const
+const ZORA_ERC20_MINTER = "0x3678862f04290E565cCA2EF163BAeb92Bb76790C" as const
+const PRICE_PER_TOKEN = parseUnits("1", 6)
+
 async function fetchWithRetry<T>(fetchFn: () => Promise<T>, maxRetries = 3, baseDelay = 1000): Promise<T> {
   let lastError: Error | null = null
 
@@ -84,13 +107,14 @@ export default function TokenDetailPage() {
   const [debugInfo, setDebugInfo] = useState<string[]>([])
   const [showDebugPanel, setShowDebugPanel] = useState(true)
   const [isMinting, setIsMinting] = useState(false)
+  const [mintError, setMintError] = useState<string | null>(null)
+  const [mintHash, setMintHash] = useState<string | null>(null)
+  const [mintStep, setMintStep] = useState<"idle" | "approving" | "minting">("idle")
+
   const [contractInfo, setContractInfo] = useState<{
     userBalance: string
     totalSupply: string
   } | null>(null)
-
-  const [mintError, setMintError] = useState<string | null>(null)
-  const [mintHash, setMintHash] = useState<string | null>(null)
 
   const [persistentLogs, setPersistentLogs] = useState<string[]>([])
 
@@ -305,202 +329,161 @@ export default function TokenDetailPage() {
     }
   }, [address, isExperimentalMusicToken])
 
+  const {
+    writeContract: approveUSDC,
+    data: approvalHash,
+    isPending: isApproving,
+    error: approvalError,
+  } = useWriteContract()
+
+  const {
+    writeContract: mintToken,
+    data: mintTxHash,
+    isPending: isMintPending,
+    error: mintWriteError,
+  } = useWriteContract()
+
+  const { isLoading: isApprovalConfirming, isSuccess: isApprovalSuccess } = useWaitForTransactionReceipt({
+    hash: approvalHash,
+  })
+
+  const { isLoading: isMintConfirming, isSuccess: isMintSuccess } = useWaitForTransactionReceipt({
+    hash: mintTxHash,
+  })
+
+  useEffect(() => {
+    if (isApprovalSuccess && mintStep === "approving") {
+      addDebugLog("✅ USDC approval confirmed! Proceeding to mint...", true)
+      setMintStep("minting")
+      executeMint()
+    }
+  }, [isApprovalSuccess, mintStep])
+
+  useEffect(() => {
+    if (isMintSuccess && mintTxHash) {
+      addDebugLog(`🎉 Mint successful! Hash: ${mintTxHash}`, true)
+      setMintHash(mintTxHash)
+      setJustCollected(true)
+      setIsMinting(false)
+      setMintStep("idle")
+      checkContractState()
+    }
+  }, [isMintSuccess, mintTxHash])
+
+  useEffect(() => {
+    if (approvalError) {
+      addDebugLog(`❌ Approval error: ${approvalError.message}`, true)
+      setMintError(`Error al aprobar USDC: ${approvalError.message}`)
+      setIsMinting(false)
+      setMintStep("idle")
+    }
+  }, [approvalError])
+
+  useEffect(() => {
+    if (mintWriteError) {
+      addDebugLog(`❌ Mint error: ${mintWriteError.message}`, true)
+      setMintError(`Error al mintear: ${mintWriteError.message}`)
+      setIsMinting(false)
+      setMintStep("idle")
+    }
+  }, [mintWriteError])
+
+  const executeMint = async () => {
+    if (!address) return
+
+    try {
+      addDebugLog("🚀 Executing mint transaction...", true)
+      addDebugLog(`📝 Mint To: ${address}`, true)
+      addDebugLog(`📝 Quantity: ${quantity}`, true)
+      addDebugLog(`📝 Token Address: ${contractAddress}`, true)
+      addDebugLog(`📝 Token ID: ${tokenId}`, true)
+      addDebugLog(`📝 Total Value: ${(PRICE_PER_TOKEN * BigInt(quantity)).toString()} USDC`, true)
+      addDebugLog(`📝 Currency: ${USDC_ADDRESS}`, true)
+
+      const totalValue = PRICE_PER_TOKEN * BigInt(quantity)
+
+      mintToken({
+        address: ZORA_ERC20_MINTER,
+        abi: ZORA_ERC20_MINTER_ABI,
+        functionName: "mint",
+        args: [
+          address, // mintTo
+          BigInt(quantity), // quantity
+          contractAddress, // tokenAddress
+          BigInt(tokenId), // tokenId
+          totalValue, // totalValue
+          USDC_ADDRESS, // currency
+          address, // mintReferral (self)
+          "Collected via Feria Nounish on Base!", // comment
+        ],
+      })
+
+      addDebugLog("📤 Mint transaction sent to wallet for signature", true)
+    } catch (error: any) {
+      addDebugLog(`❌ Error executing mint: ${error.message}`, true)
+      setMintError(`Error al ejecutar mint: ${error.message}`)
+      setIsMinting(false)
+      setMintStep("idle")
+    }
+  }
+
   const handleMint = async () => {
     console.log("[v0] ========== COLECCIONAR BUTTON CLICKED ==========")
-    console.log("[v0] Timestamp:", new Date().toISOString())
-    console.log("[v0] Wallet Address:", address)
-    console.log("[v0] Is Connected:", isConnected)
-    console.log("[v0] Contract Address:", contractAddress)
-    console.log("[v0] Token ID:", tokenId)
-    console.log("[v0] Quantity:", quantity)
-
     addDebugLog("🔘 ========== COLECCIONAR BUTTON CLICKED ==========", true)
     addDebugLog(`⏰ Timestamp: ${new Date().toISOString()}`, true)
 
     if (!address) {
-      console.log("[v0] ERROR: No wallet connected")
       addDebugLog("❌ ERROR: No wallet connected", true)
       setMintError("Por favor conecta tu wallet primero")
       return
     }
 
-    console.log("[v0] ✅ Wallet connected:", address)
     addDebugLog(`✅ Wallet connected: ${address}`, true)
-    addDebugLog(`💡 IMPORTANTE: Tu wallet (${address}) NO paga por el minteo`, true)
-    addDebugLog(`💡 El ARTISTA paga el gas a través de su cuenta de InProcess`, true)
-    addDebugLog(`💡 El artista necesita tener ETH en su cuenta de InProcess en Base`, true)
+    addDebugLog(`💰 IMPORTANTE: TÚ (el coleccionista) pagas 1 USDC + gas por edición`, true)
+    addDebugLog(`💰 Total a pagar: ${quantity} USDC + gas en Base`, true)
 
     try {
       setMintError(null)
       setIsMinting(true)
       setMintHash(null)
+      setMintStep("approving")
 
-      addDebugLog("🚀 ========== STARTING MINT PROCESS ==========", true)
+      addDebugLog("🚀 ========== STARTING COLLECTOR-PAID MINT ==========", true)
       addDebugLog(`📝 Chain: Base (8453)`, true)
-      addDebugLog(`📝 Collector Wallet (TU): ${address}`, true)
-      addDebugLog(`📝 Artist Wallet: ${creator || "Loading..."}`, true)
+      addDebugLog(`📝 Collector (TÚ): ${address}`, true)
       addDebugLog(`📝 Contract: ${contractAddress}`, true)
       addDebugLog(`📝 Token ID: ${tokenId}`, true)
       addDebugLog(`📝 Quantity: ${quantity}`, true)
-      addDebugLog(`💰 Price: 1 USDC per edition (fixed price)`, true)
-      addDebugLog(`✨ Minting Type: GASLESS (artist sponsors via InProcess)`, true)
-      addDebugLog(`🔍 Checking: Artist's InProcess account balance on Base`, true)
+      addDebugLog(`💰 Price per token: 1 USDC`, true)
+      addDebugLog(`💰 Total USDC: ${quantity} USDC`, true)
+      addDebugLog(`💰 Payment Method: USDC on Base`, true)
+      addDebugLog(`✨ Minting Type: COLLECTOR PAYS (tú pagas USDC + gas)`, true)
 
-      const requestBody = {
-        contractAddress,
-        tokenId,
-        amount: quantity,
-        comment: "Collected via Feria Nounish on Base!",
-        walletAddress: address,
-        chainId: 8453,
-      }
+      const totalValue = PRICE_PER_TOKEN * BigInt(quantity)
 
-      console.log("[v0] Request Body:", JSON.stringify(requestBody, null, 2))
-      addDebugLog(`📤 Request Body: ${JSON.stringify(requestBody, null, 2)}`, true)
-      addDebugLog(`📤 Calling InProcess API: POST /api/inprocess/collect`, true)
+      addDebugLog(`📤 Step 1/2: Approving ${quantity} USDC for Zora ERC20 Minter...`, true)
+      addDebugLog(`📤 USDC Address: ${USDC_ADDRESS}`, true)
+      addDebugLog(`📤 Spender (Zora Minter): ${ZORA_ERC20_MINTER}`, true)
+      addDebugLog(`📤 Amount to approve: ${totalValue.toString()} (${quantity} USDC)`, true)
 
-      const fetchStartTime = Date.now()
-      const response = await fetch("/api/inprocess/collect", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(requestBody),
+      approveUSDC({
+        address: USDC_ADDRESS,
+        abi: erc20Abi,
+        functionName: "approve",
+        args: [ZORA_ERC20_MINTER, totalValue],
       })
-      const fetchEndTime = Date.now()
-      const fetchDuration = fetchEndTime - fetchStartTime
 
-      console.log("[v0] API Response received in", fetchDuration, "ms")
-      console.log("[v0] Response Status:", response.status)
-      console.log("[v0] Response Status Text:", response.statusText)
-      console.log("[v0] Response Headers:", Object.fromEntries(response.headers.entries()))
-
-      addDebugLog(`📥 API Response received in ${fetchDuration}ms`, true)
-      addDebugLog(`📥 Response Status: ${response.status} ${response.statusText}`, true)
-      addDebugLog(
-        `📥 Response Headers: ${JSON.stringify(Object.fromEntries(response.headers.entries()), null, 2)}`,
-        true,
-      )
-
-      const responseText = await response.text()
-      console.log("[v0] Response Text:", responseText)
-      addDebugLog(`📥 Response Text: ${responseText}`, true)
-
-      if (!response.ok) {
-        console.log("[v0] ❌ API Response NOT OK")
-        addDebugLog(`❌ API Response NOT OK (Status: ${response.status})`, true)
-
-        let errorData
-        try {
-          errorData = JSON.parse(responseText)
-          console.log("[v0] Parsed Error Data:", errorData)
-          addDebugLog(`❌ Parsed Error Data: ${JSON.stringify(errorData, null, 2)}`, true)
-        } catch (parseError) {
-          console.log("[v0] Could not parse error response as JSON")
-          addDebugLog(`⚠️ Could not parse error response as JSON`, true)
-          errorData = { message: responseText }
-        }
-
-        addDebugLog(`❌ InProcess API Error: ${JSON.stringify(errorData, null, 2)}`, true)
-
-        addDebugLog(`🔍 ========== ERROR ANALYSIS ==========`, true)
-        addDebugLog(`🔍 Error Type: ${errorData.error || "Unknown"}`, true)
-        addDebugLog(`🔍 Error Message: ${errorData.message || errorData.details?.message || "No message"}`, true)
-
-        if (errorData.details) {
-          addDebugLog(`🔍 Error Details: ${JSON.stringify(errorData.details, null, 2)}`, true)
-        }
-
-        if (errorData.details?.message?.includes("Insufficient balance")) {
-          addDebugLog(`💡 ========== INSUFFICIENT BALANCE ERROR ==========`, true)
-          addDebugLog(`💡 This error means: The ARTIST's InProcess account doesn't have enough ETH`, true)
-          addDebugLog(`💡 NOT your wallet (${address})`, true)
-          addDebugLog(`💡 The artist (${creator || "unknown"}) needs to add ETH to their InProcess account`, true)
-          addDebugLog(`💡 ⚠️ IMPORTANTE: Tener ETH en la wallet NO es suficiente`, true)
-          addDebugLog(`💡 ⚠️ El artista debe DEPOSITAR ETH en su cuenta de InProcess`, true)
-          addDebugLog(`💡 ⚠️ La cuenta de InProcess es SEPARADA de la wallet regular`, true)
-          addDebugLog(`💡 📝 Pasos para el artista:`, true)
-          addDebugLog(`💡 1. Ir a https://inprocess.fun`, true)
-          addDebugLog(`💡 2. Conectar su wallet (${creator || "unknown"})`, true)
-          addDebugLog(`💡 3. Depositar ETH desde su wallet a su cuenta de InProcess en Base`, true)
-          addDebugLog(`💡 4. Después de depositar, el minteo gasless funcionará`, true)
-
-          const errorMsg =
-            "El artista necesita DEPOSITAR ETH en su cuenta de InProcess (no solo tenerlo en su wallet). El artista debe ir a https://inprocess.fun y depositar ETH desde su wallet a su cuenta de InProcess en Base."
-          console.log("[v0] Error:", errorMsg)
-          addDebugLog(`❌ ${errorMsg}`, true)
-          setMintError(errorMsg)
-        } else {
-          const errorMsg = `Error del API de InProcess: ${errorData.error || errorData.message || "Error desconocido"}`
-          console.log("[v0] Error:", errorMsg)
-          addDebugLog(`❌ ${errorMsg}`, true)
-          addDebugLog(`❌ Full error details: ${JSON.stringify(errorData, null, 2)}`, true)
-          setMintError(errorMsg)
-        }
-
-        addDebugLog(`❌ ========== MINT FAILED ==========`, true)
-        setIsMinting(false)
-        return
-      }
-
-      console.log("[v0] ✅ API Response OK")
-      addDebugLog(`✅ API Response OK (Status: ${response.status})`, true)
-
-      let data
-      try {
-        data = JSON.parse(responseText)
-        console.log("[v0] Parsed Response Data:", data)
-        addDebugLog(`📦 Parsed Response Data: ${JSON.stringify(data, null, 2)}`, true)
-      } catch (parseError) {
-        console.log("[v0] Could not parse response as JSON, using raw text")
-        addDebugLog(`⚠️ Could not parse response as JSON, using raw text`, true)
-        data = { message: responseText }
-      }
-
-      addDebugLog(`✅ InProcess API Success!`, true)
-
-      if (data.transactionHash || data.hash || data.txHash) {
-        const hash = data.transactionHash || data.hash || data.txHash
-        setMintHash(hash)
-        console.log("[v0] 🎉 Transaction Hash:", hash)
-        addDebugLog(`🎉 Transaction Hash: ${hash}`, true)
-        addDebugLog(`🔗 View on BaseScan: https://basescan.org/tx/${hash}`, true)
-      } else {
-        console.log("[v0] ⚠️ No transaction hash in response")
-        addDebugLog(`⚠️ No transaction hash found in response`, true)
-      }
-
-      console.log("[v0] ✅ Mint successful!")
-      addDebugLog("✅ ========== MINT SUCCESSFUL ==========", true)
-      setJustCollected(true)
-      setIsMinting(false)
-
-      console.log("[v0] Checking contract state after mint...")
-      addDebugLog("🔍 Checking contract state after mint...", true)
-      await checkContractState()
+      addDebugLog("📤 Approval transaction sent to wallet for signature", true)
+      addDebugLog("⏳ Waiting for approval confirmation...", true)
     } catch (error: any) {
       console.log("[v0] ========== ERROR IN MINT ==========")
-      console.log("[v0] Error Type:", error.constructor.name)
-      console.log("[v0] Error Message:", error.message)
-      console.log("[v0] Error Stack:", error.stack)
-      console.log("[v0] Full Error Object:", error)
-      console.log("[v0] Error Properties:", Object.getOwnPropertyNames(error))
-
       addDebugLog("❌ ========== MINT ERROR ==========", true)
-      addDebugLog(`❌ Error Type: ${error.constructor.name}`, true)
-      addDebugLog(`❌ Error Message: ${error.message}`, true)
-      addDebugLog(`❌ Error Stack: ${error.stack}`, true)
+      addDebugLog(`❌ Error: ${error.message}`, true)
       addDebugLog(`❌ Full Error: ${JSON.stringify(error, Object.getOwnPropertyNames(error), 2)}`, true)
-
-      if (error.cause) {
-        console.log("[v0] Error Cause:", error.cause)
-        addDebugLog(`❌ Error Cause: ${JSON.stringify(error.cause, null, 2)}`, true)
-      }
-
-      addDebugLog("❌ ==================================", true)
 
       setMintError(`Error al coleccionar: ${error.message}`)
       setIsMinting(false)
+      setMintStep("idle")
     }
   }
 
@@ -614,31 +597,6 @@ export default function TokenDetailPage() {
                       <div className="bg-red-50 border-2 border-red-300 rounded-lg p-4 mb-3">
                         <p className="text-red-800 font-bold mb-2 text-base">⚠️ Error</p>
                         <p className="text-red-700 text-sm font-semibold mb-2 whitespace-pre-line">{mintError}</p>
-                        {mintError.includes("DEPOSITAR ETH") && (
-                          <div className="mt-3 pt-3 border-t border-red-200">
-                            <p className="text-red-800 font-semibold text-xs mb-2">📝 Instrucciones para el artista:</p>
-                            <ol className="text-red-700 text-xs space-y-1 list-decimal list-inside">
-                              <li>
-                                Ir a{" "}
-                                <a
-                                  href="https://inprocess.fun"
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="underline font-semibold"
-                                >
-                                  inprocess.fun
-                                </a>
-                              </li>
-                              <li>Conectar la wallet del artista</li>
-                              <li>Depositar ETH desde la wallet a la cuenta de InProcess en Base</li>
-                              <li>Después de depositar, el minteo gasless funcionará</li>
-                            </ol>
-                            <p className="text-red-600 text-xs mt-2 italic">
-                              💡 Nota: Tener ETH en la wallet NO es suficiente. Debe depositarse en la cuenta de
-                              InProcess.
-                            </p>
-                          </div>
-                        )}
                       </div>
                     )}
 
@@ -665,6 +623,7 @@ export default function TokenDetailPage() {
                             setJustCollected(false)
                             setMintError(null)
                             setMintHash(null)
+                            setMintStep("idle")
                           }}
                           variant="outline"
                           className="w-full font-extrabold py-6 text-base"
@@ -681,7 +640,7 @@ export default function TokenDetailPage() {
                               setQuantity(newQuantity)
                               setMintError(null)
                             }}
-                            disabled={quantity <= 1}
+                            disabled={quantity <= 1 || isMinting}
                             variant="outline"
                             size="icon"
                             className="h-10 w-10"
@@ -698,6 +657,7 @@ export default function TokenDetailPage() {
                               setQuantity(newQuantity)
                               setMintError(null)
                             }}
+                            disabled={isMinting}
                             variant="outline"
                             size="icon"
                             className="h-10 w-10"
@@ -708,7 +668,9 @@ export default function TokenDetailPage() {
 
                         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
                           <p className="text-blue-800 font-semibold">💰 Precio: 1 USDC por edición</p>
-                          <p className="text-blue-600 text-xs mt-1">✨ Minteo gasless (patrocinado por el artista)</p>
+                          <p className="text-blue-600 text-xs mt-1">
+                            💳 Total: {quantity} USDC + gas (tú pagas en Base)
+                          </p>
                         </div>
 
                         <Button
@@ -716,11 +678,25 @@ export default function TokenDetailPage() {
                           disabled={!isConnected || isMinting}
                           className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-extrabold py-6 text-base disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          {!isConnected ? "Conecta tu Wallet" : isMinting ? "Coleccionando..." : "Coleccionar"}
+                          {!isConnected
+                            ? "Conecta tu Wallet"
+                            : mintStep === "approving"
+                              ? isApproving
+                                ? "Aprobando USDC..."
+                                : isApprovalConfirming
+                                  ? "Confirmando aprobación..."
+                                  : "Aprobar USDC"
+                              : mintStep === "minting"
+                                ? isMintPending
+                                  ? "Minteando..."
+                                  : isMintConfirming
+                                    ? "Confirmando mint..."
+                                    : "Mintear"
+                                : "Coleccionar"}
                         </Button>
 
                         <p className="text-xs text-center text-gray-500">
-                          ✨ Minteo gasless en Base - el artista patrocina la transacción
+                          💳 Pagarás {quantity} USDC + gas en Base - El coleccionista paga
                         </p>
                       </>
                     ) : (
