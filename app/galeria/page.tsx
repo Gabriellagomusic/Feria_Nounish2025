@@ -43,35 +43,49 @@ function formatAddress(address: string): string {
   return address.slice(0, 6) + "..." + address.slice(-4)
 }
 
-async function getArtistInfoForContract(contractAddress: string): Promise<{ address: string; displayName: string }> {
-  // Check for hardcoded artist names (same as individual token page)
-  if (contractAddress.toLowerCase() === "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5") {
-    return {
-      address: contractAddress.toLowerCase(),
-      displayName: "gabriellagomusic",
-    }
-  }
-
-  if (contractAddress.toLowerCase() === "0xfaa54c8258b419ab0411da8ddc1985f42f98f59b") {
-    return {
-      address: contractAddress.toLowerCase(),
-      displayName: "ferianounish",
-    }
-  }
-
-  // Otherwise use the same hardcoded creator address as individual page
-  const creator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
+async function fetchArtistForToken(
+  contractAddress: string,
+  tokenId: string,
+): Promise<{ address: string; displayName: string }> {
   try {
-    const displayName = await getDisplayName(creator)
+    // Fetch from inprocess API to get the actual admin/creator
+    const response = await fetch("https://api.inprocess.art/v1/moments")
+    if (!response.ok) {
+      throw new Error("Failed to fetch moments")
+    }
+
+    const moments = await response.json()
+
+    // Find the moment that matches this contract and tokenId
+    const moment = moments.find(
+      (m: any) =>
+        m.contractAddress?.toLowerCase() === contractAddress.toLowerCase() &&
+        m.tokenId?.toString() === tokenId.toString(),
+    )
+
+    if (moment && moment.admin) {
+      // Use the actual admin address from the moment
+      const adminAddress = moment.admin.toLowerCase()
+      const displayName = await getDisplayName(adminAddress)
+      return {
+        address: adminAddress,
+        displayName: displayName,
+      }
+    }
+
+    // Fallback if moment not found
+    const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
+    const displayName = await getDisplayName(fallbackCreator)
     return {
-      address: creator.toLowerCase(),
+      address: fallbackCreator.toLowerCase(),
       displayName: displayName,
     }
   } catch (error) {
-    console.error("Error fetching artist name:", error)
+    console.error("Error fetching artist for token:", error)
+    const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
     return {
-      address: creator.toLowerCase(),
-      displayName: formatAddress(creator),
+      address: fallbackCreator.toLowerCase(),
+      displayName: formatAddress(fallbackCreator),
     }
   }
 }
@@ -96,18 +110,6 @@ export default function GaleriaPage() {
           return
         }
 
-        const uniqueContracts = Array.from(
-          new Set(galleryData.tokens.map((t: { contractAddress: string }) => t.contractAddress.toLowerCase())),
-        )
-
-        const artistInfoMap = new Map<string, { address: string; displayName: string }>()
-        await Promise.all(
-          uniqueContracts.map(async (contract) => {
-            const info = await getArtistInfoForContract(contract)
-            artistInfoMap.set(contract, info)
-          }),
-        )
-
         const publicClient = createPublicClient({
           chain: base,
           transport: http(),
@@ -116,10 +118,8 @@ export default function GaleriaPage() {
         const tokenDataPromises = galleryData.tokens.map(
           async (config: { contractAddress: string; tokenId: string }) => {
             try {
-              const artistInfo = artistInfoMap.get(config.contractAddress.toLowerCase()) || {
-                address: "0x697C7720dc08F1eb1fde54420432eFC6aD594244",
-                displayName: "Unknown Artist",
-              }
+              // Fetch the actual artist for this specific token
+              const artistInfo = await fetchArtistForToken(config.contractAddress, "1")
 
               const tokenURI = await publicClient.readContract({
                 address: config.contractAddress as `0x${string}`,

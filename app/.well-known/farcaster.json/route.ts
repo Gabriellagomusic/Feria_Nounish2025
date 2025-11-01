@@ -14,7 +14,10 @@ export async function GET() {
       signature:
         "MHhmYzI4YTJlMjY5ZmMwNzljZjY3MWViYjc1YjFiNzYzMDBjYzA4Nzk0NzM0N2YyNmEzMDlmZmM3OGExMTdjZGE0NGI2MjMzOWFhMzA1YjVjZDRkMjhmMDZkMmQyZjQyZjNiMzRhYTU1ZTA1OGUxMDMzNzAwZDg5Y2JmNjZiODQ1ZTFi",
     },
-    frame: withValidProperties({
+    baseBuilder: {
+      ownerAddress: "0x4E2981B6442805B62B9f491135226ECeC0Fda49F",
+    },
+    miniapp: withValidProperties({
       version: "1",
       name: "Feria Nounish 2025",
       subtitle: "Feria Nounish 2025",
@@ -35,8 +38,5 @@ export async function GET() {
       // use only while testing
       noindex: true,
     }),
-    baseBuilder: {
-      allowedAddresses: ["0x4E2981B6442805B62B9f491135226ECeC0Fda49F"],
-    },
   })
 }
