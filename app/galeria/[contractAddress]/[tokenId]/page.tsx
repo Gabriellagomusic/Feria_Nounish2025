@@ -5,7 +5,7 @@ import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { useState, useEffect } from "react"
 import { useParams } from "next/navigation"
-import { createPublicClient, http, encodeFunctionData } from "viem"
+import { createPublicClient, http, parseAbi } from "viem"
 import { base } from "viem/chains"
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi"
 import { ArrowLeft, Plus, Minus } from "lucide-react"
@@ -601,8 +601,8 @@ export default function TokenDetailPage() {
   }
 
   const handleMint = async () => {
-    console.log("[v0] ========== MINT BUTTON CLICKED ==========")
-    addDebugLog("🔘 MINT BUTTON CLICKED")
+    console.log("[v0] ========== COLECCIONAR BUTTON CLICKED ==========")
+    addDebugLog("🔘 COLECCIONAR BUTTON CLICKED")
 
     if (!address) {
       console.log("[v0] ERROR: No wallet connected")
@@ -615,7 +615,7 @@ export default function TokenDetailPage() {
 
     if (!isApproved) {
       console.log("[v0] ERROR: USDC not approved")
-      addDebugLog("❌ USDC not approved")
+      addDebugLog("❌ USDC not approved - user must approve first")
       setMintError("Primero debes aprobar el gasto de USDC")
       return
     }
@@ -632,7 +632,7 @@ export default function TokenDetailPage() {
       const totalCost = PRICE_PER_TOKEN * BigInt(quantity)
       console.log("[v0] Total cost:", totalCost.toString())
 
-      addDebugLog("🚀 ========== STARTING MINT (COLLECTOR PAYS) ==========")
+      addDebugLog("🚀 ========== MINTING (COLLECTOR PAYS) ==========")
       addDebugLog(`📝 Chain: Base (8453)`)
       addDebugLog(`📝 Wallet: ${address}`)
       addDebugLog(`📝 Contract: ${contractAddress}`)
@@ -643,181 +643,61 @@ export default function TokenDetailPage() {
       addDebugLog(`💵 USDC Balance: ${Number(usdcBalance) / 1e6} USDC`)
       addDebugLog(`✅ USDC Allowance: ${Number(usdcAllowance) / 1e6} USDC`)
 
-      addDebugLog("🎯 Attempting Method 1: purchase(tokenId, quantity)")
-      addDebugLog(`   Args: [${tokenId}, ${quantity}]`)
+      addDebugLog("🎯 Calling mintWithRewards(minter, tokenId, quantity, minterArguments, mintReferral)")
 
-      try {
-        mintToken({
-          address: contractAddress,
-          abi: [
-            {
-              inputs: [
-                { name: "tokenId", type: "uint256" },
-                { name: "quantity", type: "uint256" },
-              ],
-              name: "purchase",
-              outputs: [],
-              stateMutability: "payable",
-              type: "function",
-            },
-          ],
-          functionName: "purchase",
-          args: [BigInt(tokenId), BigInt(quantity)],
-        })
+      const ZORA_ERC20_MINTER = "0x04E2516A2c207E84a1839755675dfd8eF6302F0a" // Zora ERC20 Minter on Base
+      const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 
-        addDebugLog("✅ purchase() transaction submitted")
-        addDebugLog("🔄 Waiting for confirmation...")
-        return
-      } catch (error: any) {
-        addDebugLog(`❌ Method 1 failed: ${error.message}`)
-        addDebugLog("🔄 Trying Method 2...")
-      }
+      // Encode minter arguments for ERC20 minting
+      const minterArguments = parseAbi([
+        "function mint(address mintTo, uint256 quantity, address tokenAddress, uint256 tokenId, uint256 totalValue, address currency, address mintReferral)",
+      ])
 
-      addDebugLog("🎯 Attempting Method 2: mint(to, id, amount, data)")
-      addDebugLog(`   Args: [${address}, ${tokenId}, ${quantity}, 0x]`)
+      addDebugLog(`📦 Minter: ${ZORA_ERC20_MINTER}`)
+      addDebugLog(
+        `📦 Args: mintTo=${address}, quantity=${quantity}, tokenAddress=${contractAddress}, tokenId=${tokenId}, totalValue=${totalCost}, currency=${USDC_ADDRESS}`,
+      )
 
-      try {
-        mintToken({
-          address: contractAddress,
-          abi: [
-            {
-              inputs: [
-                { name: "to", type: "address" },
-                { name: "id", type: "uint256" },
-                { name: "amount", type: "uint256" },
-                { name: "data", type: "bytes" },
-              ],
-              name: "mint",
-              outputs: [],
-              stateMutability: "nonpayable",
-              type: "function",
-            },
-          ],
-          functionName: "mint",
-          args: [address, BigInt(tokenId), BigInt(quantity), "0x"],
-        })
-
-        addDebugLog("✅ mint() transaction submitted")
-        addDebugLog("🔄 Waiting for confirmation...")
-        return
-      } catch (error: any) {
-        addDebugLog(`❌ Method 2 failed: ${error.message}`)
-        addDebugLog("🔄 Trying Method 3...")
-      }
-
-      addDebugLog("🎯 Attempting Method 3: collect(tokenId, quantity, recipient)")
-      addDebugLog(`   Args: [${tokenId}, ${quantity}, ${address}]`)
-
-      try {
-        mintToken({
-          address: contractAddress,
-          abi: [
-            {
-              inputs: [
-                { name: "tokenId", type: "uint256" },
-                { name: "quantity", type: "uint256" },
-                { name: "recipient", type: "address" },
-              ],
-              name: "collect",
-              outputs: [],
-              stateMutability: "payable",
-              type: "function",
-            },
-          ],
-          functionName: "collect",
-          args: [BigInt(tokenId), BigInt(quantity), address],
-        })
-
-        addDebugLog("✅ collect() transaction submitted")
-        addDebugLog("🔄 Waiting for confirmation...")
-        return
-      } catch (error: any) {
-        addDebugLog(`❌ Method 3 failed: ${error.message}`)
-        addDebugLog("🔄 Trying Method 4 (Zora pattern)...")
-      }
-
-      const ERC20_MINTER_ADDRESS = "0x04E2516A2c207E84a1839755675dfd8eF6302F0a"
-      addDebugLog(`🎯 Attempting Method 4: Zora mint pattern with ERC20 Minter`)
-      addDebugLog(`   Minter: ${ERC20_MINTER_ADDRESS}`)
-
-      const minterArguments = encodeFunctionData({
-        abi: [
-          {
-            inputs: [
-              { name: "mintTo", type: "address" },
-              { name: "quantity", type: "uint256" },
-              { name: "tokenAddress", type: "address" },
-              { name: "tokenId", type: "uint256" },
-              { name: "totalValue", type: "uint256" },
-              { name: "currency", type: "address" },
-              { name: "mintReferral", type: "address" },
-            ],
-            name: "mint",
-            outputs: [],
-            stateMutability: "nonpayable",
-            type: "function",
-          },
-        ],
-        functionName: "mint",
-        args: [
-          address,
-          BigInt(quantity),
-          contractAddress,
-          BigInt(tokenId),
-          totalCost,
-          USDC_ADDRESS,
-          "0x0000000000000000000000000000000000000000",
-        ],
-      })
-
-      addDebugLog(`📦 Minter Arguments: ${minterArguments}`)
+      console.log("[v0] Calling mintToken with mintWithRewards...")
 
       mintToken({
         address: contractAddress,
-        abi: [
-          {
-            inputs: [
-              { name: "minter", type: "address" },
-              { name: "tokenId", type: "uint256" },
-              { name: "quantity", type: "uint256" },
-              { name: "minterArguments", type: "bytes" },
-            ],
-            name: "mint",
-            outputs: [],
-            stateMutability: "payable",
-            type: "function",
-          },
+        abi: parseAbi([
+          "function mintWithRewards(address minter, uint256 tokenId, uint256 quantity, bytes calldata minterArguments, address mintReferral) external payable",
+        ]),
+        functionName: "mintWithRewards",
+        args: [
+          ZORA_ERC20_MINTER,
+          BigInt(tokenId),
+          BigInt(quantity),
+          `0x${[
+            address.slice(2).padStart(64, "0"),
+            quantity.toString(16).padStart(64, "0"),
+            contractAddress.slice(2).padStart(64, "0"),
+            BigInt(tokenId).toString(16).padStart(64, "0"),
+            totalCost.toString(16).padStart(64, "0"),
+            USDC_ADDRESS.slice(2).padStart(64, "0"),
+            ZERO_ADDRESS.slice(2).padStart(64, "0"),
+          ].join("")}` as `0x${string}`,
+          ZERO_ADDRESS as `0x${string}`,
         ],
-        functionName: "mint",
-        args: [ERC20_MINTER_ADDRESS, BigInt(tokenId), BigInt(quantity), minterArguments],
       })
 
-      addDebugLog("✅ Zora mint() transaction submitted")
-      addDebugLog("🔄 Waiting for confirmation...")
+      console.log("[v0] mintToken called successfully")
+      addDebugLog("✅ mintWithRewards transaction submitted to wallet")
+      addDebugLog("🔄 Waiting for user confirmation...")
       addDebugLog("======================================================")
     } catch (error: any) {
-      console.log("[v0] ========== ERROR IN CATCH BLOCK ==========")
+      console.log("[v0] ========== ERROR IN MINT ==========")
       console.log("[v0] Error:", error)
       console.log("[v0] Error message:", error.message)
       console.log("[v0] Error name:", error.name)
-      console.log("[v0] Error cause:", error.cause)
-      console.log("[v0] Error stack:", error.stack)
-      console.log("[v0] Full error object:", JSON.stringify(error, Object.getOwnPropertyNames(error), 2))
+      console.log("[v0] Full error:", JSON.stringify(error, Object.getOwnPropertyNames(error), 2))
 
-      addDebugLog("❌ ========== ALL MINT METHODS FAILED ==========")
-      addDebugLog(`❌ Error Message: ${error.message}`)
-      addDebugLog(`❌ Error Name: ${error.name}`)
-
-      if (error.cause) {
-        addDebugLog(`❌ Error Cause: ${JSON.stringify(error.cause, null, 2)}`)
-      }
-
-      if (error.stack) {
-        addDebugLog(`❌ Error Stack: ${error.stack}`)
-      }
-
+      addDebugLog("❌ ========== MINT ERROR ==========")
+      addDebugLog(`❌ Error: ${error.message}`)
       addDebugLog(`❌ Full Error: ${JSON.stringify(error, Object.getOwnPropertyNames(error), 2)}`)
-      addDebugLog("❌ ===============================================")
+      addDebugLog("❌ ==================================")
 
       setMintError(`Error al mintear: ${error.message}`)
       setIsMinting(false)
