@@ -9,7 +9,9 @@ import { createPublicClient, http, parseUnits } from "viem"
 import { base } from "viem/chains"
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi"
 import { ArrowLeft } from "lucide-react"
+import { getDisplayName } from "@/lib/farcaster"
 import { ShareToFarcasterButton } from "@/components/share/ShareToFarcasterButton"
+import { getTimeline, type Moment } from "@/lib/inprocess"
 
 interface TokenMetadata {
   name: string
@@ -37,6 +39,23 @@ const ERC1155_ABI = [
     stateMutability: "view",
     type: "function",
   },
+  {
+    inputs: [
+      { name: "account", type: "address" },
+      { name: "id", type: "uint256" },
+    ],
+    name: "balanceOf",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ name: "id", type: "uint256" }],
+    name: "totalSupply",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
 ] as const
 
 const ERC20_ABI = [
@@ -56,6 +75,13 @@ const ERC20_ABI = [
       { name: "spender", type: "address" },
     ],
     name: "allowance",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ name: "account", type: "address" }],
+    name: "balanceOf",
     outputs: [{ name: "", type: "uint256" }],
     stateMutability: "view",
     type: "function",
@@ -84,8 +110,11 @@ export default function TokenDetailPage() {
   const [isMinting, setIsMinting] = useState(false)
   const [isApproving, setIsApproving] = useState(false)
   const [isApproved, setIsApproved] = useState(false)
-  const [showRejectionMessage, setShowRejectionMessage] = useState(false)
-  const [rejectionType, setRejectionType] = useState<"approve" | "mint" | null>(null)
+  const [contractInfo, setContractInfo] = useState<{
+    userBalance: string
+    totalSupply: string
+    usdcBalance: string
+  } | null>(null)
 
   const { writeContract, data: hash, error: writeError, isPending } = useWriteContract()
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({
@@ -120,23 +149,10 @@ export default function TokenDetailPage() {
   useEffect(() => {
     if (writeError) {
       addDebugLog(`❌ Transaction error: ${writeError.message}`)
-
-      const isUserRejection =
-        writeError.message.includes("User rejected") ||
-        writeError.message.includes("user rejected") ||
-        writeError.message.includes("User denied")
-
-      if (isUserRejection) {
-        setShowRejectionMessage(true)
-        setRejectionType(isApproving ? "approve" : "mint")
-      } else {
-        alert(`Error: ${writeError.message}`)
-      }
-
       setIsMinting(false)
       setIsApproving(false)
     }
-  }, [writeError, isApproving])
+  }, [writeError])
 
   useEffect(() => {
     const checkAllowance = async () => {
@@ -157,6 +173,56 @@ export default function TokenDetailPage() {
 
         addDebugLog(`💰 Current USDC allowance: ${allowance.toString()}`)
         setIsApproved(allowance >= USDC_AMOUNT)
+
+        try {
+          const [userBalance, totalSupply, usdcBalance] = await Promise.all([
+            publicClient
+              .readContract({
+                address: contractAddress,
+                abi: ERC1155_ABI,
+                functionName: "balanceOf",
+                args: [address, BigInt(tokenId)],
+              })
+              .catch(() => BigInt(0)),
+            publicClient
+              .readContract({
+                address: contractAddress,
+                abi: ERC1155_ABI,
+                functionName: "totalSupply",
+                args: [BigInt(tokenId)],
+              })
+              .catch(() => BigInt(0)),
+            publicClient
+              .readContract({
+                address: USDC_ADDRESS,
+                abi: ERC20_ABI,
+                functionName: "balanceOf",
+                args: [address],
+              })
+              .catch(() => BigInt(0)),
+          ])
+
+          const info = {
+            userBalance: userBalance.toString(),
+            totalSupply: totalSupply.toString(),
+            usdcBalance: (Number(usdcBalance) / 1e6).toFixed(2),
+          }
+
+          setContractInfo(info)
+          addDebugLog(`📊 User already owns: ${info.userBalance} of this token`)
+          addDebugLog(`📊 Total supply of this token: ${info.totalSupply}`)
+          addDebugLog(`💵 User USDC balance: ${info.usdcBalance} USDC`)
+
+          if (Number(info.userBalance) > 0) {
+            addDebugLog(`⚠️ WARNING: User already owns this token!`)
+          }
+
+          if (Number(info.usdcBalance) < 1) {
+            addDebugLog(`⚠️ WARNING: Insufficient USDC balance! Need at least 1 USDC`)
+          }
+        } catch (error: any) {
+          addDebugLog(`⚠️ Could not fetch contract state: ${error.message}`)
+        }
       } catch (error: any) {
         console.error("[v0] Error checking allowance:", error)
         addDebugLog(`❌ Error checking allowance: ${error.message}`)
@@ -164,12 +230,170 @@ export default function TokenDetailPage() {
     }
 
     checkAllowance()
-  }, [address, contractAddress, isExperimentalMusicToken])
+  }, [address, contractAddress, isExperimentalMusicToken, tokenId])
+
+  useEffect(() => {
+    const fetchTokenMetadata = async () => {
+      try {
+        const publicClient = createPublicClient({
+          chain: base,
+          transport: http(),
+        })
+
+        const tokenURI = await publicClient.readContract({
+          address: contractAddress,
+          abi: ERC1155_ABI,
+          functionName: "uri",
+          args: [BigInt(tokenId)],
+        })
+
+        if (tokenURI) {
+          let metadataUrl = tokenURI.replace("{id}", tokenId)
+          if (metadataUrl.startsWith("ar://")) {
+            metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
+          }
+
+          const metadataResponse = await fetch(metadataUrl)
+          if (metadataResponse.ok) {
+            const metadata = await metadataResponse.json()
+
+            let imageUrl = metadata.image
+            if (imageUrl?.startsWith("ipfs://")) {
+              imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+            } else if (imageUrl?.startsWith("ar://")) {
+              imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+            }
+
+            setTokenData({
+              name: metadata.name || `Obra de Arte #${tokenId}`,
+              description: metadata.description || "Obra de arte digital única",
+              image: imageUrl || "/placeholder.svg",
+              creator: metadata.creator,
+            })
+
+            try {
+              const timelineData = await getTimeline(1, 100, true, undefined, 8453, false)
+
+              if (timelineData.moments && timelineData.moments.length > 0) {
+                console.log("[v0] Searching for moment:", { contractAddress, tokenId })
+                console.log("[v0] Total moments:", timelineData.moments.length)
+
+                const moment = timelineData.moments.find((m: Moment) => {
+                  const addressMatch = m.address.toLowerCase() === contractAddress.toLowerCase()
+                  const tokenIdMatch = m.tokenId?.toString() === tokenId.toString()
+
+                  if (addressMatch) {
+                    console.log("[v0] Found address match:", {
+                      momentAddress: m.address,
+                      momentTokenId: m.tokenId,
+                      momentUsername: m.username,
+                      searchingForTokenId: tokenId,
+                      tokenIdMatch,
+                    })
+                  }
+
+                  return addressMatch && tokenIdMatch
+                })
+
+                if (moment) {
+                  console.log("[v0] Found matching moment for token detail:", {
+                    admin: moment.admin,
+                    username: moment.username,
+                  })
+                  setCreator(moment.admin)
+                  const displayName = moment.username || (await getDisplayName(moment.admin))
+                  setArtistName(displayName)
+                } else {
+                  console.log("[v0] No matching moment found, using fallback")
+                  const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
+                  setCreator(fallbackCreator)
+                  const displayName = await getDisplayName(fallbackCreator)
+                  setArtistName(displayName)
+                }
+              } else {
+                const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
+                setCreator(fallbackCreator)
+                const displayName = await getDisplayName(fallbackCreator)
+                setArtistName(displayName)
+              }
+            } catch (error) {
+              console.error("[v0] Error fetching artist from inprocess:", error)
+              const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
+              setCreator(fallbackCreator)
+              setArtistName(`${fallbackCreator.slice(0, 6)}...${fallbackCreator.slice(-4)}`)
+            }
+
+            setIsLoading(false)
+            return
+          }
+        }
+
+        try {
+          const timelineData = await getTimeline(1, 100, true, undefined, 8453, false)
+
+          if (timelineData.moments && timelineData.moments.length > 0) {
+            console.log("[v0] Searching for moment (fallback):", { contractAddress, tokenId })
+
+            const moment = timelineData.moments.find((m: Moment) => {
+              const addressMatch = m.address.toLowerCase() === contractAddress.toLowerCase()
+              const tokenIdMatch = m.tokenId?.toString() === tokenId.toString()
+              return addressMatch && tokenIdMatch
+            })
+
+            if (moment) {
+              console.log("[v0] Found moment in fallback:", moment.username)
+              setCreator(moment.admin)
+              const displayName = moment.username || (await getDisplayName(moment.admin))
+              setArtistName(displayName)
+            } else {
+              const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
+              setCreator(fallbackCreator)
+              const displayName = await getDisplayName(fallbackCreator)
+              setArtistName(displayName)
+            }
+          }
+        } catch (error) {
+          console.error("[v0] Error fetching artist from inprocess:", error)
+          const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
+          setCreator(fallbackCreator)
+          setArtistName(`${fallbackCreator.slice(0, 6)}...${fallbackCreator.slice(-4)}`)
+        }
+
+        setTokenData({
+          name: `Obra de Arte #${tokenId}`,
+          description: "Obra de arte digital única de la colección oficial",
+          image: "/abstract-digital-composition.png",
+        })
+      } catch (error) {
+        console.error("Error fetching token metadata:", error)
+        const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
+        setCreator(fallbackCreator)
+        setArtistName(`${fallbackCreator.slice(0, 6)}...${fallbackCreator.slice(-4)}`)
+        setTokenData({
+          name: `Obra de Arte #${tokenId}`,
+          description: "Obra de arte digital única de la colección oficial",
+          image: "/abstract-digital-composition.png",
+        })
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchTokenMetadata()
+  }, [contractAddress, tokenId])
+
+  useEffect(() => {
+    if (justCollected) {
+      const redirectTimer = setTimeout(() => {
+        router.push("/perfil")
+      }, 3000)
+
+      return () => clearTimeout(redirectTimer)
+    }
+  }, [justCollected, router])
 
   const handleApprove = async () => {
     addDebugLog("💰 Starting USDC approval...")
-    setShowRejectionMessage(false)
-    setRejectionType(null)
 
     if (!isConnected || !address) {
       addDebugLog("❌ Wallet not connected")
@@ -199,8 +423,6 @@ export default function TokenDetailPage() {
 
   const handleMint = async () => {
     addDebugLog("🚀 Starting mint process...")
-    setShowRejectionMessage(false)
-    setRejectionType(null)
 
     if (!isConnected) {
       addDebugLog("❌ Wallet not connected")
@@ -220,6 +442,23 @@ export default function TokenDetailPage() {
       return
     }
 
+    if (contractInfo) {
+      if (Number(contractInfo.userBalance) > 0) {
+        addDebugLog("⚠️ User already owns this token, attempting mint anyway...")
+        const confirmMint = confirm("Ya posees este token. ¿Estás seguro de que quieres coleccionar otro?")
+        if (!confirmMint) {
+          addDebugLog("❌ User cancelled mint due to existing ownership")
+          return
+        }
+      }
+
+      if (Number(contractInfo.usdcBalance) < 1) {
+        addDebugLog("❌ Insufficient USDC balance")
+        alert(`Saldo insuficiente de USDC. Tienes ${contractInfo.usdcBalance} USDC, necesitas al menos 1 USDC`)
+        return
+      }
+    }
+
     addDebugLog(`📝 Wallet address: ${address}`)
     addDebugLog(`📝 Contract address: ${contractAddress}`)
     addDebugLog(`📝 Token ID: ${tokenId}`)
@@ -229,6 +468,31 @@ export default function TokenDetailPage() {
       setIsMinting(true)
       addDebugLog("📤 Calling mint function...")
       addDebugLog("💰 Contract will pull 1 USDC from your wallet")
+
+      try {
+        const publicClient = createPublicClient({
+          chain: base,
+          transport: http(),
+        })
+
+        addDebugLog("🔍 Simulating transaction before sending...")
+        await publicClient.simulateContract({
+          address: contractAddress,
+          abi: ERC1155_ABI,
+          functionName: "mint",
+          args: [address, BigInt(tokenId), BigInt(quantity)],
+          account: address,
+        })
+        addDebugLog("✅ Transaction simulation successful!")
+      } catch (simError: any) {
+        addDebugLog(`❌ Transaction simulation failed: ${simError.message}`)
+        addDebugLog(`🔍 Revert reason: ${simError.cause?.reason || "Unknown"}`)
+
+        const errorMsg = simError.cause?.reason || simError.message
+        alert(`La transacción fallaría: ${errorMsg}\n\nRevisa el panel de debug para más detalles.`)
+        setIsMinting(false)
+        return
+      }
 
       writeContract({
         address: contractAddress,
@@ -245,16 +509,6 @@ export default function TokenDetailPage() {
       alert(`Error al intentar mintear: ${error.message}`)
     }
   }
-
-  useEffect(() => {
-    if (justCollected) {
-      const redirectTimer = setTimeout(() => {
-        router.push("/perfil")
-      }, 3000)
-
-      return () => clearTimeout(redirectTimer)
-    }
-  }, [justCollected, router])
 
   if (isLoading) {
     return (
@@ -343,26 +597,6 @@ export default function TokenDetailPage() {
                       </div>
                     ) : isExperimentalMusicToken ? (
                       <>
-                        {showRejectionMessage && (
-                          <div className="bg-yellow-50 border-2 border-yellow-300 rounded-lg p-4 mb-3">
-                            <div className="flex items-start gap-3">
-                              <div className="text-2xl">⚠️</div>
-                              <div className="flex-1">
-                                <p className="font-bold text-yellow-900 mb-1">Transacción Cancelada</p>
-                                <p className="text-sm text-yellow-800 mb-2">
-                                  {rejectionType === "approve"
-                                    ? "Rechazaste la aprobación de USDC en tu wallet. Necesitas aprobar el gasto de 1 USDC para poder coleccionar esta obra."
-                                    : "Rechazaste la transacción de minteo en tu wallet. Necesitas confirmar la transacción para coleccionar esta obra."}
-                                </p>
-                                <p className="text-xs text-yellow-700">
-                                  💡 Tip: Cuando aparezca la ventana de tu wallet, asegúrate de hacer clic en
-                                  "Confirmar" o "Approve" para completar la transacción.
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
                         {!isApproved ? (
                           <Button
                             onClick={handleApprove}
@@ -377,9 +611,7 @@ export default function TokenDetailPage() {
                                   ? "Confirmando aprobación..."
                                   : isApproving
                                     ? "Aprobando USDC..."
-                                    : showRejectionMessage && rejectionType === "approve"
-                                      ? "Reintentar Aprobación"
-                                      : "Aprobar 1 USDC"}
+                                    : "Aprobar 1 USDC"}
                           </Button>
                         ) : (
                           <Button
@@ -395,9 +627,7 @@ export default function TokenDetailPage() {
                                   ? "Confirmando transacción..."
                                   : isMinting
                                     ? "Minteando..."
-                                    : showRejectionMessage && rejectionType === "mint"
-                                      ? "Reintentar Colección"
-                                      : "Coleccionar Ahora"}
+                                    : "Coleccionar Ahora"}
                           </Button>
                         )}
 
@@ -419,6 +649,16 @@ export default function TokenDetailPage() {
                               <div>Minting: {isMinting ? "✅ Yes" : "❌ No"}</div>
                               <div>Pending: {isPending ? "✅ Yes" : "❌ No"}</div>
                               <div>Confirming: {isConfirming ? "✅ Yes" : "❌ No"}</div>
+                              {contractInfo && (
+                                <>
+                                  <div className="mt-2 pt-2 border-t border-gray-700">
+                                    <div className="text-white font-bold mb-1">📊 Contract State:</div>
+                                    <div>User Token Balance: {contractInfo.userBalance}</div>
+                                    <div>Total Supply: {contractInfo.totalSupply}</div>
+                                    <div>User USDC Balance: {contractInfo.usdcBalance} USDC</div>
+                                  </div>
+                                </>
+                              )}
                               {hash && <div>Tx Hash: {hash}</div>}
                               {writeError && <div className="text-red-400">Error: {writeError.message}</div>}
                             </div>
