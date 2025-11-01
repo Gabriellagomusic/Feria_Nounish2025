@@ -124,7 +124,6 @@ export default function TokenDetailPage() {
   } | null>(null)
 
   const [mintError, setMintError] = useState<string | null>(null)
-  const [useDirectMint, setUseDirectMint] = useState(false)
 
   const { writeContract, data: hash, error: writeError, isPending } = useWriteContract()
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({
@@ -254,11 +253,6 @@ export default function TokenDetailPage() {
       addDebugLog(`💵 User USDC balance: ${info.usdcBalance} USDC`)
       if (info.maxPerAddress) {
         addDebugLog(`🔒 Max per address: ${info.maxPerAddress}`)
-      }
-
-      if (Number(info.userBalance) > 0) {
-        addDebugLog(`✅ User already owns this token - showing success state`)
-        setJustCollected(true)
       }
 
       if (Number(info.usdcBalance) < quantity) {
@@ -468,35 +462,6 @@ export default function TokenDetailPage() {
   const handleMint = async () => {
     if (!address) {
       addDebugLog("❌ No wallet connected")
-      return
-    }
-
-    if (useDirectMint) {
-      addDebugLog("🚀 Using direct contract minting...")
-      try {
-        setIsMinting(true)
-        setMintError(null)
-
-        addDebugLog(`📝 Calling contract mint function directly`)
-        addDebugLog(`📝 Contract: ${contractAddress}`)
-        addDebugLog(`📝 Token ID: ${tokenId}`)
-        addDebugLog(`📝 Quantity: ${quantity}`)
-        addDebugLog(`📝 To address: ${address}`)
-
-        writeContract({
-          address: contractAddress,
-          abi: ERC1155_ABI,
-          functionName: "mint",
-          args: [address, BigInt(tokenId), BigInt(quantity)],
-        })
-
-        addDebugLog("✅ Direct mint transaction sent, waiting for confirmation...")
-      } catch (error: any) {
-        addDebugLog(`❌ Error in direct mint: ${error.message}`)
-        console.error("[v0] Direct mint error:", error)
-        setIsMinting(false)
-        setMintError(error.message || "Error desconocido al coleccionar directamente")
-      }
       return
     }
 
@@ -713,7 +678,7 @@ ${debugInfo.join("\n")}`
                     {mintError && (
                       <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-3">
                         <p className="text-red-800 font-semibold mb-1">⚠️ Error de Transacción</p>
-                        <p className="text-red-600 text-sm">{mintError}</p>
+                        <p className="text-red-600 text-sm whitespace-pre-line">{mintError}</p>
                       </div>
                     )}
 
@@ -798,26 +763,6 @@ ${debugInfo.join("\n")}`
                           </Button>
                         ) : (
                           <>
-                            <div className="flex items-center justify-center gap-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
-                              <span className="text-sm text-gray-600">Método:</span>
-                              <Button
-                                onClick={() => setUseDirectMint(false)}
-                                variant={!useDirectMint ? "default" : "outline"}
-                                size="sm"
-                                className="text-xs"
-                              >
-                                API InProcess
-                              </Button>
-                              <Button
-                                onClick={() => setUseDirectMint(true)}
-                                variant={useDirectMint ? "default" : "outline"}
-                                size="sm"
-                                className="text-xs"
-                              >
-                                Minteo Directo
-                              </Button>
-                            </div>
-
                             <Button
                               onClick={handleMint}
                               disabled={!isConnected || isMinting || isPending || isConfirming || !!mintError}
@@ -831,7 +776,7 @@ ${debugInfo.join("\n")}`
                                     ? "Confirmando transacción..."
                                     : isMinting
                                       ? "Coleccionando..."
-                                      : `Coleccionar (${quantity}) ${useDirectMint ? "- Directo" : "- API"}`}
+                                      : `Coleccionar (${quantity})`}
                             </Button>
                           </>
                         )}
