@@ -116,6 +116,8 @@ export default function TokenDetailPage() {
     usdcBalance: string
   } | null>(null)
 
+  const [mintError, setMintError] = useState<string | null>(null)
+
   const { writeContract, data: hash, error: writeError, isPending } = useWriteContract()
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({
     hash,
@@ -418,6 +420,7 @@ export default function TokenDetailPage() {
 
   const handleMint = async () => {
     addDebugLog("🚀 Starting mint process...")
+    setMintError(null)
 
     if (!isConnected) {
       addDebugLog("❌ Wallet not connected")
@@ -451,6 +454,52 @@ export default function TokenDetailPage() {
     addDebugLog(`📝 Quantity: ${quantity}`)
 
     try {
+      addDebugLog("🔍 Simulating transaction to check for errors...")
+
+      const publicClient = createPublicClient({
+        chain: base,
+        transport: http(),
+      })
+
+      // Try to simulate the contract call first
+      try {
+        const { request } = await publicClient.simulateContract({
+          address: contractAddress,
+          abi: ERC1155_ABI,
+          functionName: "mint",
+          args: [address, BigInt(tokenId), BigInt(quantity)],
+          account: address,
+        })
+
+        addDebugLog("✅ Transaction simulation successful!")
+        addDebugLog("📤 Proceeding with actual transaction...")
+      } catch (simulationError: any) {
+        addDebugLog(`❌ Transaction simulation failed!`)
+        addDebugLog(`❌ Error: ${simulationError.message}`)
+
+        // Extract more detailed error information
+        let errorMessage = "La transacción fallaría. "
+
+        if (simulationError.message.includes("insufficient")) {
+          errorMessage += "Fondos insuficientes."
+        } else if (simulationError.message.includes("allowance")) {
+          errorMessage += "Aprobación de USDC insuficiente."
+        } else if (simulationError.message.includes("paused")) {
+          errorMessage += "El contrato está pausado."
+        } else if (simulationError.message.includes("supply")) {
+          errorMessage += "Suministro máximo alcanzado."
+        } else if (simulationError.message.includes("already")) {
+          errorMessage += "Ya posees el máximo permitido."
+        } else {
+          errorMessage += `Razón: ${simulationError.shortMessage || simulationError.message}`
+        }
+
+        setMintError(errorMessage)
+        addDebugLog(`🚫 Blocking transaction due to simulation failure`)
+        alert(errorMessage)
+        return
+      }
+
       setIsMinting(true)
       addDebugLog("📤 Calling mint function...")
       addDebugLog("💰 Contract will pull 1 USDC from your wallet")
@@ -467,6 +516,7 @@ export default function TokenDetailPage() {
       addDebugLog(`❌ Error in handleMint: ${error.message}`)
       console.error("[v0] Mint error:", error)
       setIsMinting(false)
+      setMintError(error.message)
       alert(`Error al intentar mintear: ${error.message}`)
     }
   }
@@ -530,10 +580,12 @@ export default function TokenDetailPage() {
                   </div>
 
                   <div className="border-t border-gray-200 pt-4 shadow-sm space-y-2">
-                    <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 mb-3">
-                      <p className="text-sm text-gray-600 mb-1">Precio</p>
-                      <p className="text-2xl font-extrabold text-purple-600">1 USDC</p>
-                    </div>
+                    {mintError && (
+                      <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-3">
+                        <p className="text-red-800 font-semibold mb-1">⚠️ Error de Transacción</p>
+                        <p className="text-red-600 text-sm">{mintError}</p>
+                      </div>
+                    )}
 
                     {justCollected ? (
                       <div className="space-y-3">
@@ -630,6 +682,12 @@ export default function TokenDetailPage() {
                                     <div>User USDC Balance: {contractInfo.usdcBalance} USDC</div>
                                   </div>
                                 </>
+                              )}
+                              {mintError && (
+                                <div className="mt-2 pt-2 border-t border-gray-700">
+                                  <div className="text-red-400 font-bold mb-1">❌ Mint Error:</div>
+                                  <div className="text-red-300">{mintError}</div>
+                                </div>
                               )}
                               {hash && <div>Tx Hash: {hash}</div>}
                               {writeError && <div className="text-red-400">Error: {writeError.message}</div>}
