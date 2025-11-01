@@ -96,7 +96,6 @@ const ERC20_ABI = [
 ] as const
 
 const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as `0x${string}`
-const USDC_AMOUNT = parseUnits("1", 6) // 1 USDC with 6 decimals
 
 export default function TokenDetailPage() {
   const router = useRouter()
@@ -134,6 +133,8 @@ export default function TokenDetailPage() {
 
   const isExperimentalMusicToken =
     contractAddress.toLowerCase() === "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5" && tokenId === "1"
+
+  const usdcAmountNeeded = parseUnits((quantity * 1).toString(), 6) // quantity * 1 USDC per token
 
   const addDebugLog = (message: string) => {
     const timestamp = new Date().toISOString()
@@ -176,7 +177,7 @@ export default function TokenDetailPage() {
         })
 
         addDebugLog(`💰 Current USDC allowance: ${allowance.toString()}`)
-        setIsApproved(allowance >= USDC_AMOUNT)
+        setIsApproved(allowance >= usdcAmountNeeded)
 
         await checkContractState()
       } catch (error: any) {
@@ -186,7 +187,7 @@ export default function TokenDetailPage() {
     }
 
     checkAllowance()
-  }, [address, contractAddress, isExperimentalMusicToken, tokenId])
+  }, [address, contractAddress, isExperimentalMusicToken, tokenId, quantity, usdcAmountNeeded])
 
   const checkContractState = async () => {
     if (!address || !isExperimentalMusicToken) return
@@ -252,8 +253,15 @@ export default function TokenDetailPage() {
         setJustCollected(true)
       }
 
-      if (Number(info.usdcBalance) < 1) {
-        addDebugLog(`⚠️ WARNING: Insufficient USDC balance! Need at least 1 USDC`)
+      if (Number(info.usdcBalance) < quantity) {
+        addDebugLog(
+          `⚠️ WARNING: Insufficient USDC balance! Need at least ${quantity} USDC, have ${info.usdcBalance} USDC`,
+        )
+        setMintError(
+          `Saldo insuficiente: Necesitas ${quantity} USDC para coleccionar ${quantity} edición(es). Tienes ${info.usdcBalance} USDC.`,
+        )
+      } else {
+        setMintError(null)
       }
 
       if (info.maxPerAddress && Number(info.userBalance) >= Number(info.maxPerAddress)) {
@@ -433,13 +441,13 @@ export default function TokenDetailPage() {
 
     try {
       setIsApproving(true)
-      addDebugLog(`📤 Approving ${USDC_AMOUNT.toString()} USDC for contract ${contractAddress}`)
+      addDebugLog(`📤 Approving ${usdcAmountNeeded.toString()} USDC (${quantity} USDC) for contract ${contractAddress}`)
 
       writeContract({
         address: USDC_ADDRESS,
         abi: ERC20_ABI,
         functionName: "approve",
-        args: [contractAddress, USDC_AMOUNT],
+        args: [contractAddress, usdcAmountNeeded],
       })
 
       addDebugLog("✅ Approval transaction sent, waiting for confirmation...")
@@ -607,12 +615,6 @@ export default function TokenDetailPage() {
                           onShareComplete={() => {}}
                         />
                         <Button
-                          onClick={() => router.push("/perfil")}
-                          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-6 text-base"
-                        >
-                          Ver en Mi Perfil
-                        </Button>
-                        <Button
                           onClick={() => {
                             setJustCollected(false)
                             setMintError(null)
@@ -639,13 +641,18 @@ export default function TokenDetailPage() {
                                   ? "Confirmando aprobación..."
                                   : isApproving
                                     ? "Aprobando USDC..."
-                                    : "Aprobar 1 USDC"}
+                                    : `Aprobar ${quantity} USDC`}
                           </Button>
                         ) : (
                           <>
                             <div className="flex items-center justify-center gap-4 p-4 bg-gray-50 rounded-lg">
                               <Button
-                                onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                                onClick={() => {
+                                  const newQuantity = Math.max(1, quantity - 1)
+                                  setQuantity(newQuantity)
+                                  setIsApproved(false) // Reset approval when quantity changes
+                                  setMintError(null)
+                                }}
                                 disabled={quantity <= 1}
                                 variant="outline"
                                 size="icon"
@@ -658,7 +665,12 @@ export default function TokenDetailPage() {
                                 <div className="text-xs text-gray-500">ediciones</div>
                               </div>
                               <Button
-                                onClick={() => setQuantity(quantity + 1)}
+                                onClick={() => {
+                                  const newQuantity = quantity + 1
+                                  setQuantity(newQuantity)
+                                  setIsApproved(false) // Reset approval when quantity changes
+                                  setMintError(null)
+                                }}
                                 variant="outline"
                                 size="icon"
                                 className="h-10 w-10"
@@ -669,7 +681,7 @@ export default function TokenDetailPage() {
 
                             <Button
                               onClick={handleMint}
-                              disabled={!isConnected || isMinting || isPending || isConfirming}
+                              disabled={!isConnected || isMinting || isPending || isConfirming || !!mintError}
                               className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-extrabold py-6 text-base disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                               {!isConnected
