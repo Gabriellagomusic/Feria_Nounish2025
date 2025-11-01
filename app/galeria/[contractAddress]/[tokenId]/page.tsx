@@ -631,6 +631,9 @@ export default function TokenDetailPage() {
         transport: http(),
       })
 
+      console.log("SWEETS TOKEN", tokenId)
+      console.log("SWEETS CONTRACT", contractAddress)
+
       const salesConfig = await publicClient.readContract({
         address: ZORA_ERC20_MINTER,
         abi: ZORA_ERC20_MINTER_ABI,
