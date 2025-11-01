@@ -5,7 +5,7 @@ import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { useState, useEffect } from "react"
 import { useParams } from "next/navigation"
-import { createPublicClient, http } from "viem"
+import { createPublicClient, http, parseUnits } from "viem"
 import { base } from "viem/chains"
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi"
 import { ArrowLeft } from "lucide-react"
@@ -41,6 +41,32 @@ const ERC1155_ABI = [
   },
 ] as const
 
+const ERC20_ABI = [
+  {
+    inputs: [
+      { name: "spender", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    name: "approve",
+    outputs: [{ name: "", type: "bool" }],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "spender", type: "address" },
+    ],
+    name: "allowance",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+] as const
+
+const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as `0x${string}`
+const USDC_AMOUNT = parseUnits("1", 6) // 1 USDC with 6 decimals
+
 export default function TokenDetailPage() {
   const router = useRouter()
   const params = useParams()
@@ -58,6 +84,8 @@ export default function TokenDetailPage() {
   const [debugInfo, setDebugInfo] = useState<string[]>([])
   const [showDebug, setShowDebug] = useState(false)
   const [isMinting, setIsMinting] = useState(false)
+  const [isApproving, setIsApproving] = useState(false)
+  const [isApproved, setIsApproved] = useState(false)
 
   const { writeContract, data: hash, error: writeError, isPending } = useWriteContract()
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({
@@ -77,17 +105,82 @@ export default function TokenDetailPage() {
   useEffect(() => {
     if (isConfirmed && hash) {
       addDebugLog(`✅ Transaction confirmed! Hash: ${hash}`)
-      setJustCollected(true)
-      setIsMinting(false)
+
+      if (isApproving) {
+        addDebugLog("✅ USDC approval confirmed!")
+        setIsApproved(true)
+        setIsApproving(false)
+      } else if (isMinting) {
+        setJustCollected(true)
+        setIsMinting(false)
+      }
     }
-  }, [isConfirmed, hash])
+  }, [isConfirmed, hash, isApproving, isMinting])
 
   useEffect(() => {
     if (writeError) {
       addDebugLog(`❌ Transaction error: ${writeError.message}`)
       setIsMinting(false)
+      setIsApproving(false)
     }
   }, [writeError])
+
+  useEffect(() => {
+    const checkAllowance = async () => {
+      if (!address || !isExperimentalMusicToken) return
+
+      try {
+        const publicClient = createPublicClient({
+          chain: base,
+          transport: http(),
+        })
+
+        const allowance = await publicClient.readContract({
+          address: USDC_ADDRESS,
+          abi: ERC20_ABI,
+          functionName: "allowance",
+          args: [address, contractAddress],
+        })
+
+        addDebugLog(`💰 Current USDC allowance: ${allowance.toString()}`)
+        setIsApproved(allowance >= USDC_AMOUNT)
+      } catch (error: any) {
+        console.error("[v0] Error checking allowance:", error)
+        addDebugLog(`❌ Error checking allowance: ${error.message}`)
+      }
+    }
+
+    checkAllowance()
+  }, [address, contractAddress, isExperimentalMusicToken])
+
+  const handleApprove = async () => {
+    addDebugLog("💰 Starting USDC approval...")
+
+    if (!isConnected || !address) {
+      addDebugLog("❌ Wallet not connected")
+      alert("Por favor conecta tu wallet primero")
+      return
+    }
+
+    try {
+      setIsApproving(true)
+      addDebugLog(`📤 Approving ${USDC_AMOUNT.toString()} USDC for contract ${contractAddress}`)
+
+      writeContract({
+        address: USDC_ADDRESS,
+        abi: ERC20_ABI,
+        functionName: "approve",
+        args: [contractAddress, USDC_AMOUNT],
+      })
+
+      addDebugLog("✅ Approval transaction sent, waiting for confirmation...")
+    } catch (error: any) {
+      addDebugLog(`❌ Error in handleApprove: ${error.message}`)
+      console.error("[v0] Approve error:", error)
+      setIsApproving(false)
+      alert(`Error al aprobar USDC: ${error.message}`)
+    }
+  }
 
   const handleMint = async () => {
     addDebugLog("🚀 Starting mint process...")
@@ -104,6 +197,12 @@ export default function TokenDetailPage() {
       return
     }
 
+    if (!isApproved) {
+      addDebugLog("❌ USDC not approved yet")
+      alert("Primero debes aprobar el gasto de USDC")
+      return
+    }
+
     addDebugLog(`📝 Wallet address: ${address}`)
     addDebugLog(`📝 Contract address: ${contractAddress}`)
     addDebugLog(`📝 Token ID: ${tokenId}`)
@@ -111,24 +210,17 @@ export default function TokenDetailPage() {
 
     try {
       setIsMinting(true)
-      addDebugLog("📤 Calling writeContract...")
-
-      // Note: This assumes the contract accepts native token payment
-      // 1 USDC = 1000000 (6 decimals for USDC)
-      // But if paying in ETH, we need to convert 1 USDC worth to ETH
-      // For now, trying with a small amount to test
-      addDebugLog("💰 Attempting to send payment with transaction...")
+      addDebugLog("📤 Calling mint function...")
+      addDebugLog("💰 Contract will pull 1 USDC from your wallet")
 
       writeContract({
         address: contractAddress,
         abi: ERC1155_ABI,
         functionName: "mint",
         args: [address, BigInt(tokenId), BigInt(quantity)],
-        // This may need adjustment based on actual contract requirements
-        value: BigInt(1000000000000000), // 0.001 ETH in wei
       })
 
-      addDebugLog("✅ writeContract called successfully, waiting for user confirmation...")
+      addDebugLog("✅ Mint transaction sent, waiting for user confirmation...")
     } catch (error: any) {
       addDebugLog(`❌ Error in handleMint: ${error.message}`)
       console.error("[v0] Mint error:", error)
@@ -384,21 +476,39 @@ export default function TokenDetailPage() {
                       </div>
                     ) : isExperimentalMusicToken ? (
                       <>
-                        <Button
-                          onClick={handleMint}
-                          disabled={!isConnected || isMinting || isPending || isConfirming}
-                          className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-extrabold py-6 text-base disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {!isConnected
-                            ? "Conecta tu Wallet"
-                            : isPending
-                              ? "Esperando confirmación..."
-                              : isConfirming
-                                ? "Confirmando transacción..."
-                                : isMinting
-                                  ? "Minteando..."
-                                  : "Coleccionar Ahora (Gratis)"}
-                        </Button>
+                        {!isApproved ? (
+                          <Button
+                            onClick={handleApprove}
+                            disabled={!isConnected || isApproving || isPending || isConfirming}
+                            className="w-full bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white font-extrabold py-6 text-base disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {!isConnected
+                              ? "Conecta tu Wallet"
+                              : isPending
+                                ? "Esperando confirmación..."
+                                : isConfirming
+                                  ? "Confirmando aprobación..."
+                                  : isApproving
+                                    ? "Aprobando USDC..."
+                                    : "Aprobar 1 USDC"}
+                          </Button>
+                        ) : (
+                          <Button
+                            onClick={handleMint}
+                            disabled={!isConnected || isMinting || isPending || isConfirming}
+                            className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-extrabold py-6 text-base disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {!isConnected
+                              ? "Conecta tu Wallet"
+                              : isPending
+                                ? "Esperando confirmación..."
+                                : isConfirming
+                                  ? "Confirmando transacción..."
+                                  : isMinting
+                                    ? "Minteando..."
+                                    : "Coleccionar Ahora"}
+                          </Button>
+                        )}
 
                         <Button onClick={() => setShowDebug(!showDebug)} variant="outline" className="w-full">
                           {showDebug ? "Ocultar" : "Mostrar"} Debug Info
@@ -413,6 +523,8 @@ export default function TokenDetailPage() {
                               <div>Contract: {contractAddress}</div>
                               <div>Token ID: {tokenId}</div>
                               <div>Is Experimental Token: {isExperimentalMusicToken ? "✅ Yes" : "❌ No"}</div>
+                              <div>USDC Approved: {isApproved ? "✅ Yes" : "❌ No"}</div>
+                              <div>Approving: {isApproving ? "✅ Yes" : "❌ No"}</div>
                               <div>Minting: {isMinting ? "✅ Yes" : "❌ No"}</div>
                               <div>Pending: {isPending ? "✅ Yes" : "❌ No"}</div>
                               <div>Confirming: {isConfirming ? "✅ Yes" : "❌ No"}</div>
