@@ -538,6 +538,39 @@ export default function TokenDetailPage() {
     fetchSalesConfig()
   }, [contractAddress, tokenId, isExperimentalMusicToken])
 
+  useEffect(() => {
+    if (writeError) {
+      addDebugLog(`❌ Write Contract Error Detected:`)
+      addDebugLog(`❌ Error message: ${writeError.message}`)
+      addDebugLog(`❌ Error name: ${writeError.name}`)
+      addDebugLog(`❌ Error keys: ${Object.keys(writeError).join(", ")}`)
+      if ("cause" in writeError && writeError.cause) {
+        addDebugLog(`❌ Error cause: ${JSON.stringify(writeError.cause, null, 2)}`)
+      }
+      if ("details" in writeError) {
+        addDebugLog(`❌ Error details: ${(writeError as any).details}`)
+      }
+      if ("shortMessage" in writeError) {
+        addDebugLog(`❌ Short message: ${(writeError as any).shortMessage}`)
+      }
+      if ("metaMessages" in writeError) {
+        addDebugLog(`❌ Meta messages: ${JSON.stringify((writeError as any).metaMessages)}`)
+      }
+      if ("data" in writeError && (writeError as any).data) {
+        addDebugLog(`❌ Revert data: ${(writeError as any).data}`)
+      }
+      try {
+        addDebugLog(`❌ Full error object: ${JSON.stringify(writeError, Object.getOwnPropertyNames(writeError), 2)}`)
+      } catch (e) {
+        addDebugLog(`❌ Could not stringify error object`)
+      }
+      setMintError(
+        `Error al coleccionar: ${writeError.message}\n\nFunciones intentadas: ${attemptedFunctions.join(", ") || "purchaseWithERC20"}\n\nPosibles causas:\n• El contrato usa un sistema de minteo diferente (ej: Zora minter pattern)\n• Se necesita usar el API de InProcess (requiere balance del artista)\n• El contrato tiene restricciones específicas\n• La venta no está activa o tiene condiciones no cumplidas`,
+      )
+      setIsMinting(false)
+    }
+  }, [writeError])
+
   const handleApprove = async () => {
     addDebugLog("💰 Starting USDC approval...")
 
@@ -583,6 +616,7 @@ export default function TokenDetailPage() {
 
     try {
       setMintError(null)
+      setAttemptedFunctions([])
       addDebugLog("🚀 Starting direct contract minting with collector paying...")
       addDebugLog(`📝 Wallet address: ${address}`)
       addDebugLog(`📝 Contract address: ${contractAddress}`)
@@ -600,69 +634,18 @@ export default function TokenDetailPage() {
 
         addDebugLog("🔍 Attempting function: purchaseWithERC20(tokenId, quantity, recipient, currency, expectedPrice)")
         addDebugLog(`🔍 Parameters: [${tokenId}, ${quantity}, ${address}, ${salesConfig.currency}, ${totalPrice}]`)
+        addDebugLog(`🔍 ABI function signature: purchaseWithERC20(uint256,uint256,address,address,uint256)`)
 
-        try {
-          writeContract({
-            address: contractAddress,
-            abi: ERC1155_ABI,
-            functionName: "purchaseWithERC20",
-            args: [BigInt(tokenId), BigInt(quantity), address, salesConfig.currency as `0x${string}`, totalPrice],
-          })
+        writeContract({
+          address: contractAddress,
+          abi: ERC1155_ABI,
+          functionName: "purchaseWithERC20",
+          args: [BigInt(tokenId), BigInt(quantity), address, salesConfig.currency as `0x${string}`, totalPrice],
+        })
 
-          setAttemptedFunctions((prev) => [...prev, "purchaseWithERC20"])
-          addDebugLog("✅ purchaseWithERC20 transaction sent, waiting for confirmation...")
-        } catch (error: any) {
-          addDebugLog(`❌ purchaseWithERC20 failed: ${error.message}`)
-
-          addDebugLog("🔍 Attempting function: purchase(tokenId, quantity)")
-          addDebugLog(`🔍 Parameters: [${tokenId}, ${quantity}]`)
-
-          try {
-            writeContract({
-              address: contractAddress,
-              abi: ERC1155_ABI,
-              functionName: "purchase",
-              args: [BigInt(tokenId), BigInt(quantity)],
-            })
-
-            setAttemptedFunctions((prev) => [...prev, "purchase"])
-            addDebugLog("✅ purchase transaction sent, waiting for confirmation...")
-          } catch (error2: any) {
-            addDebugLog(`❌ purchase failed: ${error2.message}`)
-
-            addDebugLog("🔍 Attempting function: collect(recipient, tokenId, quantity)")
-            addDebugLog(`🔍 Parameters: [${address}, ${tokenId}, ${quantity}]`)
-
-            try {
-              writeContract({
-                address: contractAddress,
-                abi: ERC1155_ABI,
-                functionName: "collect",
-                args: [address, BigInt(tokenId), BigInt(quantity)],
-              })
-
-              setAttemptedFunctions((prev) => [...prev, "collect"])
-              addDebugLog("✅ collect transaction sent, waiting for confirmation...")
-            } catch (error3: any) {
-              addDebugLog(`❌ collect failed: ${error3.message}`)
-
-              addDebugLog("🔍 Attempting function: mintWithERC20(to, tokenId, quantity, currency, price)")
-              addDebugLog(
-                `🔍 Parameters: [${address}, ${tokenId}, ${quantity}, ${salesConfig.currency}, ${totalPrice}]`,
-              )
-
-              writeContract({
-                address: contractAddress,
-                abi: ERC1155_ABI,
-                functionName: "mintWithERC20",
-                args: [address, BigInt(tokenId), BigInt(quantity), salesConfig.currency as `0x${string}`, totalPrice],
-              })
-
-              setAttemptedFunctions((prev) => [...prev, "mintWithERC20"])
-              addDebugLog("✅ mintWithERC20 transaction sent, waiting for confirmation...")
-            }
-          }
-        }
+        setAttemptedFunctions(["purchaseWithERC20"])
+        addDebugLog("✅ purchaseWithERC20 transaction sent to wallet, waiting for user confirmation...")
+        addDebugLog("⏳ If this fails, check the error details above for the revert reason")
       } else if (salesConfig.type === "fixedPrice") {
         addDebugLog(`💰 Minting with native token (ETH)`)
         addDebugLog(`💰 Price per token: ${salesConfig.pricePerToken}`)
@@ -675,7 +658,8 @@ export default function TokenDetailPage() {
           value: BigInt(salesConfig.pricePerToken) * BigInt(quantity),
         })
 
-        addDebugLog("✅ Mint transaction sent, waiting for confirmation...")
+        setAttemptedFunctions(["mint"])
+        addDebugLog("✅ Mint transaction sent to wallet, waiting for user confirmation...")
       } else {
         throw new Error(`Tipo de venta no soportado: ${salesConfig.type}`)
       }
@@ -683,18 +667,29 @@ export default function TokenDetailPage() {
       console.error("[v0] Error in handleMint:", error)
       addDebugLog(`❌ Error in handleMint: ${error.message}`)
       addDebugLog(`❌ Error name: ${error.name}`)
-      addDebugLog(`❌ Error cause: ${JSON.stringify(error.cause)}`)
+      if (error.cause) {
+        addDebugLog(`❌ Error cause: ${JSON.stringify(error.cause, null, 2)}`)
+      }
       if (error.stack) {
-        addDebugLog(`❌ Error stack: ${error.stack}`)
+        addDebugLog(`❌ Error stack: ${error.stack.substring(0, 500)}...`)
       }
       if (error.details) {
         addDebugLog(`❌ Error details: ${error.details}`)
+      }
+      if (error.data) {
+        addDebugLog(`❌ Error data: ${error.data}`)
+      }
+      addDebugLog(`❌ Error properties: ${Object.keys(error).join(", ")}`)
+      try {
+        addDebugLog(`❌ Full error JSON: ${JSON.stringify(error, Object.getOwnPropertyNames(error), 2)}`)
+      } catch (e) {
+        addDebugLog(`❌ Could not stringify error`)
       }
       addDebugLog(`❌ Attempted functions: ${attemptedFunctions.join(", ")}`)
 
       setIsMinting(false)
       setMintError(
-        `Error al coleccionar: ${error.message}\n\nEl contrato no tiene las funciones esperadas. Posibles causas:\n• El contrato usa un sistema de minteo diferente\n• Se necesita usar el API de InProcess (requiere balance del artista)\n• El contrato tiene restricciones específicas`,
+        `Error al coleccionar: ${error.message}\n\nEl contrato no tiene las funciones esperadas o está revirtiendo. Posibles causas:\n• El contrato usa un sistema de minteo diferente (ej: Zora minter pattern con minter contract)\n• Se necesita usar el API de InProcess (requiere balance del artista)\n• El contrato tiene restricciones específicas (max supply, whitelist, etc.)\n• La venta no está activa o tiene condiciones no cumplidas\n\nRevisa los logs de debug para más detalles sobre el error específico.`,
       )
     }
   }
