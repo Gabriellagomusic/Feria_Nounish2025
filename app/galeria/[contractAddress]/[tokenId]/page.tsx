@@ -9,9 +9,7 @@ import { createPublicClient, http, parseUnits } from "viem"
 import { base } from "viem/chains"
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi"
 import { ArrowLeft } from "lucide-react"
-import { getDisplayName } from "@/lib/farcaster"
 import { ShareToFarcasterButton } from "@/components/share/ShareToFarcasterButton"
-import { getTimeline, type Moment } from "@/lib/inprocess"
 
 interface TokenMetadata {
   name: string
@@ -86,6 +84,8 @@ export default function TokenDetailPage() {
   const [isMinting, setIsMinting] = useState(false)
   const [isApproving, setIsApproving] = useState(false)
   const [isApproved, setIsApproved] = useState(false)
+  const [showRejectionMessage, setShowRejectionMessage] = useState(false)
+  const [rejectionType, setRejectionType] = useState<"approve" | "mint" | null>(null)
 
   const { writeContract, data: hash, error: writeError, isPending } = useWriteContract()
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({
@@ -120,10 +120,23 @@ export default function TokenDetailPage() {
   useEffect(() => {
     if (writeError) {
       addDebugLog(`❌ Transaction error: ${writeError.message}`)
+
+      const isUserRejection =
+        writeError.message.includes("User rejected") ||
+        writeError.message.includes("user rejected") ||
+        writeError.message.includes("User denied")
+
+      if (isUserRejection) {
+        setShowRejectionMessage(true)
+        setRejectionType(isApproving ? "approve" : "mint")
+      } else {
+        alert(`Error: ${writeError.message}`)
+      }
+
       setIsMinting(false)
       setIsApproving(false)
     }
-  }, [writeError])
+  }, [writeError, isApproving])
 
   useEffect(() => {
     const checkAllowance = async () => {
@@ -155,6 +168,8 @@ export default function TokenDetailPage() {
 
   const handleApprove = async () => {
     addDebugLog("💰 Starting USDC approval...")
+    setShowRejectionMessage(false)
+    setRejectionType(null)
 
     if (!isConnected || !address) {
       addDebugLog("❌ Wallet not connected")
@@ -184,6 +199,8 @@ export default function TokenDetailPage() {
 
   const handleMint = async () => {
     addDebugLog("🚀 Starting mint process...")
+    setShowRejectionMessage(false)
+    setRejectionType(null)
 
     if (!isConnected) {
       addDebugLog("❌ Wallet not connected")
@@ -228,156 +245,6 @@ export default function TokenDetailPage() {
       alert(`Error al intentar mintear: ${error.message}`)
     }
   }
-
-  useEffect(() => {
-    const fetchTokenMetadata = async () => {
-      try {
-        const publicClient = createPublicClient({
-          chain: base,
-          transport: http(),
-        })
-
-        const tokenURI = await publicClient.readContract({
-          address: contractAddress,
-          abi: ERC1155_ABI,
-          functionName: "uri",
-          args: [BigInt(tokenId)],
-        })
-
-        if (tokenURI) {
-          let metadataUrl = tokenURI.replace("{id}", tokenId)
-          if (metadataUrl.startsWith("ar://")) {
-            metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
-          }
-
-          const metadataResponse = await fetch(metadataUrl)
-          if (metadataResponse.ok) {
-            const metadata = await metadataResponse.json()
-
-            let imageUrl = metadata.image
-            if (imageUrl?.startsWith("ipfs://")) {
-              imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-            } else if (imageUrl?.startsWith("ar://")) {
-              imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
-            }
-
-            setTokenData({
-              name: metadata.name || `Obra de Arte #${tokenId}`,
-              description: metadata.description || "Obra de arte digital única",
-              image: imageUrl || "/placeholder.svg",
-              creator: metadata.creator,
-            })
-
-            try {
-              const timelineData = await getTimeline(1, 100, true, undefined, 8453, false)
-
-              if (timelineData.moments && timelineData.moments.length > 0) {
-                console.log("[v0] Searching for moment:", { contractAddress, tokenId })
-                console.log("[v0] Total moments:", timelineData.moments.length)
-
-                const moment = timelineData.moments.find((m: Moment) => {
-                  const addressMatch = m.address.toLowerCase() === contractAddress.toLowerCase()
-                  const tokenIdMatch = m.tokenId?.toString() === tokenId.toString()
-
-                  if (addressMatch) {
-                    console.log("[v0] Found address match:", {
-                      momentAddress: m.address,
-                      momentTokenId: m.tokenId,
-                      momentUsername: m.username,
-                      searchingForTokenId: tokenId,
-                      tokenIdMatch,
-                    })
-                  }
-
-                  return addressMatch && tokenIdMatch
-                })
-
-                if (moment) {
-                  console.log("[v0] Found matching moment for token detail:", {
-                    admin: moment.admin,
-                    username: moment.username,
-                  })
-                  setCreator(moment.admin)
-                  const displayName = moment.username || (await getDisplayName(moment.admin))
-                  setArtistName(displayName)
-                } else {
-                  console.log("[v0] No matching moment found, using fallback")
-                  const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
-                  setCreator(fallbackCreator)
-                  const displayName = await getDisplayName(fallbackCreator)
-                  setArtistName(displayName)
-                }
-              } else {
-                const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
-                setCreator(fallbackCreator)
-                const displayName = await getDisplayName(fallbackCreator)
-                setArtistName(displayName)
-              }
-            } catch (error) {
-              console.error("[v0] Error fetching artist from inprocess:", error)
-              const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
-              setCreator(fallbackCreator)
-              setArtistName(`${fallbackCreator.slice(0, 6)}...${fallbackCreator.slice(-4)}`)
-            }
-
-            setIsLoading(false)
-            return
-          }
-        }
-
-        try {
-          const timelineData = await getTimeline(1, 100, true, undefined, 8453, false)
-
-          if (timelineData.moments && timelineData.moments.length > 0) {
-            console.log("[v0] Searching for moment (fallback):", { contractAddress, tokenId })
-
-            const moment = timelineData.moments.find((m: Moment) => {
-              const addressMatch = m.address.toLowerCase() === contractAddress.toLowerCase()
-              const tokenIdMatch = m.tokenId?.toString() === tokenId.toString()
-              return addressMatch && tokenIdMatch
-            })
-
-            if (moment) {
-              console.log("[v0] Found moment in fallback:", moment.username)
-              setCreator(moment.admin)
-              const displayName = moment.username || (await getDisplayName(moment.admin))
-              setArtistName(displayName)
-            } else {
-              const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
-              setCreator(fallbackCreator)
-              const displayName = await getDisplayName(fallbackCreator)
-              setArtistName(displayName)
-            }
-          }
-        } catch (error) {
-          console.error("[v0] Error fetching artist from inprocess:", error)
-          const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
-          setCreator(fallbackCreator)
-          setArtistName(`${fallbackCreator.slice(0, 6)}...${fallbackCreator.slice(-4)}`)
-        }
-
-        setTokenData({
-          name: `Obra de Arte #${tokenId}`,
-          description: "Obra de arte digital única de la colección oficial",
-          image: "/abstract-digital-composition.png",
-        })
-      } catch (error) {
-        console.error("Error fetching token metadata:", error)
-        const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
-        setCreator(fallbackCreator)
-        setArtistName(`${fallbackCreator.slice(0, 6)}...${fallbackCreator.slice(-4)}`)
-        setTokenData({
-          name: `Obra de Arte #${tokenId}`,
-          description: "Obra de arte digital única de la colección oficial",
-          image: "/abstract-digital-composition.png",
-        })
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    fetchTokenMetadata()
-  }, [contractAddress, tokenId])
 
   useEffect(() => {
     if (justCollected) {
@@ -476,6 +343,26 @@ export default function TokenDetailPage() {
                       </div>
                     ) : isExperimentalMusicToken ? (
                       <>
+                        {showRejectionMessage && (
+                          <div className="bg-yellow-50 border-2 border-yellow-300 rounded-lg p-4 mb-3">
+                            <div className="flex items-start gap-3">
+                              <div className="text-2xl">⚠️</div>
+                              <div className="flex-1">
+                                <p className="font-bold text-yellow-900 mb-1">Transacción Cancelada</p>
+                                <p className="text-sm text-yellow-800 mb-2">
+                                  {rejectionType === "approve"
+                                    ? "Rechazaste la aprobación de USDC en tu wallet. Necesitas aprobar el gasto de 1 USDC para poder coleccionar esta obra."
+                                    : "Rechazaste la transacción de minteo en tu wallet. Necesitas confirmar la transacción para coleccionar esta obra."}
+                                </p>
+                                <p className="text-xs text-yellow-700">
+                                  💡 Tip: Cuando aparezca la ventana de tu wallet, asegúrate de hacer clic en
+                                  "Confirmar" o "Approve" para completar la transacción.
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
                         {!isApproved ? (
                           <Button
                             onClick={handleApprove}
@@ -490,7 +377,9 @@ export default function TokenDetailPage() {
                                   ? "Confirmando aprobación..."
                                   : isApproving
                                     ? "Aprobando USDC..."
-                                    : "Aprobar 1 USDC"}
+                                    : showRejectionMessage && rejectionType === "approve"
+                                      ? "Reintentar Aprobación"
+                                      : "Aprobar 1 USDC"}
                           </Button>
                         ) : (
                           <Button
@@ -506,7 +395,9 @@ export default function TokenDetailPage() {
                                   ? "Confirmando transacción..."
                                   : isMinting
                                     ? "Minteando..."
-                                    : "Coleccionar Ahora"}
+                                    : showRejectionMessage && rejectionType === "mint"
+                                      ? "Reintentar Colección"
+                                      : "Coleccionar Ahora"}
                           </Button>
                         )}
 
