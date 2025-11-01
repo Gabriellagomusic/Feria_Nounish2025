@@ -9,6 +9,7 @@ import { createPublicClient, http } from "viem"
 import { base } from "viem/chains"
 import { ArrowLeft, Search } from "lucide-react"
 import { getDisplayName } from "@/lib/farcaster"
+import { getTimeline, type Moment } from "@/lib/inprocess"
 
 interface TokenMetadata {
   name: string
@@ -48,27 +49,25 @@ async function fetchArtistForToken(
   tokenId: string,
 ): Promise<{ address: string; displayName: string }> {
   try {
-    // Fetch from inprocess API to get the actual admin/creator
-    const response = await fetch("https://api.inprocess.art/v1/moments")
-    if (!response.ok) {
-      throw new Error("Failed to fetch moments")
+    // Fetch from inprocess API using the proper wrapper
+    const timelineData = await getTimeline(1, 100, true, undefined, 8453, false)
+
+    if (!timelineData.moments || timelineData.moments.length === 0) {
+      throw new Error("No moments found")
     }
 
-    const moments = await response.json()
-
-    // Find the moment that matches this contract and tokenId
-    const moment = moments.find(
-      (m: any) =>
-        m.contractAddress?.toLowerCase() === contractAddress.toLowerCase() &&
-        m.tokenId?.toString() === tokenId.toString(),
+    // Find the moment that matches this contract address and tokenId
+    // Note: Moment.address is the contract address, Moment.tokenId is the token ID
+    const moment = timelineData.moments.find(
+      (m: Moment) =>
+        m.address.toLowerCase() === contractAddress.toLowerCase() && m.tokenId.toString() === tokenId.toString(),
     )
 
-    if (moment && moment.admin) {
-      // Use the actual admin address from the moment
-      const adminAddress = moment.admin.toLowerCase()
-      const displayName = await getDisplayName(adminAddress)
+    if (moment) {
+      // Use the username field from the moment if available, otherwise fetch via Farcaster
+      const displayName = moment.username || (await getDisplayName(moment.admin))
       return {
-        address: adminAddress,
+        address: moment.admin.toLowerCase(),
         displayName: displayName,
       }
     }
@@ -119,17 +118,17 @@ export default function GaleriaPage() {
           async (config: { contractAddress: string; tokenId: string }) => {
             try {
               // Fetch the actual artist for this specific token
-              const artistInfo = await fetchArtistForToken(config.contractAddress, "1")
+              const artistInfo = await fetchArtistForToken(config.contractAddress, config.tokenId)
 
               const tokenURI = await publicClient.readContract({
                 address: config.contractAddress as `0x${string}`,
                 abi: ERC1155_ABI,
                 functionName: "uri",
-                args: [BigInt("1")],
+                args: [BigInt(config.tokenId)],
               })
 
               if (tokenURI) {
-                let metadataUrl = tokenURI.replace("{id}", "1")
+                let metadataUrl = tokenURI.replace("{id}", config.tokenId)
                 if (metadataUrl.startsWith("ar://")) {
                   metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
                 }
@@ -147,13 +146,13 @@ export default function GaleriaPage() {
                     }
 
                     return {
-                      name: metadata.name || `Obra de Arte #1`,
+                      name: metadata.name || `Obra de Arte #${config.tokenId}`,
                       description: metadata.description || "Obra de arte digital única",
                       image: imageUrl || "/placeholder.svg",
                       artist: artistInfo.address,
                       artistDisplay: artistInfo.displayName,
                       contractAddress: config.contractAddress,
-                      tokenId: "1",
+                      tokenId: config.tokenId,
                     }
                   }
                 } catch (fetchError) {
@@ -162,25 +161,25 @@ export default function GaleriaPage() {
               }
 
               return {
-                name: `Obra de Arte #1`,
+                name: `Obra de Arte #${config.tokenId}`,
                 description: "Obra de arte digital única de la colección oficial",
                 image: "/placeholder.svg",
                 artist: artistInfo.address,
                 artistDisplay: artistInfo.displayName,
                 contractAddress: config.contractAddress,
-                tokenId: "1",
+                tokenId: config.tokenId,
               }
             } catch (error) {
-              console.error(`Error fetching token ${config.contractAddress}/1:`, error)
+              console.error(`Error fetching token ${config.contractAddress}/${config.tokenId}:`, error)
               const fallbackArtist = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
               return {
-                name: `Obra de Arte #1`,
+                name: `Obra de Arte #${config.tokenId}`,
                 description: "Obra de arte digital única de la colección oficial",
                 image: "/placeholder.svg",
                 artist: fallbackArtist,
                 artistDisplay: formatAddress(fallbackArtist),
                 contractAddress: config.contractAddress,
-                tokenId: "1",
+                tokenId: config.tokenId,
               }
             }
           },

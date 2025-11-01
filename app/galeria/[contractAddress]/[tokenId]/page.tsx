@@ -7,10 +7,11 @@ import { useState, useEffect } from "react"
 import { useParams } from "next/navigation"
 import { createPublicClient, http } from "viem"
 import { base } from "viem/chains"
-import { useAccount } from "wagmi"
+import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi"
 import { ArrowLeft } from "lucide-react"
 import { getDisplayName } from "@/lib/farcaster"
 import { ShareToFarcasterButton } from "@/components/share/ShareToFarcasterButton"
+import { getTimeline, type Moment } from "@/lib/inprocess"
 
 interface TokenMetadata {
   name: string
@@ -54,6 +55,80 @@ export default function TokenDetailPage() {
   const [artistName, setArtistName] = useState<string>("")
   const [justCollected, setJustCollected] = useState(false)
 
+  const [debugInfo, setDebugInfo] = useState<string[]>([])
+  const [showDebug, setShowDebug] = useState(false)
+  const [isMinting, setIsMinting] = useState(false)
+
+  const { writeContract, data: hash, error: writeError, isPending } = useWriteContract()
+  const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({
+    hash,
+  })
+
+  const isExperimentalMusicToken =
+    contractAddress.toLowerCase() === "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5" && tokenId === "1"
+
+  const addDebugLog = (message: string) => {
+    const timestamp = new Date().toISOString()
+    const logMessage = `[${timestamp}] ${message}`
+    console.log("[v0]", logMessage)
+    setDebugInfo((prev) => [...prev, logMessage])
+  }
+
+  useEffect(() => {
+    if (isConfirmed && hash) {
+      addDebugLog(`✅ Transaction confirmed! Hash: ${hash}`)
+      setJustCollected(true)
+      setIsMinting(false)
+    }
+  }, [isConfirmed, hash])
+
+  useEffect(() => {
+    if (writeError) {
+      addDebugLog(`❌ Transaction error: ${writeError.message}`)
+      setIsMinting(false)
+    }
+  }, [writeError])
+
+  const handleMint = async () => {
+    addDebugLog("🚀 Starting mint process...")
+
+    if (!isConnected) {
+      addDebugLog("❌ Wallet not connected")
+      alert("Por favor conecta tu wallet primero")
+      return
+    }
+
+    if (!address) {
+      addDebugLog("❌ No wallet address found")
+      alert("No se pudo obtener la dirección de tu wallet")
+      return
+    }
+
+    addDebugLog(`📝 Wallet address: ${address}`)
+    addDebugLog(`📝 Contract address: ${contractAddress}`)
+    addDebugLog(`📝 Token ID: ${tokenId}`)
+    addDebugLog(`📝 Quantity: ${quantity}`)
+
+    try {
+      setIsMinting(true)
+      addDebugLog("📤 Calling writeContract...")
+
+      writeContract({
+        address: contractAddress,
+        abi: ERC1155_ABI,
+        functionName: "mint",
+        args: [address, BigInt(tokenId), BigInt(quantity)],
+      })
+
+      addDebugLog("✅ writeContract called successfully, waiting for user confirmation...")
+    } catch (error: any) {
+      addDebugLog(`❌ Error in handleMint: ${error.message}`)
+      console.error("[v0] Mint error:", error)
+      setIsMinting(false)
+      alert(`Error al intentar mintear: ${error.message}`)
+    }
+  }
+
   useEffect(() => {
     const fetchTokenMetadata = async () => {
       try {
@@ -92,13 +167,73 @@ export default function TokenDetailPage() {
               image: imageUrl || "/placeholder.svg",
               creator: metadata.creator,
             })
-            setCreator("0x697C7720dc08F1eb1fde54420432eFC6aD594244")
+
+            try {
+              const timelineData = await getTimeline(1, 100, true, undefined, 8453, false)
+
+              if (timelineData.moments && timelineData.moments.length > 0) {
+                const moment = timelineData.moments.find(
+                  (m: Moment) =>
+                    m.address.toLowerCase() === contractAddress.toLowerCase() &&
+                    m.tokenId.toString() === tokenId.toString(),
+                )
+
+                if (moment) {
+                  setCreator(moment.admin)
+                  const displayName = moment.username || (await getDisplayName(moment.admin))
+                  setArtistName(displayName)
+                } else {
+                  const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
+                  setCreator(fallbackCreator)
+                  const displayName = await getDisplayName(fallbackCreator)
+                  setArtistName(displayName)
+                }
+              } else {
+                const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
+                setCreator(fallbackCreator)
+                const displayName = await getDisplayName(fallbackCreator)
+                setArtistName(displayName)
+              }
+            } catch (error) {
+              console.error("Error fetching artist from inprocess:", error)
+              const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
+              setCreator(fallbackCreator)
+              setArtistName(`${fallbackCreator.slice(0, 6)}...${fallbackCreator.slice(-4)}`)
+            }
+
             setIsLoading(false)
             return
           }
         }
 
-        setCreator("0x697C7720dc08F1eb1fde54420432eFC6aD594244")
+        try {
+          const timelineData = await getTimeline(1, 100, true, undefined, 8453, false)
+
+          if (timelineData.moments && timelineData.moments.length > 0) {
+            const moment = timelineData.moments.find(
+              (m: Moment) =>
+                m.address.toLowerCase() === contractAddress.toLowerCase() &&
+                m.tokenId.toString() === tokenId.toString(),
+            )
+
+            if (moment) {
+              setCreator(moment.admin)
+              const displayName = moment.username || (await getDisplayName(moment.admin))
+              setArtistName(displayName)
+            } else {
+              const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
+              setCreator(fallbackCreator)
+              const displayName = await getDisplayName(fallbackCreator)
+              setArtistName(displayName)
+            }
+          }
+        } catch (error) {
+          console.error("Error fetching artist from inprocess:", error)
+          const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
+          setCreator(fallbackCreator)
+          setArtistName(`${fallbackCreator.slice(0, 6)}...${fallbackCreator.slice(-4)}`)
+        }
+
         setTokenData({
           name: `Obra de Arte #${tokenId}`,
           description: "Obra de arte digital única de la colección oficial",
@@ -106,7 +241,9 @@ export default function TokenDetailPage() {
         })
       } catch (error) {
         console.error("Error fetching token metadata:", error)
-        setCreator("0x697C7720dc08F1eb1fde54420432eFC6aD594244")
+        const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
+        setCreator(fallbackCreator)
+        setArtistName(`${fallbackCreator.slice(0, 6)}...${fallbackCreator.slice(-4)}`)
         setTokenData({
           name: `Obra de Arte #${tokenId}`,
           description: "Obra de arte digital única de la colección oficial",
@@ -121,34 +258,7 @@ export default function TokenDetailPage() {
   }, [contractAddress, tokenId])
 
   useEffect(() => {
-    const fetchArtistName = async () => {
-      if (!creator) return
-
-      try {
-        if (contractAddress.toLowerCase() === "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5" && tokenId === "1") {
-          setArtistName("gabriellagomusic")
-          return
-        }
-
-        if (contractAddress.toLowerCase() === "0xfaa54c8258b419ab0411da8ddc1985f42f98f59b" && tokenId === "1") {
-          setArtistName("ferianounish")
-          return
-        }
-
-        const displayName = await getDisplayName(creator)
-        setArtistName(displayName)
-      } catch (error) {
-        console.error("Error fetching artist name:", error)
-        setArtistName(`${creator.slice(0, 6)}...${creator.slice(-4)}`)
-      }
-    }
-
-    fetchArtistName()
-  }, [creator, contractAddress, tokenId])
-
-  useEffect(() => {
     if (justCollected) {
-      // Give user 3 seconds to see the success state and share button
       const redirectTimer = setTimeout(() => {
         router.push("/perfil")
       }, 3000)
@@ -237,6 +347,58 @@ export default function TokenDetailPage() {
                           Ir a Mi Perfil Ahora
                         </Button>
                       </div>
+                    ) : isExperimentalMusicToken ? (
+                      <>
+                        <Button
+                          onClick={handleMint}
+                          disabled={!isConnected || isMinting || isPending || isConfirming}
+                          className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-extrabold py-6 text-base disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {!isConnected
+                            ? "Conecta tu Wallet"
+                            : isPending
+                              ? "Esperando confirmación..."
+                              : isConfirming
+                                ? "Confirmando transacción..."
+                                : isMinting
+                                  ? "Minteando..."
+                                  : "Coleccionar Ahora (Gratis)"}
+                        </Button>
+
+                        <Button onClick={() => setShowDebug(!showDebug)} variant="outline" className="w-full">
+                          {showDebug ? "Ocultar" : "Mostrar"} Debug Info
+                        </Button>
+
+                        {showDebug && (
+                          <div className="bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-xs max-h-96 overflow-y-auto">
+                            <div className="mb-2 text-white font-bold">🔍 Debug Information:</div>
+                            <div className="space-y-1">
+                              <div>Connected: {isConnected ? "✅ Yes" : "❌ No"}</div>
+                              <div>Address: {address || "N/A"}</div>
+                              <div>Contract: {contractAddress}</div>
+                              <div>Token ID: {tokenId}</div>
+                              <div>Is Experimental Token: {isExperimentalMusicToken ? "✅ Yes" : "❌ No"}</div>
+                              <div>Minting: {isMinting ? "✅ Yes" : "❌ No"}</div>
+                              <div>Pending: {isPending ? "✅ Yes" : "❌ No"}</div>
+                              <div>Confirming: {isConfirming ? "✅ Yes" : "❌ No"}</div>
+                              {hash && <div>Tx Hash: {hash}</div>}
+                              {writeError && <div className="text-red-400">Error: {writeError.message}</div>}
+                            </div>
+                            <div className="mt-4 border-t border-gray-700 pt-2">
+                              <div className="text-white font-bold mb-2">📋 Transaction Log:</div>
+                              {debugInfo.length === 0 ? (
+                                <div className="text-gray-500">No logs yet...</div>
+                              ) : (
+                                debugInfo.map((log, i) => (
+                                  <div key={i} className="mb-1">
+                                    {log}
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </>
                     ) : (
                       <Button
                         disabled
