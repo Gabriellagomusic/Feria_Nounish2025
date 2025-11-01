@@ -532,6 +532,7 @@ export default function TokenDetailPage() {
         abi: ZORA_ERC20_MINTER_ABI,
         functionName: "mint",
         args: [address,BigInt(quantity), contractAddress, BigInt(tokenId), pricePerToken, USDC_ADDRESS,"0x0000000000000000000000000000000000000000", "Collected via Feria Nounish on Base!"],
+        value: parseEther('0'),
       })
 
       setMintHash(hash)
