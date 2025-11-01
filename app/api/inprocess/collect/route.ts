@@ -3,14 +3,17 @@ import { type NextRequest, NextResponse } from "next/server"
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { contractAddress, tokenId, amount, comment } = body
+    const { contractAddress, tokenId, amount, comment, walletAddress } = body
 
     console.log("[v0] 🔍 Collect API called with body:", JSON.stringify(body, null, 2))
     console.log("[v0] 📥 Request headers:", JSON.stringify(Object.fromEntries(request.headers.entries()), null, 2))
 
-    if (!contractAddress || !tokenId || !amount) {
+    if (!contractAddress || !tokenId || !amount || !walletAddress) {
       console.log("[v0] ❌ Missing required fields")
-      return NextResponse.json({ error: "Missing required fields: contractAddress, tokenId, amount" }, { status: 400 })
+      return NextResponse.json(
+        { error: "Missing required fields: contractAddress, tokenId, amount, walletAddress" },
+        { status: 400 },
+      )
     }
 
     const apiKey = process.env.INPROCESS_API_KEY
@@ -31,6 +34,7 @@ export async function POST(request: NextRequest) {
     console.log("[v0] ✅ API key found:", maskedKey)
     console.log("[v0] 📝 API key length:", apiKey.length)
     console.log("[v0] 📝 API key starts with:", apiKey.substring(0, 3))
+    console.log("[v0] 👛 Collector wallet address:", walletAddress)
 
     const requestBody = {
       moment: {
@@ -38,6 +42,7 @@ export async function POST(request: NextRequest) {
         tokenId: tokenId.toString(),
       },
       amount,
+      collector: walletAddress, // The wallet that will pay for gas and receive the NFT
       comment: comment || "Collected via Feria Nounish!",
     }
 
@@ -93,6 +98,7 @@ export async function POST(request: NextRequest) {
             contractAddress,
             tokenId,
             amount,
+            walletAddress,
             apiKeyPresent: !!apiKey,
             apiKeyLength: apiKey.length,
           },

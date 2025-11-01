@@ -536,6 +536,7 @@ export default function TokenDetailPage() {
         contractAddress,
         tokenId,
         amount: quantity,
+        walletAddress: address, // Send the collector's wallet address
         comment: "Collected via Feria Nounish!",
       }
       addDebugLog(`📤 Request body: ${JSON.stringify(requestBody, null, 2)}`)
