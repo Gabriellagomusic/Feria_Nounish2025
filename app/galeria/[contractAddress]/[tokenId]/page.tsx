@@ -5,7 +5,7 @@ import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { useState, useEffect, useRef } from "react"
 import { useParams } from "next/navigation"
-import { createPublicClient, http, parseUnits, type Address, encodeFunctionData } from "viem"
+import { createPublicClient, http, parseUnits, type Address } from "viem"
 import { base } from "viem/chains"
 import { useAccount, useWriteContract, useConnect } from "wagmi"
 import { ArrowLeft, Plus, Minus, ChevronDown, ChevronUp, Copy, Check } from "lucide-react"
@@ -258,106 +258,31 @@ export default function TokenDetailPage() {
 
   // Removed quantity change log
 
-  const checkSalesConfig = async () => {
-    try {
-      addDebugLog("🔍 Checking sales config for token...", "info")
-      const publicClient = createPublicClient({
-        chain: base,
-        transport: http(),
-      })
-
-      const salesConfig = await publicClient.readContract({
-        address: ZORA_ERC20_MINTER,
-        abi: ZORA_ERC20_MINTER_ABI,
-        functionName: "sale",
-        args: [contractAddress, BigInt(tokenId)],
-      })
-
-      addDebugLog(
-        `📊 Sales Config: ${JSON.stringify({
-          saleStart: salesConfig.saleStart.toString(),
-          saleEnd: salesConfig.saleEnd.toString(),
-          maxTokensPerAddress: salesConfig.maxTokensPerAddress.toString(),
-          pricePerToken: salesConfig.pricePerToken.toString(),
-          pricePerTokenUSDC: `${Number(salesConfig.pricePerToken) / 1e6} USDC`,
-          fundsRecipient: salesConfig.fundsRecipient,
-          currency: salesConfig.currency,
-        })}`,
-        "info",
-      )
-
-      // Check if sales config is valid
-      if (salesConfig.currency === "0x0000000000000000000000000000000000000000") {
-        addDebugLog("❌ No ERC20 sales config found for this token", "error")
-        return null
-      }
-
-      addDebugLog("✅ Valid sales config found", "success")
-      return salesConfig
-    } catch (error: any) {
-      addDebugLog(`❌ Error checking sales config: ${error.message}`, "error")
-      return null
-    }
-  }
-
   const setupSalesConfig = async () => {
     if (!address) throw new Error("No wallet connected")
 
-    addDebugLog("🔧 Setting up sales config...", "info")
-    addDebugLog(`👤 Wallet address: ${address}`, "info")
-    addDebugLog(`🎨 Contract address: ${contractAddress}`, "info")
-    addDebugLog(`🎫 Token ID: ${tokenId}`, "info")
+    addDebugLog("🔧 Calling sales config API...", "info")
 
-    const salesConfigData = {
-      saleStart: BigInt(0),
-      saleEnd: BigInt("18446744073709551615"),
-      maxTokensPerAddress: BigInt(0),
-      pricePerToken: parseUnits("1", 6),
-      fundsRecipient: address,
-      currency: USDC_ADDRESS,
-    }
-
-    addDebugLog(
-      `📝 Sales config data: ${JSON.stringify({
-        saleStart: salesConfigData.saleStart.toString(),
-        saleEnd: salesConfigData.saleEnd.toString(),
-        maxTokensPerAddress: salesConfigData.maxTokensPerAddress.toString(),
-        pricePerToken: salesConfigData.pricePerToken.toString(),
-        fundsRecipient: salesConfigData.fundsRecipient,
-        currency: salesConfigData.currency,
-      })}`,
-      "info",
-    )
-
-    const setSaleData = encodeFunctionData({
-      abi: [
-        {
-          inputs: [
-            { name: "tokenId", type: "uint256" },
-            {
-              name: "salesConfig",
-              type: "tuple",
-              components: [
-                { name: "saleStart", type: "uint64" },
-                { name: "saleEnd", type: "uint64" },
-                { name: "maxTokensPerAddress", type: "uint64" },
-                { name: "pricePerToken", type: "uint96" },
-                { name: "fundsRecipient", type: "address" },
-                { name: "currency", type: "address" },
-              ],
-            },
-          ],
-          name: "setSale",
-          outputs: [],
-          stateMutability: "nonpayable",
-          type: "function",
-        },
-      ],
-      functionName: "setSale",
-      args: [BigInt(tokenId), salesConfigData],
+    const response = await fetch("/api/zora/setup-sales-config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contractAddress: contractAddress,
+        tokenId: tokenId,
+        fundsRecipient: address,
+      }),
     })
 
-    addDebugLog(`📦 Encoded setSale data: ${setSaleData}`, "info")
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.details || error.error || "Failed to prepare sales config")
+    }
+
+    const data = await response.json()
+    addDebugLog("✅ Sales config data prepared by API", "success")
+    addDebugLog(`📦 setSale data: ${data.setSaleData}`, "info")
+    addDebugLog(`💰 Price: ${data.salesConfig.pricePerToken}`, "info")
+    addDebugLog(`💵 Currency: ${data.salesConfig.currency}`, "info")
 
     addDebugLog("⚠️ IMPORTANT: Please APPROVE the transaction in your wallet to set up ERC20 minting", "warning")
     addDebugLog("📤 Sending callSale transaction...", "info")
@@ -366,7 +291,7 @@ export default function TokenDetailPage() {
       address: contractAddress,
       abi: ZORA_1155_ABI,
       functionName: "callSale",
-      args: [BigInt(tokenId), ZORA_ERC20_MINTER, setSaleData],
+      args: [BigInt(tokenId), ZORA_ERC20_MINTER, data.setSaleData as `0x${string}`],
     })
 
     addDebugLog(`✅ Sales config setup tx hash: ${hash}`, "success")
@@ -576,6 +501,48 @@ export default function TokenDetailPage() {
     }
   }
 
+  const checkSalesConfig = async () => {
+    try {
+      addDebugLog("🔍 Checking sales config for token...", "info")
+      const publicClient = createPublicClient({
+        chain: base,
+        transport: http(),
+      })
+
+      const salesConfig = await publicClient.readContract({
+        address: ZORA_ERC20_MINTER,
+        abi: ZORA_ERC20_MINTER_ABI,
+        functionName: "sale",
+        args: [contractAddress, BigInt(tokenId)],
+      })
+
+      addDebugLog(
+        `📊 Sales Config: ${JSON.stringify({
+          saleStart: salesConfig.saleStart.toString(),
+          saleEnd: salesConfig.saleEnd.toString(),
+          maxTokensPerAddress: salesConfig.maxTokensPerAddress.toString(),
+          pricePerToken: salesConfig.pricePerToken.toString(),
+          pricePerTokenUSDC: `${Number(salesConfig.pricePerToken) / 1e6} USDC`,
+          fundsRecipient: salesConfig.fundsRecipient,
+          currency: salesConfig.currency,
+        })}`,
+        "info",
+      )
+
+      // Check if sales config is valid
+      if (salesConfig.currency === "0x0000000000000000000000000000000000000000") {
+        addDebugLog("❌ No ERC20 sales config found for this token", "error")
+        return null
+      }
+
+      addDebugLog("✅ Valid sales config found", "success")
+      return salesConfig
+    } catch (error: any) {
+      addDebugLog(`❌ Error checking sales config: ${error.message}`, "error")
+      return null
+    }
+  }
+
   const checkOwnership = async () => {
     if (!address) return
 
@@ -629,8 +596,6 @@ export default function TokenDetailPage() {
       addDebugLog(`Error checking contract state: ${error}`, "error")
     }
   }
-
-  // Removed checkUSDCAllowance, approveUSDC (now part of handleMint)
 
   useEffect(() => {
     const fetchTokenMetadata = async () => {
