@@ -14,7 +14,9 @@ import { ShareToFarcasterButton } from "@/components/share/ShareToFarcasterButto
 import { getTimeline, type Moment } from "@/lib/inprocess"
 import { useMiniKit } from "@coinbase/onchainkit/minikit"
 
-const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as Address // USDC on Base
+const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as Address
+const ZORA_ERC20_MINTER = "0x777777E8850d8D6d98De2B5f64fae401F96eFF31" as Address
+
 const ERC20_ABI = [
   {
     inputs: [
@@ -91,30 +93,7 @@ const ZORA_ERC20_MINTER_ABI = [
     stateMutability: "view",
     type: "function",
   },
-  {
-    inputs: [
-      { name: "tokenId", type: "uint256" },
-      {
-        components: [
-          { name: "saleStart", type: "uint64" },
-          { name: "saleEnd", type: "uint64" },
-          { name: "maxTokensPerAddress", type: "uint64" },
-          { name: "pricePerToken", type: "uint96" },
-          { name: "fundsRecipient", type: "address" },
-          { name: "currency", type: "address" },
-        ],
-        name: "salesConfig",
-        type: "tuple",
-      },
-    ],
-    name: "setSale",
-    outputs: [],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
 ] as const
-
-const ZORA_ERC20_MINTER = "0x777777E8850d8D6d98De2B5f64fae401F96eFF31" as Address
 
 const ZORA_1155_ABI = [
   {
@@ -136,13 +115,6 @@ const ZORA_1155_ABI = [
     type: "function",
   },
 ] as const
-
-interface TokenMetadata {
-  name: string
-  description: string
-  image: string
-  creator?: string
-}
 
 const ERC1155_ABI = [
   {
@@ -171,6 +143,13 @@ const ERC1155_ABI = [
   },
 ] as const
 
+interface TokenMetadata {
+  name: string
+  description: string
+  image: string
+  creator?: string
+}
+
 async function fetchWithRetry<T>(fetchFn: () => Promise<T>, maxRetries = 3, baseDelay = 1000): Promise<T> {
   let lastError: Error | null = null
 
@@ -179,10 +158,8 @@ async function fetchWithRetry<T>(fetchFn: () => Promise<T>, maxRetries = 3, base
       return await fetchFn()
     } catch (error) {
       lastError = error as Error
-
       if (attempt < maxRetries) {
         const delay = baseDelay * Math.pow(2, attempt)
-        console.log(`[v0] Token Detail - Retry attempt ${attempt + 1}/${maxRetries} after ${delay}ms`)
         await new Promise((resolve) => setTimeout(resolve, delay))
       }
     }
@@ -196,9 +173,11 @@ export default function TokenDetailPage() {
   const params = useParams()
   const contractAddress = params.contractAddress as `0x${string}`
   const tokenId = params.tokenId as string
+
   const { address, isConnected } = useAccount()
   const { connect, connectors } = useConnect()
   const { setFrameReady, isFrameReady } = useMiniKit()
+  const { writeContractAsync } = useWriteContract()
 
   const frameReadyCalledRef = useRef(false)
   const connectAttemptedRef = useRef(false)
@@ -209,47 +188,23 @@ export default function TokenDetailPage() {
   const [creator, setCreator] = useState<string>("")
   const [artistName, setArtistName] = useState<string>("")
   const [justCollected, setJustCollected] = useState(false)
-
-  const [debugInfo, setDebugInfo] = useState<string[]>([])
-  const [showDebugPanel, setShowDebugPanel] = useState(true)
   const [isMinting, setIsMinting] = useState(false)
+  const [mintError, setMintError] = useState<string | null>(null)
+  const [mintHash, setMintHash] = useState<string | null>(null)
+  const [isOwner, setIsOwner] = useState(false)
   const [contractInfo, setContractInfo] = useState<{
     userBalance: string
     totalSupply: string
   } | null>(null)
 
-  const [mintError, setMintError] = useState<string | null>(null)
-  const [mintHash, setMintHash] = useState<string | null>(null)
-
-  const [persistentLogs, setPersistentLogs] = useState<string[]>([])
-
-  const [isApproving, setIsApproving] = useState(false)
-  const [approvalHash, setApprovalHash] = useState<string | null>(null)
-  const [needsApproval, setNeedsApproval] = useState(false)
-
-  const [isOwner, setIsOwner] = useState(false)
-  const [isSettingSalesConfig, setIsSettingSalesConfig] = useState(false)
-
-  const { writeContractAsync } = useWriteContract()
+  // Removed unused states: debugInfo, showDebugPanel, persistentLogs, isApproving, approvalHash, needsApproval, isSettingSalesConfig
 
   const isExperimentalMusicToken =
     contractAddress.toLowerCase() === "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5" && tokenId === "1"
 
-  const addDebugLog = (message: string, persist = false) => {
-    const timestamp = new Date().toISOString()
-    const logMessage = `[${timestamp}] ${message}`
-    console.log("[v0]", logMessage)
-    setDebugInfo((prev) => [...prev, logMessage])
-
-    if (persist) {
-      setPersistentLogs((prev) => [...prev, logMessage])
-    }
-  }
-
   useEffect(() => {
     if (!isFrameReady && !frameReadyCalledRef.current) {
-      console.log("[v0] Token Detail - Calling setFrameReady() once")
-      addDebugLog("🎬 Calling setFrameReady() once", true)
+      console.log("[v0] Initializing MiniKit frame")
       frameReadyCalledRef.current = true
       setFrameReady()
     }
@@ -259,156 +214,18 @@ export default function TokenDetailPage() {
     if (isFrameReady && !isConnected && !connectAttemptedRef.current && connectors.length > 0) {
       const farcasterConnector = connectors.find((c) => c.name === "Farcaster")
       if (farcasterConnector) {
-        console.log("[v0] Token Detail - Auto-connecting to Farcaster connector once")
-        addDebugLog("🔌 Auto-connecting to Farcaster connector...", true)
+        console.log("[v0] Auto-connecting wallet via Farcaster")
         connectAttemptedRef.current = true
         connect({ connector: farcasterConnector })
-      } else {
-        addDebugLog("⚠️ Farcaster connector not found", true)
       }
     }
   }, [isFrameReady, isConnected, connectors, connect])
 
-  useEffect(() => {
-    console.log("[v0] ========== TOKEN DETAIL PAGE MOUNTED ==========")
-    addDebugLog("🚀 Token Detail Page Mounted", true)
-    addDebugLog(`📝 Contract Address: ${contractAddress}`, true)
-    addDebugLog(`📝 Token ID: ${tokenId}`, true)
-    addDebugLog(`📝 Is Experimental Music Token: ${isExperimentalMusicToken}`, true)
-  }, [])
+  // Removed initial mount and connection status logs
 
-  useEffect(() => {
-    console.log("[v0] ========== WALLET CONNECTION STATUS CHANGED ==========")
-    console.log("[v0] Is Connected:", isConnected)
-    console.log("[v0] Address:", address)
-    addDebugLog(`🔌 Wallet Connection Status: ${isConnected ? "Connected" : "Disconnected"}`, true)
-    if (address) {
-      addDebugLog(`👛 Wallet Address: ${address}`, true)
-    }
-  }, [isConnected, address])
-
-  useEffect(() => {
-    console.log("[v0] ========== QUANTITY CHANGED ==========")
-    console.log("[v0] New Quantity:", quantity)
-    addDebugLog(`🔢 Quantity changed to: ${quantity}`, true)
-  }, [quantity])
-
-  const checkContractState = async () => {
-    if (!address || !isExperimentalMusicToken) return
-
-    console.log("[v0] ========== CHECKING CONTRACT STATE ==========")
-    addDebugLog("🔍 Checking contract state on Base chain...", true)
-
-    try {
-      const publicClient = createPublicClient({
-        chain: base,
-        transport: http(),
-      })
-
-      addDebugLog(`📡 Created public client for Base chain`, true)
-      addDebugLog(`📡 Reading balanceOf for address: ${address}`, true)
-      addDebugLog(`📡 Reading totalSupply for token ID: ${tokenId}`, true)
-
-      const [userBalance, totalSupply] = await Promise.all([
-        publicClient
-          .readContract({
-            address: contractAddress,
-            abi: ERC1155_ABI,
-            functionName: "balanceOf",
-            args: [address, BigInt(tokenId)],
-          })
-          .catch((error) => {
-            addDebugLog(`⚠️ Error reading balanceOf: ${error.message}`, true)
-            return BigInt(0)
-          }),
-        publicClient
-          .readContract({
-            address: contractAddress,
-            abi: ERC1155_ABI,
-            functionName: "totalSupply",
-            args: [BigInt(tokenId)],
-          })
-          .catch((error) => {
-            addDebugLog(`⚠️ Error reading totalSupply: ${error.message}`, true)
-            return BigInt(0)
-          }),
-      ])
-
-      const info = {
-        userBalance: userBalance.toString(),
-        totalSupply: totalSupply.toString(),
-      }
-
-      setContractInfo(info)
-      addDebugLog(`📊 [Base Chain] User Balance: ${info.userBalance}`, true)
-      addDebugLog(`📊 [Base Chain] Total Supply: ${info.totalSupply}`, true)
-    } catch (error: any) {
-      console.log("[v0] Error checking contract state:", error)
-      addDebugLog(`❌ Error checking contract state: ${error.message}`, true)
-      addDebugLog(`❌ Full error: ${JSON.stringify(error, Object.getOwnPropertyNames(error), 2)}`, true)
-    }
-  }
-
-  const checkUSDCAllowance = async () => {
-    if (!address) return
-
-    addDebugLog("🔍 Checking USDC allowance and balance...", true)
-
-    try {
-      const publicClient = createPublicClient({
-        chain: base,
-        transport: http(),
-      })
-
-      const pricePerToken = parseUnits("1", 6) // 1 USDC (6 decimals)
-      const totalCost = pricePerToken * BigInt(quantity)
-
-      const [allowance, balance] = await Promise.all([
-        publicClient.readContract({
-          address: USDC_ADDRESS,
-          abi: ERC20_ABI,
-          functionName: "allowance",
-          args: [address, ZORA_ERC20_MINTER],
-        }),
-        publicClient.readContract({
-          address: USDC_ADDRESS,
-          abi: ERC20_ABI,
-          functionName: "balanceOf",
-          args: [address],
-        }),
-      ])
-
-      addDebugLog(`💰 Your USDC Balance: ${Number(balance) / 1e6} USDC`, true)
-      addDebugLog(`💰 Total Cost: ${Number(totalCost) / 1e6} USDC (${quantity} × 1 USDC)`, true)
-      addDebugLog(`✅ Current Allowance: ${Number(allowance) / 1e6} USDC`, true)
-
-      if (balance < totalCost) {
-        throw new Error(
-          `Insufficient USDC balance. You need ${Number(totalCost) / 1e6} USDC but have ${Number(balance) / 1e6} USDC`,
-        )
-      }
-
-      if (allowance < totalCost) {
-        addDebugLog(
-          `⚠️ Needs approval: allowance (${Number(allowance) / 1e6}) < cost (${Number(totalCost) / 1e6})`,
-          true,
-        )
-        setNeedsApproval(true)
-        return false
-      }
-
-      addDebugLog(`✅ Sufficient allowance: ${Number(allowance) / 1e6} USDC`, true)
-      setNeedsApproval(false)
-      return true
-    } catch (error: any) {
-      addDebugLog(`❌ Error checking USDC: ${error.message}`, true)
-      throw error
-    }
-  }
+  // Removed quantity change log
 
   const checkSalesConfig = async () => {
-    addDebugLog("🔍 Checking ERC20 sales configuration...", true)
-
     try {
       const publicClient = createPublicClient({
         chain: base,
@@ -422,200 +239,165 @@ export default function TokenDetailPage() {
         args: [contractAddress, BigInt(tokenId)],
       })
 
-      const salesConfigForLogging = {
-        saleStart: salesConfig.saleStart.toString(),
-        saleEnd: salesConfig.saleEnd.toString(),
-        maxTokensPerAddress: salesConfig.maxTokensPerAddress.toString(),
-        pricePerToken: salesConfig.pricePerToken.toString(),
-        pricePerTokenUSDC: (Number(salesConfig.pricePerToken) / 1e6).toString() + " USDC",
-        fundsRecipient: salesConfig.fundsRecipient,
-        currency: salesConfig.currency,
-      }
-
-      addDebugLog(`📊 Sales Config: ${JSON.stringify(salesConfigForLogging, null, 2)}`, true)
-      addDebugLog(`💰 Price Per Token: ${Number(salesConfig.pricePerToken) / 1e6} USDC`, true)
-      addDebugLog(`💵 Currency: ${salesConfig.currency}`, true)
-      addDebugLog(`📅 Sale Start: ${salesConfig.saleStart}`, true)
-      addDebugLog(`📅 Sale End: ${salesConfig.saleEnd}`, true)
-      addDebugLog(`👤 Funds Recipient: ${salesConfig.fundsRecipient}`, true)
-
-      // Check if sales config is set up
+      // Check if sales config is valid
       if (salesConfig.currency === "0x0000000000000000000000000000000000000000") {
-        addDebugLog("❌ No ERC20 sales config found for this token", true)
         return null
-      }
-
-      // Check if currency matches USDC
-      if (salesConfig.currency.toLowerCase() !== USDC_ADDRESS.toLowerCase()) {
-        addDebugLog(
-          `⚠️ Sales config uses different currency: ${salesConfig.currency} (expected USDC: ${USDC_ADDRESS})`,
-          true,
-        )
-      }
-
-      if (salesConfig.pricePerToken === BigInt(0)) {
-        addDebugLog("⚠️ Sales config price is 0, defaulting to 1 USDC", true)
-        return {
-          ...salesConfig,
-          pricePerToken: parseUnits("1", 6), // 1 USDC
-        }
       }
 
       return salesConfig
     } catch (error: any) {
-      addDebugLog(`❌ Error checking sales config: ${error.message}`, true)
-      addDebugLog("💡 Using default price: 1 USDC", true)
-      return {
-        saleStart: BigInt(0),
-        saleEnd: BigInt(0),
-        maxTokensPerAddress: BigInt(0),
-        pricePerToken: parseUnits("1", 6), // 1 USDC
-        fundsRecipient: "0x0000000000000000000000000000000000000000" as Address,
-        currency: USDC_ADDRESS,
-      }
+      console.error("[v0] Error checking sales config:", error)
+      return null
     }
   }
 
-  const approveUSDC = async () => {
-    if (!address) return
+  const setupSalesConfig = async () => {
+    if (!address) throw new Error("No wallet connected")
 
-    addDebugLog("🔐 Starting USDC approval...", true)
-    setIsApproving(true)
+    console.log("[v0] Setting up sales config...")
 
-    try {
-      const pricePerToken = parseUnits("1", 6) // 1 USDC
-      const totalCost = pricePerToken * BigInt(quantity)
-
-      // Approve a bit more to account for potential price changes
-      const approvalAmount = totalCost * BigInt(2)
-
-      addDebugLog(`📝 Approving ${Number(approvalAmount) / 1e6} USDC to Zora ERC20 Minter`, true)
-      addDebugLog(`📝 Spender: ${ZORA_ERC20_MINTER}`, true)
-
-      const hash = await writeContractAsync({
-        address: USDC_ADDRESS,
-        abi: ERC20_ABI,
-        functionName: "approve",
-        args: [ZORA_ERC20_MINTER, approvalAmount],
-      })
-
-      setApprovalHash(hash)
-      addDebugLog(`✅ Approval transaction sent: ${hash}`, true)
-      addDebugLog(`🔗 View on BaseScan: https://basescan.org/tx/${hash}`, true)
-
-      // Wait for approval transaction
-      addDebugLog(`⏳ Waiting for approval confirmation...`, true)
-      const publicClient = createPublicClient({
-        chain: base,
-        transport: http(),
-      })
-
-      const receipt = await publicClient.waitForTransactionReceipt({ hash })
-      addDebugLog(`✅ Approval confirmed! Block: ${receipt.blockNumber}`, true)
-
-      setNeedsApproval(false)
-      setIsApproving(false)
-      return true
-    } catch (error: any) {
-      addDebugLog(`❌ Approval failed: ${error.message}`, true)
-      setIsApproving(false)
-      throw error
+    const salesConfigData = {
+      saleStart: BigInt(0),
+      saleEnd: BigInt("18446744073709551615"),
+      maxTokensPerAddress: BigInt(0),
+      pricePerToken: parseUnits("1", 6),
+      fundsRecipient: address,
+      currency: USDC_ADDRESS,
     }
+
+    const setSaleData = encodeAbiParameters(
+      [
+        { name: "tokenId", type: "uint256" },
+        {
+          name: "salesConfig",
+          type: "tuple",
+          components: [
+            { name: "saleStart", type: "uint64" },
+            { name: "saleEnd", type: "uint64" },
+            { name: "maxTokensPerAddress", type: "uint64" },
+            { name: "pricePerToken", type: "uint96" },
+            { name: "fundsRecipient", type: "address" },
+            { name: "currency", type: "address" },
+          ],
+        },
+      ],
+      [BigInt(tokenId), salesConfigData],
+    )
+
+    const hash = await writeContractAsync({
+      address: contractAddress,
+      abi: ZORA_1155_ABI,
+      functionName: "callSale",
+      args: [BigInt(tokenId), ZORA_ERC20_MINTER, setSaleData],
+    })
+
+    console.log("[v0] Sales config setup tx:", hash)
+
+    const publicClient = createPublicClient({
+      chain: base,
+      transport: http(),
+    })
+
+    await publicClient.waitForTransactionReceipt({ hash })
+    console.log("[v0] Sales config setup confirmed")
+  }
+
+  const approveUSDC = async (amount: bigint) => {
+    if (!address) throw new Error("No wallet connected")
+
+    console.log("[v0] Approving USDC...")
+
+    const hash = await writeContractAsync({
+      address: USDC_ADDRESS,
+      abi: ERC20_ABI,
+      functionName: "approve",
+      args: [ZORA_ERC20_MINTER, amount],
+    })
+
+    console.log("[v0] USDC approval tx:", hash)
+
+    const publicClient = createPublicClient({
+      chain: base,
+      transport: http(),
+    })
+
+    await publicClient.waitForTransactionReceipt({ hash })
+    console.log("[v0] USDC approval confirmed")
   }
 
   const handleMint = async () => {
-    console.log("[v0] ========== COLECCIONAR BUTTON CLICKED ==========")
-    addDebugLog("🔘 ========== COLECCIONAR BUTTON CLICKED ==========", true)
-    addDebugLog(`⏰ Timestamp: ${new Date().toISOString()}`, true)
+    console.log("[v0] ========== STARTING MINT FLOW ==========")
 
     if (!address) {
-      addDebugLog("❌ ERROR: No wallet connected", true)
       setMintError("Por favor conecta tu wallet primero")
       return
     }
-
-    addDebugLog(`✅ Wallet connected: ${address}`, true)
-    addDebugLog(`💡 IMPORTANTE: TÚ (el coleccionista) pagas 1 USDC + gas`, true)
-    addDebugLog(`💡 El artista NO paga nada`, true)
 
     try {
       setMintError(null)
       setIsMinting(true)
       setMintHash(null)
 
-      addDebugLog("🚀 ========== STARTING COLLECTOR-PAID MINT ==========", true)
-      addDebugLog(`📝 Chain: Base (8453)`, true)
-      addDebugLog(`📝 Collector (YOU): ${address}`, true)
-      addDebugLog(`📝 Contract: ${contractAddress}`, true)
-      addDebugLog(`📝 Token ID: ${tokenId}`, true)
-      addDebugLog(`📝 Quantity: ${quantity}`, true)
-      addDebugLog(`💰 Price: 1 USDC per edition`, true)
-      addDebugLog(`💰 Total Cost: ${quantity} USDC + gas`, true)
-      addDebugLog(`✨ Minting Type: COLLECTOR PAYS (you pay USDC + gas)`, true)
+      const publicClient = createPublicClient({
+        chain: base,
+        transport: http(),
+      })
 
-      addDebugLog("📋 Step 0: Checking ERC20 sales configuration...", true)
+      // Step 1: Check sales config
+      console.log("[v0] Step 1: Checking sales config...")
       let salesConfig = await checkSalesConfig()
 
       if (!salesConfig) {
-        addDebugLog("⚠️ No sales config found", true)
+        if (!isOwner) {
+          throw new Error("Este token no tiene configurado ERC20 minting. Contacta al artista.")
+        }
 
-        if (isOwner) {
-          addDebugLog("✅ You are the owner, setting up sales config automatically...", true)
-          setIsSettingSalesConfig(true)
+        console.log("[v0] No sales config found, setting up...")
+        await setupSalesConfig()
+        salesConfig = await checkSalesConfig()
 
-          try {
-            await setupSalesConfig()
-            addDebugLog("✅ Sales config set up successfully!", true)
-
-            salesConfig = await checkSalesConfig()
-            setIsSettingSalesConfig(false)
-
-            if (!salesConfig) {
-              throw new Error("Sales config setup succeeded but config is still not found")
-            }
-          } catch (error: any) {
-            setIsSettingSalesConfig(false)
-            addDebugLog(`❌ Failed to set up sales config: ${error.message}`, true)
-            setIsMinting(false)
-            setMintError(
-              `❌ Error configurando sales config: ${error.message}\n\n` +
-                "Por favor intenta de nuevo o contacta al soporte.",
-            )
-            return
-          }
-        } else {
-          addDebugLog("❌ STOPPING: No valid ERC20 sales config found and you are not the owner", true)
-          setIsMinting(false)
-          setMintError(
-            "❌ Este token NO tiene configurado ERC20 minting.\n\n" +
-              "El artista debe configurar el ERC20 sales config primero.\n\n" +
-              "💡 Contacta al artista para que configure el sales config.",
-          )
-          return
+        if (!salesConfig) {
+          throw new Error("Error configurando sales config")
         }
       }
 
-      const pricePerToken = salesConfig.pricePerToken || parseUnits("1", 6) // Use config price or default to 1 USDC
+      const pricePerToken = salesConfig.pricePerToken || parseUnits("1", 6)
+      const totalCost = pricePerToken * BigInt(quantity)
 
-      addDebugLog(`✅ Sales config found! Price: ${Number(pricePerToken) / 1e6} USDC`, true)
-      addDebugLog(`💰 Using price: ${Number(pricePerToken) / 1e6} USDC per token`, true)
+      console.log("[v0] Price per token:", Number(pricePerToken) / 1e6, "USDC")
+      console.log("[v0] Total cost:", Number(totalCost) / 1e6, "USDC")
 
-      // Step 1: Check USDC allowance
-      addDebugLog("📋 Step 1: Checking USDC allowance...", true)
-      const hasAllowance = await checkUSDCAllowance()
+      // Step 2: Check USDC balance
+      console.log("[v0] Step 2: Checking USDC balance...")
+      const balance = await publicClient.readContract({
+        address: USDC_ADDRESS,
+        abi: ERC20_ABI,
+        functionName: "balanceOf",
+        args: [address],
+      })
 
-      // Step 2: Approve USDC if needed
-      if (!hasAllowance) {
-        addDebugLog("📋 Step 2: Approving USDC...", true)
-        await approveUSDC()
-        addDebugLog("✅ USDC approved successfully!", true)
-      } else {
-        addDebugLog("✅ Step 2: USDC already approved, skipping", true)
+      if (balance < totalCost) {
+        throw new Error(
+          `Balance insuficiente. Necesitas ${Number(totalCost) / 1e6} USDC pero tienes ${Number(balance) / 1e6} USDC`,
+        )
       }
 
-      // Step 3: Mint with Zora ERC20 Minter
-      addDebugLog("📋 Step 3: Minting with Zora ERC20 Minter...", true)
+      // Step 3: Check and approve USDC if needed
+      console.log("[v0] Step 3: Checking USDC allowance...")
+      const allowance = await publicClient.readContract({
+        address: USDC_ADDRESS,
+        abi: ERC20_ABI,
+        functionName: "allowance",
+        args: [address, ZORA_ERC20_MINTER],
+      })
 
+      if (allowance < totalCost) {
+        console.log("[v0] Insufficient allowance, approving...")
+        await approveUSDC(totalCost * BigInt(2)) // Approve 2x for future mints
+      }
+
+      // Step 4: Mint
+      console.log("[v0] Step 4: Minting...")
       const mintArgs = {
         tokenContract: contractAddress,
         tokenId: BigInt(tokenId),
@@ -627,20 +409,6 @@ export default function TokenDetailPage() {
         comment: "Collected via Feria Nounish on Base!",
       }
 
-      addDebugLog(
-        `📤 Mint Arguments: ${JSON.stringify(
-          {
-            ...mintArgs,
-            tokenId: mintArgs.tokenId.toString(),
-            quantity: mintArgs.quantity.toString(),
-            pricePerToken: (Number(mintArgs.pricePerToken) / 1e6).toString() + " USDC",
-          },
-          null,
-          2,
-        )}`,
-        true,
-      )
-
       const hash = await writeContractAsync({
         address: ZORA_ERC20_MINTER,
         abi: ZORA_ERC20_MINTER_ABI,
@@ -649,45 +417,26 @@ export default function TokenDetailPage() {
       })
 
       setMintHash(hash)
-      addDebugLog(`✅ Mint transaction sent: ${hash}`, true)
-      addDebugLog(`🔗 View on BaseScan: https://basescan.org/tx/${hash}`, true)
+      console.log("[v0] Mint tx:", hash)
 
-      // Wait for mint transaction
-      addDebugLog(`⏳ Waiting for mint confirmation...`, true)
-      const publicClient = createPublicClient({
-        chain: base,
-        transport: http(),
-      })
+      await publicClient.waitForTransactionReceipt({ hash })
+      console.log("[v0] Mint confirmed!")
 
-      const receipt = await publicClient.waitForTransactionReceipt({ hash })
-      addDebugLog(`✅ Mint confirmed! Block: ${receipt.blockNumber}`, true)
-
-      addDebugLog("✅ ========== MINT SUCCESSFUL ==========", true)
       setJustCollected(true)
       setIsMinting(false)
-
       await checkContractState()
     } catch (error: any) {
-      console.log("[v0] ========== ERROR IN MINT ==========")
-      console.log("[v0] Error:", error)
-
-      addDebugLog("❌ ========== MINT ERROR ==========", true)
-      addDebugLog(`❌ Error Type: ${error.constructor.name}`, true)
-      addDebugLog(`❌ Error Message: ${error.message}`, true)
-
-      if (error.cause) {
-        addDebugLog(`❌ Error Cause: ${JSON.stringify(error.cause, null, 2)}`, true)
-      }
+      console.error("[v0] Mint error:", error)
 
       let errorMessage = error.message || "Error desconocido"
 
       if (errorMessage.includes("User rejected")) {
         errorMessage = "Transacción rechazada por el usuario"
-      } else if (errorMessage.includes("Insufficient")) {
+      } else if (errorMessage.includes("insufficient")) {
         errorMessage = "Balance insuficiente de USDC o ETH para gas"
       }
 
-      setMintError(`Error al coleccionar: ${errorMessage}`)
+      setMintError(errorMessage)
       setIsMinting(false)
     }
   }
@@ -708,100 +457,45 @@ export default function TokenDetailPage() {
       })
 
       setIsOwner(owner.toLowerCase() === address.toLowerCase())
-      addDebugLog(`👤 Contract Owner: ${owner}`, true)
-      addDebugLog(`👤 Connected Address: ${address}`, true)
-      addDebugLog(`👤 Is Owner: ${owner.toLowerCase() === address.toLowerCase()}`, true)
     } catch (error: any) {
-      addDebugLog(`⚠️ Error checking ownership: ${error.message}`, true)
+      console.error("[v0] Error checking ownership:", error)
     }
   }
 
-  const setupSalesConfig = async () => {
-    if (!address) {
-      addDebugLog("❌ No wallet connected", true)
-      throw new Error("No wallet connected")
-    }
-
-    addDebugLog("🔧 Setting up ERC20 sales config...", true)
-    setIsSettingSalesConfig(true)
+  const checkContractState = async () => {
+    if (!address || !isExperimentalMusicToken) return
 
     try {
-      // Encode the sales config data
-      const salesConfigData = {
-        saleStart: BigInt(0), // Start immediately
-        saleEnd: BigInt("18446744073709551615"), // Max uint64 (no end)
-        maxTokensPerAddress: BigInt(0), // Unlimited
-        pricePerToken: parseUnits("1", 6), // 1 USDC
-        fundsRecipient: address, // Artist receives funds
-        currency: USDC_ADDRESS,
-      }
-
-      addDebugLog(
-        `📝 Sales Config: ${JSON.stringify(
-          {
-            ...salesConfigData,
-            saleStart: salesConfigData.saleStart.toString(),
-            saleEnd: salesConfigData.saleEnd.toString(),
-            maxTokensPerAddress: salesConfigData.maxTokensPerAddress.toString(),
-            pricePerToken: (Number(salesConfigData.pricePerToken) / 1e6).toString() + " USDC",
-            fundsRecipient: salesConfigData.fundsRecipient,
-            currency: salesConfigData.currency,
-          },
-          null,
-          2,
-        )}`,
-        true,
-      )
-
-      const setSaleData = encodeAbiParameters(
-        [
-          { name: "tokenId", type: "uint256" },
-          {
-            name: "salesConfig",
-            type: "tuple",
-            components: [
-              { name: "saleStart", type: "uint64" },
-              { name: "saleEnd", type: "uint64" },
-              { name: "maxTokensPerAddress", type: "uint64" },
-              { name: "pricePerToken", type: "uint96" },
-              { name: "fundsRecipient", type: "address" },
-              { name: "currency", type: "address" },
-            ],
-          },
-        ],
-        [BigInt(tokenId), salesConfigData],
-      )
-
-      addDebugLog(`📝 Encoded setSale data: ${setSaleData}`, true)
-
-      // Call setSale on the ERC20 Minter through the 1155 contract's callSale function
-      const hash = await writeContractAsync({
-        address: contractAddress,
-        abi: ZORA_1155_ABI,
-        functionName: "callSale",
-        args: [BigInt(tokenId), ZORA_ERC20_MINTER, setSaleData],
-      })
-
-      addDebugLog(`✅ Sales config setup transaction sent: ${hash}`, true)
-      addDebugLog(`🔗 View on BaseScan: https://basescan.org/tx/${hash}`, true)
-
       const publicClient = createPublicClient({
         chain: base,
         transport: http(),
       })
 
-      const receipt = await publicClient.waitForTransactionReceipt({ hash })
-      addDebugLog(`✅ Sales config setup confirmed! Block: ${receipt.blockNumber}`, true)
+      const [userBalance, totalSupply] = await Promise.all([
+        publicClient.readContract({
+          address: contractAddress,
+          abi: ERC1155_ABI,
+          functionName: "balanceOf",
+          args: [address, BigInt(tokenId)],
+        }),
+        publicClient.readContract({
+          address: contractAddress,
+          abi: ERC1155_ABI,
+          functionName: "totalSupply",
+          args: [BigInt(tokenId)],
+        }),
+      ])
 
-      // Refresh sales config
-      await checkSalesConfig()
-      setIsSettingSalesConfig(false)
+      setContractInfo({
+        userBalance: userBalance.toString(),
+        totalSupply: totalSupply.toString(),
+      })
     } catch (error: any) {
-      addDebugLog(`❌ Error setting up sales config: ${error.message}`, true)
-      setIsSettingSalesConfig(false)
-      setMintError(`Error configurando sales config: ${error.message}`)
+      console.error("[v0] Error checking contract state:", error)
     }
   }
+
+  // Removed checkUSDCAllowance, approveUSDC (now part of handleMint)
 
   useEffect(() => {
     const fetchTokenMetadata = async () => {
@@ -960,55 +654,6 @@ export default function TokenDetailPage() {
         </header>
 
         <main className="container mx-auto px-4 py-8">
-          {showDebugPanel && (debugInfo.length > 0 || persistentLogs.length > 0) && (
-            <div className="mb-8 max-w-6xl mx-auto">
-              <Card className="bg-gray-900 border-gray-700">
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-white font-bold text-sm">🐛 Debug Logs (Persistent)</h3>
-                    <div className="flex gap-2">
-                      <Button
-                        onClick={() => {
-                          setDebugInfo([])
-                          setPersistentLogs([])
-                        }}
-                        variant="ghost"
-                        size="sm"
-                        className="text-white hover:bg-gray-800"
-                      >
-                        Limpiar
-                      </Button>
-                      <Button
-                        onClick={() => setShowDebugPanel(false)}
-                        variant="ghost"
-                        size="sm"
-                        className="text-white hover:bg-gray-800"
-                      >
-                        Ocultar
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="bg-black rounded p-3 max-h-96 overflow-y-auto">
-                    <pre className="text-xs text-green-400 font-mono whitespace-pre-wrap">
-                      {[...debugInfo, ...persistentLogs].join("\n")}
-                    </pre>
-                  </div>
-                  <p className="text-xs text-gray-400 mt-2">
-                    💡 Los logs marcados como persistentes no se borran al re-renderizar
-                  </p>
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {!showDebugPanel && (debugInfo.length > 0 || persistentLogs.length > 0) && (
-            <div className="mb-4 max-w-6xl mx-auto">
-              <Button onClick={() => setShowDebugPanel(true)} variant="outline" size="sm" className="w-full">
-                🐛 Mostrar Debug Logs ({debugInfo.length + persistentLogs.length})
-              </Button>
-            </div>
-          )}
-
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-6xl mx-auto">
             <div className="relative aspect-square rounded-lg overflow-hidden bg-white shadow-xl">
               <Image
@@ -1032,36 +677,10 @@ export default function TokenDetailPage() {
                   </div>
 
                   <div className="border-t border-gray-200 pt-4 shadow-sm space-y-2">
-                    {isOwner && !mintError && (
-                      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-3">
-                        <p className="text-yellow-800 font-bold mb-2 text-sm">🔧 Configuración del Artista</p>
-                        <p className="text-yellow-700 text-xs mb-3">
-                          Como dueño del contrato, necesitas configurar el ERC20 sales config para habilitar el minteo
-                          con USDC.
-                        </p>
-                        <Button
-                          onClick={setupSalesConfig}
-                          disabled={isSettingSalesConfig}
-                          className="w-full bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 text-sm"
-                        >
-                          {isSettingSalesConfig ? "Configurando..." : "Configurar Sales Config (1 USDC)"}
-                        </Button>
-                      </div>
-                    )}
-
                     {mintError && (
                       <div className="bg-red-50 border-2 border-red-300 rounded-lg p-4 mb-3">
                         <p className="text-red-800 font-bold mb-2 text-base">⚠️ Error</p>
                         <p className="text-red-700 text-sm font-semibold mb-2 whitespace-pre-line">{mintError}</p>
-                        {mintError.includes("reverted") && isOwner && (
-                          <div className="mt-3 pt-3 border-t border-red-200">
-                            <p className="text-red-800 font-bold text-xs mb-2">💡 Solución:</p>
-                            <p className="text-red-700 text-xs mb-2">
-                              El contrato no tiene configurado un ERC20 sales config. Haz clic en el botón de arriba
-                              para configurarlo.
-                            </p>
-                          </div>
-                        )}
                       </div>
                     )}
 
@@ -1141,23 +760,13 @@ export default function TokenDetailPage() {
 
                         <Button
                           onClick={handleMint}
-                          disabled={!isConnected || isMinting || isApproving || isSettingSalesConfig}
+                          disabled={!isConnected || isMinting}
                           className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-extrabold py-6 text-base disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          {!isConnected
-                            ? "Conecta tu Wallet"
-                            : isSettingSalesConfig
-                              ? "Configurando Sales Config..."
-                              : isApproving
-                                ? "Aprobando USDC..."
-                                : isMinting
-                                  ? "Coleccionando..."
-                                  : "Coleccionar"}
+                          {!isConnected ? "Conecta tu Wallet" : isMinting ? "Coleccionando..." : "Coleccionar"}
                         </Button>
 
-                        <p className="text-xs text-center text-gray-500">
-                          💳 Pagas {quantity} USDC + gas en Base - el coleccionista paga directamente
-                        </p>
+                        <p className="text-xs text-center text-gray-500">💳 Pagas {quantity} USDC + gas en Base</p>
                       </>
                     ) : (
                       <Button
