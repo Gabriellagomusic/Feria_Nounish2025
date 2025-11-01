@@ -23,6 +23,42 @@ export interface TokenMetadata {
   error?: string
 }
 
+async function fetchWithRetry<T>(fetchFn: () => Promise<T>, maxRetries = 3, baseDelay = 1000): Promise<T> {
+  let lastError: Error | null = null
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fetchFn()
+    } catch (error) {
+      lastError = error as Error
+
+      if (attempt < maxRetries) {
+        const delay = baseDelay * Math.pow(2, attempt)
+        console.log(`[v0] Metadata - Retry attempt ${attempt + 1}/${maxRetries} after ${delay}ms`)
+        await new Promise((resolve) => setTimeout(resolve, delay))
+      }
+    }
+  }
+
+  throw lastError || new Error("Failed after retries")
+}
+
+const metadataCache = new Map<string, { data: TokenMetadata; timestamp: number }>()
+const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
+
+function getCachedMetadata(key: string): TokenMetadata | null {
+  const cached = metadataCache.get(key)
+  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+    console.log("[v0] Metadata - Using cached data for:", key)
+    return cached.data
+  }
+  return null
+}
+
+function setCachedMetadata(key: string, data: TokenMetadata): void {
+  metadataCache.set(key, { data, timestamp: Date.now() })
+}
+
 function convertToGatewayUrl(uri: string): string {
   if (uri.startsWith("ar://")) {
     return uri.replace("ar://", "https://arweave.net/")
@@ -33,20 +69,28 @@ function convertToGatewayUrl(uri: string): string {
 }
 
 export async function fetchTokenMetadata(contractAddress: string, tokenId: string): Promise<TokenMetadata | null> {
+  const cacheKey = `${contractAddress}-${tokenId}`
+  const cached = getCachedMetadata(cacheKey)
+  if (cached) {
+    return cached
+  }
+
   try {
     console.log("[v0] Metadata - Starting fetch for token:", tokenId, "contract:", contractAddress)
 
     let tokenURI: string
     try {
-      tokenURI = (await publicClient.readContract({
-        address: contractAddress as `0x${string}`,
-        abi: ERC1155_ABI,
-        functionName: "uri",
-        args: [BigInt(tokenId)],
-      })) as string
+      tokenURI = await fetchWithRetry(async () => {
+        return (await publicClient.readContract({
+          address: contractAddress as `0x${string}`,
+          abi: ERC1155_ABI,
+          functionName: "uri",
+          args: [BigInt(tokenId)],
+        })) as string
+      })
       console.log("[v0] Metadata - Token URI from contract:", tokenURI)
     } catch (contractError) {
-      console.error("[v0] Metadata - Contract call failed:", contractError)
+      console.error("[v0] Metadata - Contract call failed after retries:", contractError)
       return {
         name: `Token #${tokenId}`,
         description: "Failed to fetch metadata from contract",
@@ -75,31 +119,29 @@ export async function fetchTokenMetadata(contractAddress: string, tokenId: strin
 
     console.log("[v0] Metadata - Final metadata URL:", metadataUrl)
 
-    const metadataResponse = await fetch(metadataUrl)
-    console.log("[v0] Metadata - Fetch response status:", metadataResponse.status)
-    console.log("[v0] Metadata - Response headers:", Object.fromEntries(metadataResponse.headers.entries()))
-
-    if (!metadataResponse.ok) {
-      console.error("[v0] Metadata - Bad response:", metadataResponse.status, metadataResponse.statusText)
-      return {
-        name: `Token #${tokenId}`,
-        description: `HTTP ${metadataResponse.status}: ${metadataResponse.statusText}`,
-        image: "",
-        error: `HTTP ${metadataResponse.status}: ${metadataResponse.statusText}`,
+    const metadataResponse = await fetchWithRetry(async () => {
+      const response = await fetch(metadataUrl)
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
       }
-    }
+      return response
+    })
+
+    console.log("[v0] Metadata - Fetch response status:", metadataResponse.status)
 
     const contentType = metadataResponse.headers.get("content-type") || ""
     console.log("[v0] Metadata - Content-Type:", contentType)
 
     if (contentType.startsWith("image/")) {
       console.log("[v0] Metadata - Response is an image, using URL as image source")
-      return {
+      const result = {
         name: `Token #${tokenId}`,
         description: "NFT from Feria Nounish",
         image: metadataUrl,
         error: "Metadata URI points to image instead of JSON",
       }
+      setCachedMetadata(cacheKey, result)
+      return result
     }
 
     const responseText = await metadataResponse.text()
@@ -111,12 +153,6 @@ export async function fetchTokenMetadata(contractAddress: string, tokenId: strin
       console.log("[v0] Metadata - Parsed metadata:", metadata)
     } catch (parseError) {
       console.error("[v0] Metadata - JSON parse failed:", parseError)
-      console.log(
-        "[v0] Metadata - Response text char codes (first 50):",
-        Array.from(responseText.substring(0, 50))
-          .map((c) => c.charCodeAt(0))
-          .join(","),
-      )
 
       if (
         responseText.charCodeAt(0) === 0xff ||
@@ -124,19 +160,21 @@ export async function fetchTokenMetadata(contractAddress: string, tokenId: strin
         responseText.startsWith("\uFFFD")
       ) {
         console.log("[v0] Metadata - Response appears to be binary image data")
-        return {
+        const result = {
           name: `Token #${tokenId}`,
           description: "NFT from Feria Nounish",
           image: metadataUrl,
-          error: `Failed to parse metadata JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}. Response was: ${responseText.substring(0, 100)}`,
+          error: `Failed to parse metadata JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
         }
+        setCachedMetadata(cacheKey, result)
+        return result
       }
 
       return {
         name: `Token #${tokenId}`,
         description: "Failed to parse metadata JSON",
         image: "",
-        error: `JSON.parse failed: ${parseError instanceof Error ? parseError.message : String(parseError)}. Response was: ${responseText.substring(0, 100)}`,
+        error: `JSON.parse failed: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
       }
     }
 
@@ -147,11 +185,14 @@ export async function fetchTokenMetadata(contractAddress: string, tokenId: strin
       imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
     }
 
-    return {
+    const result = {
       name: metadata.name || `Token #${tokenId}`,
       description: metadata.description || "NFT from Feria Nounish",
       image: imageUrl || "/placeholder.svg",
     }
+
+    setCachedMetadata(cacheKey, result)
+    return result
   } catch (error) {
     console.error("[v0] Metadata - Unexpected error:", error)
     return {

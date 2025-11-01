@@ -144,6 +144,26 @@ const ERC20_ABI = [
 
 const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as `0x${string}`
 
+async function fetchWithRetry<T>(fetchFn: () => Promise<T>, maxRetries = 3, baseDelay = 1000): Promise<T> {
+  let lastError: Error | null = null
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fetchFn()
+    } catch (error) {
+      lastError = error as Error
+
+      if (attempt < maxRetries) {
+        const delay = baseDelay * Math.pow(2, attempt)
+        console.log(`[v0] Token Detail - Retry attempt ${attempt + 1}/${maxRetries} after ${delay}ms`)
+        await new Promise((resolve) => setTimeout(resolve, delay))
+      }
+    }
+  }
+
+  throw lastError || new Error("Failed after retries")
+}
+
 export default function TokenDetailPage() {
   const router = useRouter()
   const params = useParams()
@@ -347,11 +367,13 @@ export default function TokenDetailPage() {
           transport: http(),
         })
 
-        const tokenURI = await publicClient.readContract({
-          address: contractAddress,
-          abi: ERC1155_ABI,
-          functionName: "uri",
-          args: [BigInt(tokenId)],
+        const tokenURI = await fetchWithRetry(async () => {
+          return await publicClient.readContract({
+            address: contractAddress,
+            abi: ERC1155_ABI,
+            functionName: "uri",
+            args: [BigInt(tokenId)],
+          })
         })
 
         if (tokenURI) {
@@ -360,83 +382,78 @@ export default function TokenDetailPage() {
             metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
           }
 
-          const metadataResponse = await fetch(metadataUrl)
-          if (metadataResponse.ok) {
-            const metadata = await metadataResponse.json()
-
-            let imageUrl = metadata.image
-            if (imageUrl?.startsWith("ipfs://")) {
-              imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-            } else if (imageUrl?.startsWith("ar://")) {
-              imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+          const metadata = await fetchWithRetry(async () => {
+            const response = await fetch(metadataUrl)
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}`)
             }
+            return await response.json()
+          })
 
-            setTokenData({
-              name: metadata.name || `Obra de Arte #${tokenId}`,
-              description: metadata.description || "Obra de arte digital única",
-              image: imageUrl || "/placeholder.svg",
-              creator: metadata.creator,
+          let imageUrl = metadata.image
+          if (imageUrl?.startsWith("ipfs://")) {
+            imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+          } else if (imageUrl?.startsWith("ar://")) {
+            imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+          }
+
+          setTokenData({
+            name: metadata.name || `Obra de Arte #${tokenId}`,
+            description: metadata.description || "Obra de arte digital única",
+            image: imageUrl || "/placeholder.svg",
+            creator: metadata.creator,
+          })
+
+          try {
+            const timelineData = await fetchWithRetry(async () => {
+              return await getTimeline(1, 100, true, undefined, 8453, false)
             })
 
-            try {
-              const timelineData = await getTimeline(1, 100, true, undefined, 8453, false)
+            if (timelineData.moments && timelineData.moments.length > 0) {
+              console.log("[v0] Searching for moment:", { contractAddress, tokenId })
 
-              if (timelineData.moments && timelineData.moments.length > 0) {
-                console.log("[v0] Searching for moment:", { contractAddress, tokenId })
-                console.log("[v0] Total moments:", timelineData.moments.length)
+              const moment = timelineData.moments.find((m: Moment) => {
+                const addressMatch = m.address.toLowerCase() === contractAddress.toLowerCase()
+                const tokenIdMatch = m.tokenId?.toString() === tokenId.toString()
+                return addressMatch && tokenIdMatch
+              })
 
-                const moment = timelineData.moments.find((m: Moment) => {
-                  const addressMatch = m.address.toLowerCase() === contractAddress.toLowerCase()
-                  const tokenIdMatch = m.tokenId?.toString() === tokenId.toString()
-
-                  if (addressMatch) {
-                    console.log("[v0] Found address match:", {
-                      momentAddress: m.address,
-                      momentTokenId: m.tokenId,
-                      momentUsername: m.username,
-                      searchingForTokenId: tokenId,
-                      tokenIdMatch,
-                    })
-                  }
-
-                  return addressMatch && tokenIdMatch
+              if (moment) {
+                console.log("[v0] Found matching moment for token detail:", {
+                  admin: moment.admin,
+                  username: moment.username,
                 })
-
-                if (moment) {
-                  console.log("[v0] Found matching moment for token detail:", {
-                    admin: moment.admin,
-                    username: moment.username,
-                  })
-                  setCreator(moment.admin)
-                  const displayName = moment.username || (await getDisplayName(moment.admin))
-                  setArtistName(displayName)
-                } else {
-                  console.log("[v0] No matching moment found, using fallback")
-                  const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
-                  setCreator(fallbackCreator)
-                  const displayName = await getDisplayName(fallbackCreator)
-                  setArtistName(displayName)
-                }
+                setCreator(moment.admin)
+                const displayName = moment.username || (await getDisplayName(moment.admin))
+                setArtistName(displayName)
               } else {
+                console.log("[v0] No matching moment found, using fallback")
                 const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
                 setCreator(fallbackCreator)
                 const displayName = await getDisplayName(fallbackCreator)
                 setArtistName(displayName)
               }
-            } catch (error) {
-              console.error("[v0] Error fetching artist from inprocess:", error)
+            } else {
               const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
               setCreator(fallbackCreator)
-              setArtistName(`${fallbackCreator.slice(0, 6)}...${fallbackCreator.slice(-4)}`)
+              const displayName = await getDisplayName(fallbackCreator)
+              setArtistName(displayName)
             }
-
-            setIsLoading(false)
-            return
+          } catch (error) {
+            console.error("[v0] Error fetching artist from inprocess after retries:", error)
+            const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
+            setCreator(fallbackCreator)
+            setArtistName(`${fallbackCreator.slice(0, 6)}...${fallbackCreator.slice(-4)}`)
           }
+
+          setIsLoading(false)
+          return
         }
 
         try {
-          const timelineData = await getTimeline(1, 100, true, undefined, 8453, false)
+          const timelineData = await fetchWithRetry(async () => {
+            return await getTimeline(1, 100, true, undefined, 8453, false)
+          })
 
           if (timelineData.moments && timelineData.moments.length > 0) {
             console.log("[v0] Searching for moment (fallback):", { contractAddress, tokenId })
@@ -471,7 +488,7 @@ export default function TokenDetailPage() {
           image: "/abstract-digital-composition.png",
         })
       } catch (error) {
-        console.error("Error fetching token metadata:", error)
+        console.error("Error fetching token metadata after retries:", error)
         const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
         setCreator(fallbackCreator)
         setArtistName(`${fallbackCreator.slice(0, 6)}...${fallbackCreator.slice(-4)}`)
@@ -608,61 +625,80 @@ export default function TokenDetailPage() {
       return
     }
 
-    if (!salesConfig) {
-      addDebugLog("❌ Sales config not loaded yet")
-      setMintError("Configuración de venta no disponible. Por favor espera un momento.")
-      return
-    }
-
     try {
       setMintError(null)
       setAttemptedFunctions([])
-      addDebugLog("🚀 Starting direct contract minting with collector paying...")
+      addDebugLog("🚀 Starting collection via InProcess API...")
       addDebugLog(`📝 Wallet address: ${address}`)
       addDebugLog(`📝 Contract address: ${contractAddress}`)
       addDebugLog(`📝 Token ID: ${tokenId}`)
       addDebugLog(`📝 Quantity: ${quantity}`)
-      addDebugLog(`📝 Sales config: ${JSON.stringify(salesConfig, null, 2)}`)
 
       setIsMinting(true)
 
-      if (salesConfig.type === "erc20Mint" && salesConfig.currency) {
-        const totalPrice = BigInt(salesConfig.pricePerToken) * BigInt(quantity)
-        addDebugLog(`💰 Minting with ERC20 (${salesConfig.currency})`)
-        addDebugLog(`💰 Price per token: ${salesConfig.pricePerToken}`)
-        addDebugLog(`💰 Total price: ${totalPrice.toString()}`)
+      addDebugLog("📤 Calling InProcess API /api/inprocess/collect...")
+      const response = await fetch("/api/inprocess/collect", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contractAddress,
+          tokenId,
+          amount: quantity,
+          comment: "Collected via Feria Nounish!",
+          walletAddress: address,
+        }),
+      })
 
-        addDebugLog("🔍 Attempting function: purchaseWithERC20(tokenId, quantity, recipient, currency, expectedPrice)")
-        addDebugLog(`🔍 Parameters: [${tokenId}, ${quantity}, ${address}, ${salesConfig.currency}, ${totalPrice}]`)
-        addDebugLog(`🔍 ABI function signature: purchaseWithERC20(uint256,uint256,address,address,uint256)`)
+      addDebugLog(`📥 InProcess API response status: ${response.status}`)
+      const responseText = await response.text()
+      addDebugLog(`📥 InProcess API response: ${responseText}`)
 
-        writeContract({
-          address: contractAddress,
-          abi: ERC1155_ABI,
-          functionName: "purchaseWithERC20",
-          args: [BigInt(tokenId), BigInt(quantity), address, salesConfig.currency as `0x${string}`, totalPrice],
-        })
+      if (!response.ok) {
+        let errorData
+        try {
+          errorData = JSON.parse(responseText)
+        } catch {
+          errorData = { message: responseText }
+        }
 
-        setAttemptedFunctions(["purchaseWithERC20"])
-        addDebugLog("✅ purchaseWithERC20 transaction sent to wallet, waiting for user confirmation...")
-        addDebugLog("⏳ If this fails, check the error details above for the revert reason")
-      } else if (salesConfig.type === "fixedPrice") {
-        addDebugLog(`💰 Minting with native token (ETH)`)
-        addDebugLog(`💰 Price per token: ${salesConfig.pricePerToken}`)
+        addDebugLog(`❌ InProcess API error: ${JSON.stringify(errorData, null, 2)}`)
 
-        writeContract({
-          address: contractAddress,
-          abi: ERC1155_ABI,
-          functionName: "mint",
-          args: [address, BigInt(tokenId), BigInt(quantity)],
-          value: BigInt(salesConfig.pricePerToken) * BigInt(quantity),
-        })
+        // Check if it's an insufficient balance error
+        if (
+          errorData.details?.message?.includes("Insufficient balance") ||
+          errorData.details?.includes("Insufficient balance") ||
+          responseText.includes("Insufficient balance")
+        ) {
+          setMintError(
+            `Error del API de InProcess: Balance insuficiente.\n\nEsto significa que la cuenta del artista en InProcess no tiene suficiente balance para patrocinar esta transacción.\n\nPosibles soluciones:\n• El artista necesita agregar fondos a su cuenta de InProcess\n• Contacta al artista para que recargue su cuenta\n• Espera a que el artista agregue más fondos`,
+          )
+        } else {
+          setMintError(
+            `Error del API de InProcess: ${errorData.error || errorData.message || "Error desconocido"}\n\n${errorData.possibleCauses ? `Posibles causas:\n${errorData.possibleCauses.map((c: string) => `• ${c}`).join("\n")}` : ""}\n\nDetalles: ${JSON.stringify(errorData.details || {}, null, 2)}`,
+          )
+        }
 
-        setAttemptedFunctions(["mint"])
-        addDebugLog("✅ Mint transaction sent to wallet, waiting for user confirmation...")
-      } else {
-        throw new Error(`Tipo de venta no soportado: ${salesConfig.type}`)
+        setIsMinting(false)
+        return
       }
+
+      // Success!
+      let data
+      try {
+        data = JSON.parse(responseText)
+      } catch {
+        data = { message: responseText }
+      }
+
+      addDebugLog(`✅ Collection successful via InProcess API!`)
+      addDebugLog(`✅ Response data: ${JSON.stringify(data, null, 2)}`)
+
+      // Show success state
+      setJustCollected(true)
+      setIsMinting(false)
+      await checkContractState()
     } catch (error: any) {
       console.error("[v0] Error in handleMint:", error)
       addDebugLog(`❌ Error in handleMint: ${error.message}`)
@@ -673,23 +709,10 @@ export default function TokenDetailPage() {
       if (error.stack) {
         addDebugLog(`❌ Error stack: ${error.stack.substring(0, 500)}...`)
       }
-      if (error.details) {
-        addDebugLog(`❌ Error details: ${error.details}`)
-      }
-      if (error.data) {
-        addDebugLog(`❌ Error data: ${error.data}`)
-      }
-      addDebugLog(`❌ Error properties: ${Object.keys(error).join(", ")}`)
-      try {
-        addDebugLog(`❌ Full error JSON: ${JSON.stringify(error, Object.getOwnPropertyNames(error), 2)}`)
-      } catch (e) {
-        addDebugLog(`❌ Could not stringify error`)
-      }
-      addDebugLog(`❌ Attempted functions: ${attemptedFunctions.join(", ")}`)
 
       setIsMinting(false)
       setMintError(
-        `Error al coleccionar: ${error.message}\n\nEl contrato no tiene las funciones esperadas o está revirtiendo. Posibles causas:\n• El contrato usa un sistema de minteo diferente (ej: Zora minter pattern con minter contract)\n• Se necesita usar el API de InProcess (requiere balance del artista)\n• El contrato tiene restricciones específicas (max supply, whitelist, etc.)\n• La venta no está activa o tiene condiciones no cumplidas\n\nRevisa los logs de debug para más detalles sobre el error específico.`,
+        `Error al coleccionar: ${error.message}\n\nRevisa los logs de debug para más detalles sobre el error específico.`,
       )
     }
   }
@@ -868,99 +891,21 @@ ${debugInfo.join("\n")}`
                           </Button>
                         </div>
 
-                        {!isApproved ? (
-                          <Button
-                            onClick={handleApprove}
-                            disabled={!isConnected || isApproving || isPending || isConfirming}
-                            className="w-full bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white font-extrabold py-6 text-base disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {!isConnected
-                              ? "Conecta tu Wallet"
-                              : isPending
-                                ? "Esperando confirmación..."
-                                : isConfirming
-                                  ? "Confirmando aprobación..."
-                                  : isApproving
-                                    ? "Aprobando USDC..."
-                                    : `Aprobar ${usdcAmountDisplay} USDC`}
-                          </Button>
-                        ) : (
-                          <>
-                            <Button
-                              onClick={handleMint}
-                              disabled={!isConnected || isMinting || isPending || isConfirming || !!mintError}
-                              className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-extrabold py-6 text-base disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              {!isConnected
-                                ? "Conecta tu Wallet"
-                                : isPending
-                                  ? "Esperando confirmación..."
-                                  : isConfirming
-                                    ? "Confirmando transacción..."
-                                    : isMinting
-                                      ? "Coleccionando..."
-                                      : `Coleccionar (${quantity})`}
-                            </Button>
-                          </>
-                        )}
-
-                        <Button onClick={() => setShowDebug(!showDebug)} variant="outline" className="w-full">
-                          {showDebug ? "Ocultar" : "Mostrar"} Debug Info
+                        <Button
+                          onClick={handleMint}
+                          disabled={!isConnected || isMinting || isPending || isConfirming || !!mintError}
+                          className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-extrabold py-6 text-base disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {!isConnected
+                            ? "Conecta tu Wallet"
+                            : isMinting
+                              ? "Coleccionando vía InProcess..."
+                              : `Coleccionar Gratis (${quantity})`}
                         </Button>
 
-                        {showDebug && (
-                          <div className="bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-xs max-h-96 overflow-y-auto">
-                            <div className="mb-2 text-white font-bold">🔍 Debug Information:</div>
-                            <div className="space-y-1">
-                              <div>Connected: {isConnected ? "✅ Yes" : "❌ No"}</div>
-                              <div>Address: {address || "N/A"}</div>
-                              <div>Contract: {contractAddress}</div>
-                              <div>Token ID: {tokenId}</div>
-                              <div>Is Experimental Token: {isExperimentalMusicToken ? "✅ Yes" : "❌ No"}</div>
-                              <div>USDC Approved: {isApproved ? "✅ Yes" : "❌ No"}</div>
-                              <div>Approving: {isApproving ? "✅ Yes" : "❌ No"}</div>
-                              <div>Minting: {isMinting ? "✅ Yes" : "❌ No"}</div>
-                              <div>Pending: {isPending ? "✅ Yes" : "❌ No"}</div>
-                              <div>Confirming: {isConfirming ? "✅ Yes" : "❌ No"}</div>
-                              {contractInfo && (
-                                <>
-                                  <div className="mt-2 pt-2 border-t border-gray-700">
-                                    <div className="text-white font-bold mb-1">📊 Contract State:</div>
-                                    <div>User Token Balance: {contractInfo.userBalance}</div>
-                                    <div>Total Supply: {contractInfo.totalSupply}</div>
-                                    <div>User USDC Balance: {contractInfo.usdcBalance} USDC</div>
-                                    {contractInfo.maxPerAddress && (
-                                      <div>Max Per Address: {contractInfo.maxPerAddress}</div>
-                                    )}
-                                  </div>
-                                </>
-                              )}
-                              {mintError && (
-                                <div className="mt-2 pt-2 border-t border-gray-700">
-                                  <div className="text-red-400 font-bold mb-1">❌ Mint Error:</div>
-                                  <div className="text-red-300">{mintError}</div>
-                                </div>
-                              )}
-                              {hash && <div>Tx Hash: {hash}</div>}
-                              {writeError && <div className="text-red-400">Error: {writeError.message}</div>}
-                            </div>
-                            <div className="mt-4 border-t border-gray-700 pt-2">
-                              <div className="text-white font-bold mb-2">📋 Transaction Log:</div>
-                              {debugInfo.length === 0 ? (
-                                <div className="text-gray-500">No logs yet...</div>
-                              ) : (
-                                debugInfo.map((log, i) => (
-                                  <div key={i} className="mb-1">
-                                    {log}
-                                  </div>
-                                ))
-                              )}
-                            </div>
-                            <Button onClick={copyDebugLogs} variant="outline" className="w-full mt-4 bg-transparent">
-                              📋 Copiar Debug Logs
-                            </Button>
-                          </div>
-                        )}
+                        <p className="text-xs text-center text-gray-500">
+                          ✨ Colección patrocinada por el artista (sin gas fees)
+                        </p>
                       </>
                     ) : (
                       <Button

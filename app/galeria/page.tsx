@@ -85,6 +85,26 @@ async function fetchArtistForToken(
   }
 }
 
+async function fetchWithRetry<T>(fetchFn: () => Promise<T>, maxRetries = 3, baseDelay = 1000): Promise<T> {
+  let lastError: Error | null = null
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fetchFn()
+    } catch (error) {
+      lastError = error as Error
+
+      if (attempt < maxRetries) {
+        const delay = baseDelay * Math.pow(2, attempt)
+        console.log(`[v0] Gallery - Retry attempt ${attempt + 1}/${maxRetries} after ${delay}ms`)
+        await new Promise((resolve) => setTimeout(resolve, delay))
+      }
+    }
+  }
+
+  throw lastError || new Error("Failed after retries")
+}
+
 export default function GaleriaPage() {
   const router = useRouter()
   const [tokens, setTokens] = useState<TokenMetadata[]>([])
@@ -96,11 +116,18 @@ export default function GaleriaPage() {
   useEffect(() => {
     const fetchTokenMetadata = async () => {
       try {
-        const allMoments = await getAllMoments(8453)
+        const allMoments = await fetchWithRetry(async () => {
+          return await getAllMoments(8453)
+        })
         const momentLookup = buildMomentLookupMap(allMoments)
 
-        const galleryResponse = await fetch("/api/gallery/list")
-        const galleryData = await galleryResponse.json()
+        const galleryData = await fetchWithRetry(async () => {
+          const response = await fetch("/api/gallery/list")
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`)
+          }
+          return await response.json()
+        })
 
         if (!galleryData.tokens || galleryData.tokens.length === 0) {
           setTokens([])
@@ -118,11 +145,13 @@ export default function GaleriaPage() {
             try {
               const artistInfo = await fetchArtistForToken(config.contractAddress, config.tokenId, momentLookup)
 
-              const tokenURI = await publicClient.readContract({
-                address: config.contractAddress as `0x${string}`,
-                abi: ERC1155_ABI,
-                functionName: "uri",
-                args: [BigInt(1)],
+              const tokenURI = await fetchWithRetry(async () => {
+                return await publicClient.readContract({
+                  address: config.contractAddress as `0x${string}`,
+                  abi: ERC1155_ABI,
+                  functionName: "uri",
+                  args: [BigInt(1)],
+                })
               })
 
               if (tokenURI) {
@@ -132,29 +161,32 @@ export default function GaleriaPage() {
                 }
 
                 try {
-                  const metadataResponse = await fetch(metadataUrl)
-                  if (metadataResponse.ok) {
-                    const metadata = await metadataResponse.json()
-
-                    let imageUrl = metadata.image
-                    if (imageUrl?.startsWith("ipfs://")) {
-                      imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-                    } else if (imageUrl?.startsWith("ar://")) {
-                      imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+                  const metadata = await fetchWithRetry(async () => {
+                    const response = await fetch(metadataUrl)
+                    if (!response.ok) {
+                      throw new Error(`HTTP ${response.status}`)
                     }
+                    return await response.json()
+                  })
 
-                    return {
-                      name: metadata.name || `Obra de Arte #${config.tokenId}`,
-                      description: metadata.description || "Obra de arte digital única",
-                      image: imageUrl || "/placeholder.svg",
-                      artist: artistInfo.address,
-                      artistDisplay: artistInfo.displayName,
-                      contractAddress: config.contractAddress,
-                      tokenId: config.tokenId,
-                    }
+                  let imageUrl = metadata.image
+                  if (imageUrl?.startsWith("ipfs://")) {
+                    imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+                  } else if (imageUrl?.startsWith("ar://")) {
+                    imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+                  }
+
+                  return {
+                    name: metadata.name || `Obra de Arte #${config.tokenId}`,
+                    description: metadata.description || "Obra de arte digital única",
+                    image: imageUrl || "/placeholder.svg",
+                    artist: artistInfo.address,
+                    artistDisplay: artistInfo.displayName,
+                    contractAddress: config.contractAddress,
+                    tokenId: config.tokenId,
                   }
                 } catch (fetchError) {
-                  console.error("[v0] Error fetching metadata:", fetchError)
+                  console.error("[v0] Error fetching metadata after retries:", fetchError)
                 }
               }
 
