@@ -124,6 +124,7 @@ export default function TokenDetailPage() {
   } | null>(null)
 
   const [mintError, setMintError] = useState<string | null>(null)
+  const [useDirectMint, setUseDirectMint] = useState(false)
 
   const { writeContract, data: hash, error: writeError, isPending } = useWriteContract()
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({
@@ -470,6 +471,35 @@ export default function TokenDetailPage() {
       return
     }
 
+    if (useDirectMint) {
+      addDebugLog("🚀 Using direct contract minting...")
+      try {
+        setIsMinting(true)
+        setMintError(null)
+
+        addDebugLog(`📝 Calling contract mint function directly`)
+        addDebugLog(`📝 Contract: ${contractAddress}`)
+        addDebugLog(`📝 Token ID: ${tokenId}`)
+        addDebugLog(`📝 Quantity: ${quantity}`)
+        addDebugLog(`📝 To address: ${address}`)
+
+        writeContract({
+          address: contractAddress,
+          abi: ERC1155_ABI,
+          functionName: "mint",
+          args: [address, BigInt(tokenId), BigInt(quantity)],
+        })
+
+        addDebugLog("✅ Direct mint transaction sent, waiting for confirmation...")
+      } catch (error: any) {
+        addDebugLog(`❌ Error in direct mint: ${error.message}`)
+        console.error("[v0] Direct mint error:", error)
+        setIsMinting(false)
+        setMintError(error.message || "Error desconocido al coleccionar directamente")
+      }
+      return
+    }
+
     try {
       setMintError(null)
       addDebugLog("🚀 Starting collect process via InProcess API...")
@@ -490,8 +520,10 @@ export default function TokenDetailPage() {
         addDebugLog(`💎 ETH balance: ${ethBalanceFormatted} ETH`)
 
         if (Number(ethBalance) < 1e15) {
-          // Less than 0.001 ETH
           addDebugLog(`⚠️ WARNING: Low ETH balance for gas fees!`)
+          setMintError(
+            `Saldo de ETH bajo para gas. Tienes ${ethBalanceFormatted} ETH. Necesitas al menos 0.001 ETH para pagar las tarifas de gas.`,
+          )
         }
       } catch (error: any) {
         addDebugLog(`⚠️ Could not check ETH balance: ${error.message}`)
@@ -546,6 +578,12 @@ export default function TokenDetailPage() {
         if (data.stack) {
           addDebugLog(`❌ Error stack: ${data.stack}`)
         }
+
+        if (errorMessage.includes("Insufficient balance")) {
+          errorMessage +=
+            "\n\nPosibles causas:\n• Saldo de ETH insuficiente para gas (necesitas ~0.001 ETH)\n• El API de InProcess está teniendo problemas\n\nPrueba usar 'Minteo Directo' como alternativa."
+        }
+
         throw new Error(errorMessage)
       }
 
@@ -758,21 +796,43 @@ ${debugInfo.join("\n")}`
                                     : `Aprobar ${quantity} USDC`}
                           </Button>
                         ) : (
-                          <Button
-                            onClick={handleMint}
-                            disabled={!isConnected || isMinting || isPending || isConfirming || !!mintError}
-                            className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-extrabold py-6 text-base disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {!isConnected
-                              ? "Conecta tu Wallet"
-                              : isPending
-                                ? "Esperando confirmación..."
-                                : isConfirming
-                                  ? "Confirmando transacción..."
-                                  : isMinting
-                                    ? "Coleccionando..."
-                                    : `Coleccionar (${quantity})`}
-                          </Button>
+                          <>
+                            <div className="flex items-center justify-center gap-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                              <span className="text-sm text-gray-600">Método:</span>
+                              <Button
+                                onClick={() => setUseDirectMint(false)}
+                                variant={!useDirectMint ? "default" : "outline"}
+                                size="sm"
+                                className="text-xs"
+                              >
+                                API InProcess
+                              </Button>
+                              <Button
+                                onClick={() => setUseDirectMint(true)}
+                                variant={useDirectMint ? "default" : "outline"}
+                                size="sm"
+                                className="text-xs"
+                              >
+                                Minteo Directo
+                              </Button>
+                            </div>
+
+                            <Button
+                              onClick={handleMint}
+                              disabled={!isConnected || isMinting || isPending || isConfirming || !!mintError}
+                              className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-extrabold py-6 text-base disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {!isConnected
+                                ? "Conecta tu Wallet"
+                                : isPending
+                                  ? "Esperando confirmación..."
+                                  : isConfirming
+                                    ? "Confirmando transacción..."
+                                    : isMinting
+                                      ? "Coleccionando..."
+                                      : `Coleccionar (${quantity}) ${useDirectMint ? "- Directo" : "- API"}`}
+                            </Button>
+                          </>
                         )}
 
                         <Button onClick={() => setShowDebug(!showDebug)} variant="outline" className="w-full">
