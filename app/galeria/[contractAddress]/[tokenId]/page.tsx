@@ -33,6 +33,19 @@ const ERC1155_ABI = [
     type: "function",
   },
   {
+    inputs: [
+      { name: "tokenId", type: "uint256" },
+      { name: "quantity", type: "uint256" },
+      { name: "recipient", type: "address" },
+      { name: "currency", type: "address" },
+      { name: "expectedPrice", type: "uint256" },
+    ],
+    name: "purchaseWithERC20",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
     inputs: [{ name: "id", type: "uint256" }],
     name: "uri",
     outputs: [{ name: "", type: "string" }],
@@ -123,6 +136,14 @@ export default function TokenDetailPage() {
     maxPerAddress?: string
   } | null>(null)
 
+  const [salesConfig, setSalesConfig] = useState<{
+    type: string
+    pricePerToken: string
+    currency?: string
+    saleStart?: number
+    saleEnd?: number
+  } | null>(null)
+
   const [mintError, setMintError] = useState<string | null>(null)
 
   const { writeContract, data: hash, error: writeError, isPending } = useWriteContract()
@@ -133,7 +154,9 @@ export default function TokenDetailPage() {
   const isExperimentalMusicToken =
     contractAddress.toLowerCase() === "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5" && tokenId === "1"
 
-  const usdcAmountNeeded = parseUnits((quantity * 1).toString(), 6) // quantity * 1 USDC per token
+  const usdcAmountNeeded = salesConfig
+    ? parseUnits((quantity * Number(salesConfig.pricePerToken)).toString(), 6)
+    : parseUnits((quantity * 1).toString(), 6)
 
   const addDebugLog = (message: string) => {
     const timestamp = new Date().toISOString()
@@ -428,6 +451,38 @@ export default function TokenDetailPage() {
     fetchTokenMetadata()
   }, [contractAddress, tokenId])
 
+  useEffect(() => {
+    const fetchSalesConfig = async () => {
+      if (!isExperimentalMusicToken) return
+
+      try {
+        addDebugLog("📤 Fetching sales config from InProcess API...")
+        const response = await fetch(`/api/inprocess/moment?contractAddress=${contractAddress}&tokenId=${tokenId}`)
+
+        if (!response.ok) {
+          const errorData = await response.json()
+          addDebugLog(`❌ Failed to fetch sales config: ${JSON.stringify(errorData)}`)
+          return
+        }
+
+        const data = await response.json()
+        addDebugLog(`✅ Sales config fetched: ${JSON.stringify(data.salesConfig, null, 2)}`)
+
+        if (data.salesConfig) {
+          setSalesConfig(data.salesConfig)
+          addDebugLog(`💰 Price per token: ${data.salesConfig.pricePerToken}`)
+          addDebugLog(`💵 Currency: ${data.salesConfig.currency || "Native token (ETH)"}`)
+          addDebugLog(`📅 Sale start: ${data.salesConfig.saleStart}`)
+          addDebugLog(`📅 Sale end: ${data.salesConfig.saleEnd}`)
+        }
+      } catch (error: any) {
+        addDebugLog(`❌ Error fetching sales config: ${error.message}`)
+      }
+    }
+
+    fetchSalesConfig()
+  }, [contractAddress, tokenId, isExperimentalMusicToken])
+
   const handleApprove = async () => {
     addDebugLog("💰 Starting USDC approval...")
 
@@ -465,101 +520,58 @@ export default function TokenDetailPage() {
       return
     }
 
+    if (!salesConfig) {
+      addDebugLog("❌ Sales config not loaded yet")
+      setMintError("Configuración de venta no disponible. Por favor espera un momento.")
+      return
+    }
+
     try {
       setMintError(null)
-      addDebugLog("🚀 Starting collect process via InProcess API...")
+      addDebugLog("🚀 Starting direct contract minting with collector paying...")
       addDebugLog(`📝 Wallet address: ${address}`)
       addDebugLog(`📝 Contract address: ${contractAddress}`)
       addDebugLog(`📝 Token ID: ${tokenId}`)
       addDebugLog(`📝 Quantity: ${quantity}`)
-      addDebugLog(`📝 Checking ETH balance for gas...`)
+      addDebugLog(`📝 Sales config: ${JSON.stringify(salesConfig, null, 2)}`)
 
-      try {
-        const publicClient = createPublicClient({
-          chain: base,
-          transport: http(),
-        })
-
-        const ethBalance = await publicClient.getBalance({ address })
-        const ethBalanceFormatted = (Number(ethBalance) / 1e18).toFixed(6)
-        addDebugLog(`💎 ETH balance: ${ethBalanceFormatted} ETH`)
-
-        if (Number(ethBalance) < 1e15) {
-          addDebugLog(`⚠️ WARNING: Low ETH balance for gas fees!`)
-          setMintError(
-            `Saldo de ETH bajo para gas. Tienes ${ethBalanceFormatted} ETH. Necesitas al menos 0.001 ETH para pagar las tarifas de gas.`,
-          )
-        }
-      } catch (error: any) {
-        addDebugLog(`⚠️ Could not check ETH balance: ${error.message}`)
-      }
-
-      addDebugLog("📤 Calling InProcess collect API...")
       setIsMinting(true)
 
-      const requestBody = {
-        contractAddress,
-        tokenId,
-        amount: quantity,
-        walletAddress: address, // Send the collector's wallet address
-        comment: "Collected via Feria Nounish!",
+      if (salesConfig.type === "erc20Mint" && salesConfig.currency) {
+        addDebugLog(`💰 Minting with ERC20 (${salesConfig.currency})`)
+        addDebugLog(`💰 Price per token: ${salesConfig.pricePerToken}`)
+        addDebugLog(`💰 Total price: ${BigInt(salesConfig.pricePerToken) * BigInt(quantity)}`)
+
+        writeContract({
+          address: contractAddress,
+          abi: ERC1155_ABI,
+          functionName: "purchaseWithERC20",
+          args: [
+            BigInt(tokenId),
+            BigInt(quantity),
+            address,
+            salesConfig.currency as `0x${string}`,
+            BigInt(salesConfig.pricePerToken) * BigInt(quantity),
+          ],
+        })
+
+        addDebugLog("✅ Mint transaction sent, waiting for confirmation...")
+      } else if (salesConfig.type === "fixedPrice") {
+        addDebugLog(`💰 Minting with native token (ETH)`)
+        addDebugLog(`💰 Price per token: ${salesConfig.pricePerToken}`)
+
+        writeContract({
+          address: contractAddress,
+          abi: ERC1155_ABI,
+          functionName: "mint",
+          args: [address, BigInt(tokenId), BigInt(quantity)],
+          value: BigInt(salesConfig.pricePerToken) * BigInt(quantity),
+        })
+
+        addDebugLog("✅ Mint transaction sent, waiting for confirmation...")
+      } else {
+        throw new Error(`Tipo de venta no soportado: ${salesConfig.type}`)
       }
-      addDebugLog(`📤 Request body: ${JSON.stringify(requestBody, null, 2)}`)
-
-      const response = await fetch("/api/inprocess/collect", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(requestBody),
-      })
-
-      addDebugLog(`📥 API response status: ${response.status}`)
-      addDebugLog(`📥 API response ok: ${response.ok}`)
-      addDebugLog(`📥 API response headers: ${JSON.stringify(Object.fromEntries(response.headers.entries()), null, 2)}`)
-
-      const responseText = await response.text()
-      addDebugLog(`📥 API response body: ${responseText}`)
-
-      let data
-      try {
-        data = JSON.parse(responseText)
-      } catch (e) {
-        addDebugLog(`❌ Failed to parse response as JSON: ${e}`)
-        throw new Error(`Invalid response from API: ${responseText}`)
-      }
-
-      if (!response.ok) {
-        addDebugLog(`❌ API returned error: ${JSON.stringify(data, null, 2)}`)
-
-        let errorMessage = data.error || "Failed to collect moment via InProcess API"
-        if (data.details) {
-          addDebugLog(`❌ Error details: ${JSON.stringify(data.details, null, 2)}`)
-          if (typeof data.details === "object" && data.details.message) {
-            errorMessage += `: ${data.details.message}`
-          }
-        }
-        if (data.status) {
-          addDebugLog(`❌ HTTP status: ${data.status}`)
-        }
-        if (data.possibleCauses && data.possibleCauses.length > 0) {
-          addDebugLog(`📋 Possible causes: ${data.possibleCauses.join(", ")}`)
-          errorMessage += "\n\nPosibles causas:\n" + data.possibleCauses.map((cause: string) => `• ${cause}`).join("\n")
-        }
-        if (data.requestInfo?.attemptedFormats) {
-          addDebugLog(`📋 Attempted formats: ${data.requestInfo.attemptedFormats.join(", ")}`)
-        }
-
-        throw new Error(errorMessage)
-      }
-
-      addDebugLog(`✅ Collect successful! Transaction hash: ${data.hash}`)
-      addDebugLog(`🔗 Chain ID: ${data.chainId}`)
-
-      setJustCollected(true)
-      setIsMinting(false)
-
-      await checkContractState()
     } catch (error: any) {
       console.error("[v0] Error in handleMint:", error)
       addDebugLog(`❌ Error in handleMint: ${error.message}`)
@@ -863,6 +875,24 @@ ${debugInfo.join("\n")}`
                       <span className="text-gray-500">Token ID:</span>
                       <p className="font-mono text-xs text-gray-800">{tokenId}</p>
                     </div>
+                    {salesConfig && (
+                      <>
+                        <div>
+                          <span className="text-gray-500">Precio por token:</span>
+                          <p className="font-mono text-xs text-gray-800">
+                            {salesConfig.type === "erc20Mint"
+                              ? `${Number(salesConfig.pricePerToken) / 1e6} USDC`
+                              : `${Number(salesConfig.pricePerToken) / 1e18} ETH`}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">Tipo de venta:</span>
+                          <p className="font-mono text-xs text-gray-800">
+                            {salesConfig.type === "erc20Mint" ? "ERC20 (USDC)" : "Precio fijo (ETH)"}
+                          </p>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </CardContent>
               </Card>
