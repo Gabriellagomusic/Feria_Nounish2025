@@ -361,6 +361,76 @@ export default function TokenDetailPage() {
     }
   }
 
+  const checkSalesConfig = async () => {
+    addDebugLog("🔍 Checking ERC20 sales configuration...", true)
+
+    try {
+      const publicClient = createPublicClient({
+        chain: base,
+        transport: http(),
+      })
+
+      const salesConfig = await publicClient.readContract({
+        address: ZORA_ERC20_MINTER,
+        abi: ZORA_ERC20_MINTER_ABI,
+        functionName: "sale",
+        args: [contractAddress, BigInt(tokenId)],
+      })
+
+      const salesConfigForLogging = {
+        saleStart: salesConfig.saleStart.toString(),
+        saleEnd: salesConfig.saleEnd.toString(),
+        maxTokensPerAddress: salesConfig.maxTokensPerAddress.toString(),
+        pricePerToken: salesConfig.pricePerToken.toString(),
+        pricePerTokenUSDC: (Number(salesConfig.pricePerToken) / 1e6).toString() + " USDC",
+        fundsRecipient: salesConfig.fundsRecipient,
+        currency: salesConfig.currency,
+      }
+
+      addDebugLog(`📊 Sales Config: ${JSON.stringify(salesConfigForLogging, null, 2)}`, true)
+      addDebugLog(`💰 Price Per Token: ${Number(salesConfig.pricePerToken) / 1e6} USDC`, true)
+      addDebugLog(`💵 Currency: ${salesConfig.currency}`, true)
+      addDebugLog(`📅 Sale Start: ${salesConfig.saleStart}`, true)
+      addDebugLog(`📅 Sale End: ${salesConfig.saleEnd}`, true)
+      addDebugLog(`👤 Funds Recipient: ${salesConfig.fundsRecipient}`, true)
+
+      // Check if sales config is set up
+      if (salesConfig.currency === "0x0000000000000000000000000000000000000000") {
+        addDebugLog("❌ No ERC20 sales config found for this token", true)
+        return null
+      }
+
+      // Check if currency matches USDC
+      if (salesConfig.currency.toLowerCase() !== USDC_ADDRESS.toLowerCase()) {
+        addDebugLog(
+          `⚠️ Sales config uses different currency: ${salesConfig.currency} (expected USDC: ${USDC_ADDRESS})`,
+          true,
+        )
+      }
+
+      if (salesConfig.pricePerToken === BigInt(0)) {
+        addDebugLog("⚠️ Sales config price is 0, defaulting to 1 USDC", true)
+        return {
+          ...salesConfig,
+          pricePerToken: parseUnits("1", 6), // 1 USDC
+        }
+      }
+
+      return salesConfig
+    } catch (error: any) {
+      addDebugLog(`❌ Error checking sales config: ${error.message}`, true)
+      addDebugLog("💡 Using default price: 1 USDC", true)
+      return {
+        saleStart: BigInt(0),
+        saleEnd: BigInt(0),
+        maxTokensPerAddress: BigInt(0),
+        pricePerToken: parseUnits("1", 6), // 1 USDC
+        fundsRecipient: "0x0000000000000000000000000000000000000000" as Address,
+        currency: USDC_ADDRESS,
+      }
+    }
+  }
+
   const approveUSDC = async () => {
     if (!address) return
 
@@ -408,47 +478,138 @@ export default function TokenDetailPage() {
     }
   }
 
-  const checkSalesConfig = async () => {
-    addDebugLog("🔍 Checking ERC20 sales configuration...", true)
+  const handleMint = async () => {
+    console.log("[v0] ========== COLECCIONAR BUTTON CLICKED ==========")
+    addDebugLog("🔘 ========== COLECCIONAR BUTTON CLICKED ==========", true)
+    addDebugLog(`⏰ Timestamp: ${new Date().toISOString()}`, true)
+
+    if (!address) {
+      addDebugLog("❌ ERROR: No wallet connected", true)
+      setMintError("Por favor conecta tu wallet primero")
+      return
+    }
+
+    addDebugLog(`✅ Wallet connected: ${address}`, true)
+    addDebugLog(`💡 IMPORTANTE: TÚ (el coleccionista) pagas 1 USDC + gas`, true)
+    addDebugLog(`💡 El artista NO paga nada`, true)
 
     try {
+      setMintError(null)
+      setIsMinting(true)
+      setMintHash(null)
+
+      addDebugLog("🚀 ========== STARTING COLLECTOR-PAID MINT ==========", true)
+      addDebugLog(`📝 Chain: Base (8453)`, true)
+      addDebugLog(`📝 Collector (YOU): ${address}`, true)
+      addDebugLog(`📝 Contract: ${contractAddress}`, true)
+      addDebugLog(`📝 Token ID: ${tokenId}`, true)
+      addDebugLog(`📝 Quantity: ${quantity}`, true)
+      addDebugLog(`💰 Price: 1 USDC per edition`, true)
+      addDebugLog(`💰 Total Cost: ${quantity} USDC + gas`, true)
+      addDebugLog(`✨ Minting Type: COLLECTOR PAYS (you pay USDC + gas)`, true)
+
+      addDebugLog("📋 Step 0: Checking ERC20 sales configuration...", true)
+      const salesConfig = await checkSalesConfig()
+
+      const pricePerToken = parseUnits("1", 6) // Always 1 USDC
+
+      if (salesConfig) {
+        addDebugLog(`✅ Sales config found! Price from config: ${Number(salesConfig.pricePerToken) / 1e6} USDC`, true)
+      } else {
+        addDebugLog(`⚠️ No sales config found, using default price`, true)
+      }
+
+      addDebugLog(`💰 Using price: ${Number(pricePerToken) / 1e6} USDC per token`, true)
+
+      // Step 1: Check USDC allowance
+      addDebugLog("📋 Step 1: Checking USDC allowance...", true)
+      const hasAllowance = await checkUSDCAllowance()
+
+      // Step 2: Approve USDC if needed
+      if (!hasAllowance) {
+        addDebugLog("📋 Step 2: Approving USDC...", true)
+        await approveUSDC()
+        addDebugLog("✅ USDC approved successfully!", true)
+      } else {
+        addDebugLog("✅ Step 2: USDC already approved, skipping", true)
+      }
+
+      // Step 3: Mint with Zora ERC20 Minter
+      addDebugLog("📋 Step 3: Minting with Zora ERC20 Minter...", true)
+
+      const mintArgs = {
+        tokenContract: contractAddress,
+        tokenId: BigInt(tokenId),
+        mintTo: address,
+        quantity: BigInt(quantity),
+        currency: USDC_ADDRESS,
+        pricePerToken: pricePerToken, // Always 1 USDC
+        mintReferral: "0x0000000000000000000000000000000000000000" as Address,
+        comment: "Collected via Feria Nounish on Base!",
+      }
+
+      addDebugLog(
+        `📤 Mint Arguments: ${JSON.stringify(
+          {
+            ...mintArgs,
+            tokenId: mintArgs.tokenId.toString(),
+            quantity: mintArgs.quantity.toString(),
+            pricePerToken: (Number(mintArgs.pricePerToken) / 1e6).toString() + " USDC",
+          },
+          null,
+          2,
+        )}`,
+        true,
+      )
+
+      const hash = await writeContractAsync({
+        address: ZORA_ERC20_MINTER,
+        abi: ZORA_ERC20_MINTER_ABI,
+        functionName: "mint",
+        args: [mintArgs],
+      })
+
+      setMintHash(hash)
+      addDebugLog(`✅ Mint transaction sent: ${hash}`, true)
+      addDebugLog(`🔗 View on BaseScan: https://basescan.org/tx/${hash}`, true)
+
+      // Wait for mint transaction
+      addDebugLog(`⏳ Waiting for mint confirmation...`, true)
       const publicClient = createPublicClient({
         chain: base,
         transport: http(),
       })
 
-      const salesConfig = await publicClient.readContract({
-        address: ZORA_ERC20_MINTER,
-        abi: ZORA_ERC20_MINTER_ABI,
-        functionName: "sale",
-        args: [contractAddress, BigInt(tokenId)],
-      })
+      const receipt = await publicClient.waitForTransactionReceipt({ hash })
+      addDebugLog(`✅ Mint confirmed! Block: ${receipt.blockNumber}`, true)
 
-      addDebugLog(`📊 Sales Config: ${JSON.stringify(salesConfig, null, 2)}`, true)
-      addDebugLog(`💰 Price Per Token: ${Number(salesConfig.pricePerToken) / 1e6} USDC`, true)
-      addDebugLog(`💵 Currency: ${salesConfig.currency}`, true)
-      addDebugLog(`📅 Sale Start: ${salesConfig.saleStart}`, true)
-      addDebugLog(`📅 Sale End: ${salesConfig.saleEnd}`, true)
-      addDebugLog(`👤 Funds Recipient: ${salesConfig.fundsRecipient}`, true)
+      addDebugLog("✅ ========== MINT SUCCESSFUL ==========", true)
+      setJustCollected(true)
+      setIsMinting(false)
 
-      // Check if sales config is set up
-      if (salesConfig.currency === "0x0000000000000000000000000000000000000000") {
-        addDebugLog("❌ No ERC20 sales config found for this token", true)
-        return null
-      }
-
-      // Check if currency matches USDC
-      if (salesConfig.currency.toLowerCase() !== USDC_ADDRESS.toLowerCase()) {
-        addDebugLog(
-          `⚠️ Sales config uses different currency: ${salesConfig.currency} (expected USDC: ${USDC_ADDRESS})`,
-          true,
-        )
-      }
-
-      return salesConfig
+      await checkContractState()
     } catch (error: any) {
-      addDebugLog(`❌ Error checking sales config: ${error.message}`, true)
-      return null
+      console.log("[v0] ========== ERROR IN MINT ==========")
+      console.log("[v0] Error:", error)
+
+      addDebugLog("❌ ========== MINT ERROR ==========", true)
+      addDebugLog(`❌ Error Type: ${error.constructor.name}`, true)
+      addDebugLog(`❌ Error Message: ${error.message}`, true)
+
+      if (error.cause) {
+        addDebugLog(`❌ Error Cause: ${JSON.stringify(error.cause, null, 2)}`, true)
+      }
+
+      let errorMessage = error.message || "Error desconocido"
+
+      if (errorMessage.includes("User rejected")) {
+        errorMessage = "Transacción rechazada por el usuario"
+      } else if (errorMessage.includes("Insufficient")) {
+        errorMessage = "Balance insuficiente de USDC o ETH para gas"
+      }
+
+      setMintError(`Error al coleccionar: ${errorMessage}`)
+      setIsMinting(false)
     }
   }
 
@@ -568,147 +729,6 @@ export default function TokenDetailPage() {
       checkContractState()
     }
   }, [address, isExperimentalMusicToken])
-
-  const handleMint = async () => {
-    console.log("[v0] ========== COLECCIONAR BUTTON CLICKED ==========")
-    addDebugLog("🔘 ========== COLECCIONAR BUTTON CLICKED ==========", true)
-    addDebugLog(`⏰ Timestamp: ${new Date().toISOString()}`, true)
-
-    if (!address) {
-      addDebugLog("❌ ERROR: No wallet connected", true)
-      setMintError("Por favor conecta tu wallet primero")
-      return
-    }
-
-    addDebugLog(`✅ Wallet connected: ${address}`, true)
-    addDebugLog(`💡 IMPORTANTE: TÚ (el coleccionista) pagas 1 USDC + gas`, true)
-    addDebugLog(`💡 El artista NO paga nada`, true)
-
-    try {
-      setMintError(null)
-      setIsMinting(true)
-      setMintHash(null)
-
-      addDebugLog("🚀 ========== STARTING COLLECTOR-PAID MINT ==========", true)
-      addDebugLog(`📝 Chain: Base (8453)`, true)
-      addDebugLog(`📝 Collector (YOU): ${address}`, true)
-      addDebugLog(`📝 Contract: ${contractAddress}`, true)
-      addDebugLog(`📝 Token ID: ${tokenId}`, true)
-      addDebugLog(`📝 Quantity: ${quantity}`, true)
-      addDebugLog(`💰 Price: 1 USDC per edition`, true)
-      addDebugLog(`💰 Total Cost: ${quantity} USDC + gas`, true)
-      addDebugLog(`✨ Minting Type: COLLECTOR PAYS (you pay USDC + gas)`, true)
-
-      addDebugLog("📋 Step 0: Checking ERC20 sales configuration...", true)
-      const salesConfig = await checkSalesConfig()
-
-      if (!salesConfig || salesConfig.currency === "0x0000000000000000000000000000000000000000") {
-        const errorMsg =
-          "❌ Este token NO tiene configurado ERC20 minting. El artista debe configurar el ERC20 sales config en Zora primero."
-        addDebugLog(errorMsg, true)
-        setMintError(
-          "Este token no está configurado para minteo con USDC. El artista debe configurar el ERC20 sales config en Zora primero.",
-        )
-        setIsMinting(false)
-        return
-      }
-
-      // Use the price from sales config instead of hardcoded 1 USDC
-      const pricePerToken = salesConfig.pricePerToken
-
-      addDebugLog(`✅ Sales config found! Using price: ${Number(pricePerToken) / 1e6} USDC`, true)
-
-      // Step 1: Check USDC allowance
-      addDebugLog("📋 Step 1: Checking USDC allowance...", true)
-      const hasAllowance = await checkUSDCAllowance()
-
-      // Step 2: Approve USDC if needed
-      if (!hasAllowance) {
-        addDebugLog("📋 Step 2: Approving USDC...", true)
-        await approveUSDC()
-        addDebugLog("✅ USDC approved successfully!", true)
-      } else {
-        addDebugLog("✅ Step 2: USDC already approved, skipping", true)
-      }
-
-      // Step 3: Mint with Zora ERC20 Minter
-      addDebugLog("📋 Step 3: Minting with Zora ERC20 Minter...", true)
-
-      const mintArgs = {
-        tokenContract: contractAddress,
-        tokenId: BigInt(tokenId),
-        mintTo: address,
-        quantity: BigInt(quantity),
-        currency: USDC_ADDRESS,
-        pricePerToken: pricePerToken, // Use price from sales config
-        mintReferral: "0x0000000000000000000000000000000000000000" as Address,
-        comment: "Collected via Feria Nounish on Base!",
-      }
-
-      addDebugLog(
-        `📤 Mint Arguments: ${JSON.stringify(
-          {
-            ...mintArgs,
-            tokenId: mintArgs.tokenId.toString(),
-            quantity: mintArgs.quantity.toString(),
-            pricePerToken: (Number(mintArgs.pricePerToken) / 1e6).toString() + " USDC",
-          },
-          null,
-          2,
-        )}`,
-        true,
-      )
-
-      const hash = await writeContractAsync({
-        address: ZORA_ERC20_MINTER,
-        abi: ZORA_ERC20_MINTER_ABI,
-        functionName: "mint",
-        args: [mintArgs],
-      })
-
-      setMintHash(hash)
-      addDebugLog(`✅ Mint transaction sent: ${hash}`, true)
-      addDebugLog(`🔗 View on BaseScan: https://basescan.org/tx/${hash}`, true)
-
-      // Wait for mint transaction
-      addDebugLog(`⏳ Waiting for mint confirmation...`, true)
-      const publicClient = createPublicClient({
-        chain: base,
-        transport: http(),
-      })
-
-      const receipt = await publicClient.waitForTransactionReceipt({ hash })
-      addDebugLog(`✅ Mint confirmed! Block: ${receipt.blockNumber}`, true)
-
-      addDebugLog("✅ ========== MINT SUCCESSFUL ==========", true)
-      setJustCollected(true)
-      setIsMinting(false)
-
-      await checkContractState()
-    } catch (error: any) {
-      console.log("[v0] ========== ERROR IN MINT ==========")
-      console.log("[v0] Error:", error)
-
-      addDebugLog("❌ ========== MINT ERROR ==========", true)
-      addDebugLog(`❌ Error Type: ${error.constructor.name}`, true)
-      addDebugLog(`❌ Error Message: ${error.message}`, true)
-
-      if (error.cause) {
-        addDebugLog(`❌ Error Cause: ${JSON.stringify(error.cause, null, 2)}`, true)
-      }
-
-      let errorMessage = error.message || "Error desconocido"
-
-      if (errorMessage.includes("User rejected")) {
-        errorMessage = "Transacción rechazada por el usuario"
-      } else if (errorMessage.includes("Insufficient")) {
-        errorMessage = "Balance insuficiente de USDC o ETH para gas"
-      }
-
-      setMintError(`Error al coleccionar: ${errorMessage}`)
-      setIsMinting(false)
-    }
-  }
 
   if (isLoading) {
     return (
