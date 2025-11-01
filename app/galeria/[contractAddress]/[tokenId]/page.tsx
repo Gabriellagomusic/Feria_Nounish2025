@@ -8,7 +8,7 @@ import { useParams } from "next/navigation"
 import { createPublicClient, http, parseUnits, type Address, encodeAbiParameters } from "viem"
 import { base } from "viem/chains"
 import { useAccount, useWriteContract, useConnect } from "wagmi"
-import { ArrowLeft, Plus, Minus } from "lucide-react"
+import { ArrowLeft, Plus, Minus, ChevronDown, ChevronUp, Copy, Check } from "lucide-react"
 import { getDisplayName } from "@/lib/farcaster"
 import { ShareToFarcasterButton } from "@/components/share/ShareToFarcasterButton"
 import { getTimeline, type Moment } from "@/lib/inprocess"
@@ -150,6 +150,12 @@ interface TokenMetadata {
   creator?: string
 }
 
+interface DebugLog {
+  timestamp: string
+  message: string
+  type: "info" | "success" | "error" | "warning"
+}
+
 async function fetchWithRetry<T>(fetchFn: () => Promise<T>, maxRetries = 3, baseDelay = 1000): Promise<T> {
   let lastError: Error | null = null
 
@@ -197,14 +203,41 @@ export default function TokenDetailPage() {
     totalSupply: string
   } | null>(null)
 
-  // Removed unused states: debugInfo, showDebugPanel, persistentLogs, isApproving, approvalHash, needsApproval, isSettingSalesConfig
+  const [debugLogs, setDebugLogs] = useState<DebugLog[]>([])
+  const [showDebugPanel, setShowDebugPanel] = useState(false)
+  const [copiedLogs, setCopiedLogs] = useState(false)
+
+  const addDebugLog = (message: string, type: DebugLog["type"] = "info") => {
+    const timestamp = new Date().toLocaleTimeString("en-US", {
+      hour12: false,
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      fractionalSecondDigits: 3,
+    })
+    const log = { timestamp, message, type }
+    setDebugLogs((prev) => [...prev, log])
+    console.log(`[v0] ${message}`)
+  }
+
+  const copyLogsToClipboard = async () => {
+    const logsText = debugLogs.map((log) => `[${log.timestamp}] ${log.message}`).join("\n")
+
+    try {
+      await navigator.clipboard.writeText(logsText)
+      setCopiedLogs(true)
+      setTimeout(() => setCopiedLogs(false), 2000)
+    } catch (error) {
+      console.error("Failed to copy logs:", error)
+    }
+  }
 
   const isExperimentalMusicToken =
     contractAddress.toLowerCase() === "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5" && tokenId === "1"
 
   useEffect(() => {
     if (!isFrameReady && !frameReadyCalledRef.current) {
-      console.log("[v0] Initializing MiniKit frame")
+      addDebugLog("Initializing MiniKit frame", "info")
       frameReadyCalledRef.current = true
       setFrameReady()
     }
@@ -214,7 +247,7 @@ export default function TokenDetailPage() {
     if (isFrameReady && !isConnected && !connectAttemptedRef.current && connectors.length > 0) {
       const farcasterConnector = connectors.find((c) => c.name === "Farcaster")
       if (farcasterConnector) {
-        console.log("[v0] Auto-connecting wallet via Farcaster")
+        addDebugLog("Auto-connecting wallet via Farcaster", "info")
         connectAttemptedRef.current = true
         connect({ connector: farcasterConnector })
       }
@@ -227,7 +260,7 @@ export default function TokenDetailPage() {
 
   const checkSalesConfig = async () => {
     try {
-      console.log("[v0] 🔍 Checking sales config for token...")
+      addDebugLog("🔍 Checking sales config for token...", "info")
       const publicClient = createPublicClient({
         chain: base,
         transport: http(),
@@ -240,26 +273,29 @@ export default function TokenDetailPage() {
         args: [contractAddress, BigInt(tokenId)],
       })
 
-      console.log("[v0] 📊 Sales Config:", {
-        saleStart: salesConfig.saleStart.toString(),
-        saleEnd: salesConfig.saleEnd.toString(),
-        maxTokensPerAddress: salesConfig.maxTokensPerAddress.toString(),
-        pricePerToken: salesConfig.pricePerToken.toString(),
-        pricePerTokenUSDC: `${Number(salesConfig.pricePerToken) / 1e6} USDC`,
-        fundsRecipient: salesConfig.fundsRecipient,
-        currency: salesConfig.currency,
-      })
+      addDebugLog(
+        `📊 Sales Config: ${JSON.stringify({
+          saleStart: salesConfig.saleStart.toString(),
+          saleEnd: salesConfig.saleEnd.toString(),
+          maxTokensPerAddress: salesConfig.maxTokensPerAddress.toString(),
+          pricePerToken: salesConfig.pricePerToken.toString(),
+          pricePerTokenUSDC: `${Number(salesConfig.pricePerToken) / 1e6} USDC`,
+          fundsRecipient: salesConfig.fundsRecipient,
+          currency: salesConfig.currency,
+        })}`,
+        "info",
+      )
 
       // Check if sales config is valid
       if (salesConfig.currency === "0x0000000000000000000000000000000000000000") {
-        console.log("[v0] ❌ No ERC20 sales config found for this token")
+        addDebugLog("❌ No ERC20 sales config found for this token", "error")
         return null
       }
 
-      console.log("[v0] ✅ Valid sales config found")
+      addDebugLog("✅ Valid sales config found", "success")
       return salesConfig
     } catch (error: any) {
-      console.error("[v0] ❌ Error checking sales config:", error.message)
+      addDebugLog(`❌ Error checking sales config: ${error.message}`, "error")
       return null
     }
   }
@@ -267,10 +303,10 @@ export default function TokenDetailPage() {
   const setupSalesConfig = async () => {
     if (!address) throw new Error("No wallet connected")
 
-    console.log("[v0] 🔧 Setting up sales config...")
-    console.log("[v0] 👤 Wallet address:", address)
-    console.log("[v0] 🎨 Contract address:", contractAddress)
-    console.log("[v0] 🎫 Token ID:", tokenId)
+    addDebugLog("🔧 Setting up sales config...", "info")
+    addDebugLog(`👤 Wallet address: ${address}`, "info")
+    addDebugLog(`🎨 Contract address: ${contractAddress}`, "info")
+    addDebugLog(`🎫 Token ID: ${tokenId}`, "info")
 
     const salesConfigData = {
       saleStart: BigInt(0),
@@ -281,14 +317,17 @@ export default function TokenDetailPage() {
       currency: USDC_ADDRESS,
     }
 
-    console.log("[v0] 📝 Sales config data:", {
-      saleStart: salesConfigData.saleStart.toString(),
-      saleEnd: salesConfigData.saleEnd.toString(),
-      maxTokensPerAddress: salesConfigData.maxTokensPerAddress.toString(),
-      pricePerToken: salesConfigData.pricePerToken.toString(),
-      fundsRecipient: salesConfigData.fundsRecipient,
-      currency: salesConfigData.currency,
-    })
+    addDebugLog(
+      `📝 Sales config data: ${JSON.stringify({
+        saleStart: salesConfigData.saleStart.toString(),
+        saleEnd: salesConfigData.saleEnd.toString(),
+        maxTokensPerAddress: salesConfigData.maxTokensPerAddress.toString(),
+        pricePerToken: salesConfigData.pricePerToken.toString(),
+        fundsRecipient: salesConfigData.fundsRecipient,
+        currency: salesConfigData.currency,
+      })}`,
+      "info",
+    )
 
     const setSaleData = encodeAbiParameters(
       [
@@ -309,9 +348,9 @@ export default function TokenDetailPage() {
       [BigInt(tokenId), salesConfigData],
     )
 
-    console.log("[v0] 📦 Encoded sales config data:", setSaleData)
+    addDebugLog(`📦 Encoded sales config data: ${setSaleData}`, "info")
 
-    console.log("[v0] 📤 Sending callSale transaction...")
+    addDebugLog("📤 Sending callSale transaction...", "info")
     const hash = await writeContractAsync({
       address: contractAddress,
       abi: ZORA_1155_ABI,
@@ -319,23 +358,23 @@ export default function TokenDetailPage() {
       args: [BigInt(tokenId), ZORA_ERC20_MINTER, setSaleData],
     })
 
-    console.log("[v0] ✅ Sales config setup tx hash:", hash)
+    addDebugLog(`✅ Sales config setup tx hash: ${hash}`, "success")
 
     const publicClient = createPublicClient({
       chain: base,
       transport: http(),
     })
 
-    console.log("[v0] ⏳ Waiting for transaction confirmation...")
+    addDebugLog("⏳ Waiting for transaction confirmation...", "info")
     await publicClient.waitForTransactionReceipt({ hash })
-    console.log("[v0] ✅ Sales config setup confirmed!")
+    addDebugLog("✅ Sales config setup confirmed!", "success")
   }
 
   const approveUSDC = async (amount: bigint) => {
     if (!address) throw new Error("No wallet connected")
 
-    console.log("[v0] 💳 Approving USDC...")
-    console.log("[v0] 💰 Amount to approve:", Number(amount) / 1e6, "USDC")
+    addDebugLog("💳 Approving USDC...", "info")
+    addDebugLog(`💰 Amount to approve: ${Number(amount) / 1e6} USDC`, "info")
 
     const hash = await writeContractAsync({
       address: USDC_ADDRESS,
@@ -344,25 +383,25 @@ export default function TokenDetailPage() {
       args: [ZORA_ERC20_MINTER, amount],
     })
 
-    console.log("[v0] ✅ USDC approval tx hash:", hash)
+    addDebugLog(`✅ USDC approval tx hash: ${hash}`, "success")
 
     const publicClient = createPublicClient({
       chain: base,
       transport: http(),
     })
 
-    console.log("[v0] ⏳ Waiting for approval confirmation...")
+    addDebugLog("⏳ Waiting for approval confirmation...", "info")
     await publicClient.waitForTransactionReceipt({ hash })
-    console.log("[v0] ✅ USDC approval confirmed!")
+    addDebugLog("✅ USDC approval confirmed!", "success")
   }
 
   const handleMint = async () => {
-    console.log("[v0] ========== STARTING MINT FLOW ==========")
-    console.log("[v0] 👤 Connected wallet:", address)
-    console.log("[v0] 🎨 Contract:", contractAddress)
-    console.log("[v0] 🎫 Token ID:", tokenId)
-    console.log("[v0] 🔢 Quantity:", quantity)
-    console.log("[v0] 👑 Is owner:", isOwner)
+    addDebugLog("========== STARTING MINT FLOW ==========", "info")
+    addDebugLog(`👤 Connected wallet: ${address}`, "info")
+    addDebugLog(`🎨 Contract: ${contractAddress}`, "info")
+    addDebugLog(`🎫 Token ID: ${tokenId}`, "info")
+    addDebugLog(`🔢 Quantity: ${quantity}`, "info")
+    addDebugLog(`👑 Is owner: ${isOwner}`, "info")
 
     if (!address) {
       setMintError("Por favor conecta tu wallet primero")
@@ -380,24 +419,24 @@ export default function TokenDetailPage() {
       })
 
       // Step 1: Check sales config
-      console.log("[v0] ========== STEP 1: CHECK SALES CONFIG ==========")
+      addDebugLog("========== STEP 1: CHECK SALES CONFIG ==========", "info")
       let salesConfig = await checkSalesConfig()
 
       if (!salesConfig) {
-        console.log("[v0] ⚠️ No sales config found")
+        addDebugLog("⚠️ No sales config found", "warning")
         if (!isOwner) {
-          console.log("[v0] ❌ User is not owner, cannot setup sales config")
+          addDebugLog("❌ User is not owner, cannot setup sales config", "error")
           throw new Error("Este token no tiene configurado ERC20 minting. Contacta al artista.")
         }
 
-        console.log("[v0] ✅ User is owner, setting up sales config...")
+        addDebugLog("✅ User is owner, setting up sales config...", "success")
         await setupSalesConfig()
 
-        console.log("[v0] 🔄 Re-checking sales config after setup...")
+        addDebugLog("🔄 Re-checking sales config after setup...", "info")
         salesConfig = await checkSalesConfig()
 
         if (!salesConfig) {
-          console.log("[v0] ❌ Sales config still not found after setup")
+          addDebugLog("❌ Sales config still not found after setup", "error")
           throw new Error("Error configurando sales config")
         }
       }
@@ -405,11 +444,11 @@ export default function TokenDetailPage() {
       const pricePerToken = salesConfig.pricePerToken || parseUnits("1", 6)
       const totalCost = pricePerToken * BigInt(quantity)
 
-      console.log("[v0] 💰 Price per token:", Number(pricePerToken) / 1e6, "USDC")
-      console.log("[v0] 💰 Total cost:", Number(totalCost) / 1e6, "USDC")
+      addDebugLog(`💰 Price per token: ${Number(pricePerToken) / 1e6} USDC`, "info")
+      addDebugLog(`💰 Total cost: ${Number(totalCost) / 1e6} USDC`, "info")
 
       // Step 2: Check USDC balance
-      console.log("[v0] ========== STEP 2: CHECK USDC BALANCE ==========")
+      addDebugLog("========== STEP 2: CHECK USDC BALANCE ==========", "info")
       const balance = await publicClient.readContract({
         address: USDC_ADDRESS,
         abi: ERC20_ABI,
@@ -417,19 +456,19 @@ export default function TokenDetailPage() {
         args: [address],
       })
 
-      console.log("[v0] 💵 USDC balance:", Number(balance) / 1e6, "USDC")
+      addDebugLog(`💵 USDC balance: ${Number(balance) / 1e6} USDC`, "info")
 
       if (balance < totalCost) {
-        console.log("[v0] ❌ Insufficient USDC balance")
+        addDebugLog("❌ Insufficient USDC balance", "error")
         throw new Error(
           `Balance insuficiente. Necesitas ${Number(totalCost) / 1e6} USDC pero tienes ${Number(balance) / 1e6} USDC`,
         )
       }
 
-      console.log("[v0] ✅ Sufficient USDC balance")
+      addDebugLog("✅ Sufficient USDC balance", "success")
 
       // Step 3: Check and approve USDC if needed
-      console.log("[v0] ========== STEP 3: CHECK USDC ALLOWANCE ==========")
+      addDebugLog("========== STEP 3: CHECK USDC ALLOWANCE ==========", "info")
       const allowance = await publicClient.readContract({
         address: USDC_ADDRESS,
         abi: ERC20_ABI,
@@ -437,19 +476,19 @@ export default function TokenDetailPage() {
         args: [address, ZORA_ERC20_MINTER],
       })
 
-      console.log("[v0] 💳 Current allowance:", Number(allowance) / 1e6, "USDC")
+      addDebugLog(`💳 Current allowance: ${Number(allowance) / 1e6} USDC`, "info")
 
       if (allowance < totalCost) {
-        console.log("[v0] ⚠️ Insufficient allowance, need to approve")
+        addDebugLog("⚠️ Insufficient allowance, need to approve", "warning")
         const approvalAmount = totalCost * BigInt(2) // Approve 2x for future mints
-        console.log("[v0] 💳 Approving:", Number(approvalAmount) / 1e6, "USDC")
+        addDebugLog(`💳 Approving: ${Number(approvalAmount) / 1e6} USDC`, "info")
         await approveUSDC(approvalAmount)
       } else {
-        console.log("[v0] ✅ Sufficient allowance already exists")
+        addDebugLog("✅ Sufficient allowance already exists", "success")
       }
 
       // Step 4: Mint
-      console.log("[v0] ========== STEP 4: MINT ==========")
+      addDebugLog("========== STEP 4: MINT ==========", "info")
       const mintArgs = {
         tokenContract: contractAddress,
         tokenId: BigInt(tokenId),
@@ -461,18 +500,21 @@ export default function TokenDetailPage() {
         comment: "Collected via Feria Nounish on Base!",
       }
 
-      console.log("[v0] 📤 Mint Arguments:", {
-        tokenContract: mintArgs.tokenContract,
-        tokenId: mintArgs.tokenId.toString(),
-        mintTo: mintArgs.mintTo,
-        quantity: mintArgs.quantity.toString(),
-        currency: mintArgs.currency,
-        pricePerToken: `${Number(mintArgs.pricePerToken) / 1e6} USDC`,
-        mintReferral: mintArgs.mintReferral,
-        comment: mintArgs.comment,
-      })
+      addDebugLog(
+        `📤 Mint Arguments: ${JSON.stringify({
+          tokenContract: mintArgs.tokenContract,
+          tokenId: mintArgs.tokenId.toString(),
+          mintTo: mintArgs.mintTo,
+          quantity: mintArgs.quantity.toString(),
+          currency: mintArgs.currency,
+          pricePerToken: `${Number(mintArgs.pricePerToken) / 1e6} USDC`,
+          mintReferral: mintArgs.mintReferral,
+          comment: mintArgs.comment,
+        })}`,
+        "info",
+      )
 
-      console.log("[v0] 📤 Sending mint transaction...")
+      addDebugLog("📤 Sending mint transaction...", "info")
       const hash = await writeContractAsync({
         address: ZORA_ERC20_MINTER,
         abi: ZORA_ERC20_MINTER_ABI,
@@ -481,21 +523,20 @@ export default function TokenDetailPage() {
       })
 
       setMintHash(hash)
-      console.log("[v0] ✅ Mint tx hash:", hash)
+      addDebugLog(`✅ Mint tx hash: ${hash}`, "success")
 
-      console.log("[v0] ⏳ Waiting for mint confirmation...")
+      addDebugLog("⏳ Waiting for mint confirmation...", "info")
       await publicClient.waitForTransactionReceipt({ hash })
-      console.log("[v0] ✅ Mint confirmed!")
-      console.log("[v0] ========== MINT FLOW COMPLETE ==========")
+      addDebugLog("✅ Mint confirmed!", "success")
+      addDebugLog("========== MINT FLOW COMPLETE ==========", "success")
 
       setJustCollected(true)
       setIsMinting(false)
       await checkContractState()
     } catch (error: any) {
-      console.error("[v0] ========== MINT FLOW ERROR ==========")
-      console.error("[v0] ❌ Error:", error)
-      console.error("[v0] ❌ Error message:", error.message)
-      console.error("[v0] ❌ Error stack:", error.stack)
+      addDebugLog("========== MINT FLOW ERROR ==========", "error")
+      addDebugLog(`❌ Error: ${error}`, "error")
+      addDebugLog(`❌ Error message: ${error.message}`, "error")
 
       let errorMessage = error.message || "Error desconocido"
 
@@ -527,7 +568,7 @@ export default function TokenDetailPage() {
 
       setIsOwner(owner.toLowerCase() === address.toLowerCase())
     } catch (error: any) {
-      console.error("[v0] Error checking ownership:", error)
+      addDebugLog(`Error checking ownership: ${error}`, "error")
     }
   }
 
@@ -560,7 +601,7 @@ export default function TokenDetailPage() {
         totalSupply: totalSupply.toString(),
       })
     } catch (error: any) {
-      console.error("[v0] Error checking contract state:", error)
+      addDebugLog(`Error checking contract state: ${error}`, "error")
     }
   }
 
@@ -569,6 +610,7 @@ export default function TokenDetailPage() {
   useEffect(() => {
     const fetchTokenMetadata = async () => {
       setIsLoading(true)
+      addDebugLog("Fetching token metadata...", "info")
 
       try {
         const publicClient = createPublicClient({
@@ -612,6 +654,7 @@ export default function TokenDetailPage() {
             image: imageUrl || "/placeholder.svg",
             creator: metadata.creator,
           })
+          addDebugLog("Token metadata fetched successfully", "success")
 
           try {
             const timelineData = await fetchWithRetry(async () => {
@@ -629,19 +672,25 @@ export default function TokenDetailPage() {
                 setCreator(moment.admin)
                 const displayName = moment.username || (await getDisplayName(moment.admin))
                 setArtistName(displayName)
+                addDebugLog(`Artist found: ${displayName} (${moment.admin})`, "info")
               } else {
                 const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
                 setCreator(fallbackCreator)
                 const displayName = await getDisplayName(fallbackCreator)
                 setArtistName(displayName)
+                addDebugLog(
+                  `Artist not found in timeline, using fallback: ${displayName} (${fallbackCreator})`,
+                  "warning",
+                )
               }
             } else {
               const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
               setCreator(fallbackCreator)
               setArtistName(await getDisplayName(fallbackCreator))
+              addDebugLog(`Timeline empty, using fallback artist: ${await getDisplayName(fallbackCreator)}`, "warning")
             }
           } catch (error) {
-            console.error("[v0] Error fetching artist from inprocess after retries:", error)
+            addDebugLog(`Error fetching artist from inprocess after retries: ${error}`, "error")
             const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
             setCreator(fallbackCreator)
             setArtistName(`${fallbackCreator.slice(0, 6)}...${fallbackCreator.slice(-4)}`)
@@ -659,8 +708,9 @@ export default function TokenDetailPage() {
           description: "Obra de arte digital única de la colección oficial",
           image: "/abstract-digital-composition.png",
         })
+        addDebugLog("Token URI not found, using fallback data", "warning")
       } catch (error) {
-        console.error("Error fetching token metadata after retries:", error)
+        addDebugLog(`Error fetching token metadata after retries: ${error}`, "error")
         const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
         setCreator(fallbackCreator)
         setArtistName(`${fallbackCreator.slice(0, 6)}...${fallbackCreator.slice(-4)}`)
@@ -868,6 +918,66 @@ export default function TokenDetailPage() {
                       </div>
                     )}
                   </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="p-4">
+                  <button
+                    onClick={() => setShowDebugPanel(!showDebugPanel)}
+                    className="w-full flex items-center justify-between text-sm font-semibold text-gray-700 hover:text-gray-900 transition-colors"
+                  >
+                    <span>Debug Logs ({debugLogs.length})</span>
+                    {showDebugPanel ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </button>
+
+                  {showDebugPanel && (
+                    <div className="mt-4 space-y-2">
+                      <div className="flex justify-end">
+                        <Button
+                          onClick={copyLogsToClipboard}
+                          variant="outline"
+                          size="sm"
+                          className="text-xs bg-transparent"
+                        >
+                          {copiedLogs ? (
+                            <>
+                              <Check className="w-3 h-3 mr-1" />
+                              Copied!
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3 h-3 mr-1" />
+                              Copy Logs
+                            </>
+                          )}
+                        </Button>
+                      </div>
+
+                      <div className="max-h-96 overflow-y-auto bg-gray-900 rounded-lg p-3 space-y-1">
+                        {debugLogs.length === 0 ? (
+                          <p className="text-gray-400 text-xs">No logs yet...</p>
+                        ) : (
+                          debugLogs.map((log, index) => (
+                            <div
+                              key={index}
+                              className={`text-xs font-mono ${
+                                log.type === "error"
+                                  ? "text-red-400"
+                                  : log.type === "success"
+                                    ? "text-green-400"
+                                    : log.type === "warning"
+                                      ? "text-yellow-400"
+                                      : "text-gray-300"
+                              }`}
+                            >
+                              <span className="text-gray-500">[{log.timestamp}]</span> {log.message}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </div>
