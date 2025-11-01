@@ -130,6 +130,7 @@ export default function TokenDetailPage() {
   const [justCollected, setJustCollected] = useState(false)
 
   const [debugInfo, setDebugInfo] = useState<string[]>([])
+  const [showDebugPanel, setShowDebugPanel] = useState(true)
   const [isMinting, setIsMinting] = useState(false)
   const [contractInfo, setContractInfo] = useState<{
     userBalance: string
@@ -156,6 +157,7 @@ export default function TokenDetailPage() {
     const timestamp = new Date().toISOString()
     const logMessage = `[${timestamp}] ${message}`
     console.log("[v0]", logMessage)
+    console.log("[v0] RAW:", message)
     setDebugInfo((prev) => [...prev, logMessage])
   }
 
@@ -523,28 +525,42 @@ export default function TokenDetailPage() {
   }, [approveError])
 
   const handleApprove = async () => {
+    console.log("[v0] ========== APPROVE BUTTON CLICKED ==========")
+    addDebugLog("🔘 APPROVE BUTTON CLICKED")
+
     if (!address) {
+      console.log("[v0] ERROR: No wallet connected")
       addDebugLog("❌ No wallet connected")
       return
     }
 
+    console.log("[v0] Wallet connected:", address)
+    addDebugLog(`✅ Wallet connected: ${address}`)
+
     try {
       setMintError(null)
       setIsApproving(true)
+      console.log("[v0] Set isApproving to true")
+      addDebugLog("🔄 Starting approval process...")
 
       const totalCost = PRICE_PER_TOKEN * BigInt(quantity)
+      console.log("[v0] Total cost calculated:", totalCost.toString())
       addDebugLog(`🔐 [Base] Approving ${Number(totalCost) / 1e6} USDC...`)
       addDebugLog(`📝 USDC Address: ${USDC_ADDRESS}`)
       addDebugLog(`📝 Spender (Contract): ${contractAddress}`)
       addDebugLog(`📝 Amount: ${totalCost.toString()} (${Number(totalCost) / 1e6} USDC)`)
 
+      console.log("[v0] Calling approveUSDC...")
       approveUSDC({
         address: USDC_ADDRESS,
         abi: USDC_ABI,
         functionName: "approve",
         args: [contractAddress, totalCost],
       })
+      console.log("[v0] approveUSDC called successfully")
+      addDebugLog("✅ Approval transaction submitted")
     } catch (error: any) {
+      console.log("[v0] ERROR in handleApprove:", error)
       addDebugLog(`❌ Error approving USDC: ${error.message}`)
       setMintError(`Error al aprobar USDC: ${error.message}`)
       setIsApproving(false)
@@ -552,22 +568,37 @@ export default function TokenDetailPage() {
   }
 
   const handleMint = async () => {
+    console.log("[v0] ========== MINT BUTTON CLICKED ==========")
+    addDebugLog("🔘 MINT BUTTON CLICKED")
+
     if (!address) {
+      console.log("[v0] ERROR: No wallet connected")
       addDebugLog("❌ No wallet connected")
       return
     }
 
+    console.log("[v0] Wallet connected:", address)
+    addDebugLog(`✅ Wallet connected: ${address}`)
+
     if (!isApproved) {
+      console.log("[v0] ERROR: USDC not approved")
       addDebugLog("❌ USDC not approved")
       setMintError("Primero debes aprobar el gasto de USDC")
       return
     }
 
+    console.log("[v0] USDC is approved, proceeding with mint")
+    addDebugLog("✅ USDC approved, proceeding with mint")
+
     try {
       setMintError(null)
       setIsMinting(true)
+      console.log("[v0] Set isMinting to true")
+      addDebugLog("🔄 Starting mint process...")
 
       const totalCost = PRICE_PER_TOKEN * BigInt(quantity)
+      console.log("[v0] Total cost:", totalCost.toString())
+
       addDebugLog("🚀 ========== STARTING MINT (COLLECTOR PAYS) ==========")
       addDebugLog(`📝 Chain: Base (8453)`)
       addDebugLog(`📝 Wallet: ${address}`)
@@ -579,11 +610,11 @@ export default function TokenDetailPage() {
       addDebugLog(`💵 USDC Balance: ${Number(usdcBalance) / 1e6} USDC`)
       addDebugLog(`✅ USDC Allowance: ${Number(usdcAllowance) / 1e6} USDC`)
 
-      // Try Zora 1155 mint pattern with ERC20 Minter
-      const ERC20_MINTER_ADDRESS = "0x04E2516A2c207E84a1839755675dfd8eF6302F0a" // Zora ERC20 Minter on Base
-
+      const ERC20_MINTER_ADDRESS = "0x04E2516A2c207E84a1839755675dfd8eF6302F0a"
+      console.log("[v0] ERC20 Minter Address:", ERC20_MINTER_ADDRESS)
       addDebugLog(`🎯 Using ERC20 Minter: ${ERC20_MINTER_ADDRESS}`)
 
+      console.log("[v0] Encoding minter arguments...")
       const minterArguments = encodeFunctionData({
         abi: [
           {
@@ -604,16 +635,17 @@ export default function TokenDetailPage() {
         ],
         functionName: "mint",
         args: [
-          address, // mintTo
-          BigInt(quantity), // quantity
-          contractAddress, // tokenAddress
-          BigInt(tokenId), // tokenId
-          totalCost, // totalValue
-          USDC_ADDRESS, // currency
-          "0x0000000000000000000000000000000000000000", // mintReferral (zero address)
+          address,
+          BigInt(quantity),
+          contractAddress,
+          BigInt(tokenId),
+          totalCost,
+          USDC_ADDRESS,
+          "0x0000000000000000000000000000000000000000",
         ],
       })
 
+      console.log("[v0] Minter arguments encoded:", minterArguments)
       addDebugLog(`📦 Minter Arguments Encoded: ${minterArguments}`)
       addDebugLog(`📦 Minter Arguments Breakdown:`)
       addDebugLog(`   - mintTo: ${address}`)
@@ -624,6 +656,7 @@ export default function TokenDetailPage() {
       addDebugLog(`   - currency: ${USDC_ADDRESS}`)
       addDebugLog(`   - mintReferral: 0x0000000000000000000000000000000000000000`)
 
+      console.log("[v0] Calling mintToken...")
       addDebugLog(`🎯 Calling mint function on contract...`)
       addDebugLog(`   Function: mint(address minter, uint256 tokenId, uint256 quantity, bytes minterArguments)`)
       addDebugLog(`   Args: [${ERC20_MINTER_ADDRESS}, ${tokenId}, ${quantity}, ${minterArguments}]`)
@@ -635,10 +668,19 @@ export default function TokenDetailPage() {
         args: [ERC20_MINTER_ADDRESS, BigInt(tokenId), BigInt(quantity), minterArguments],
       })
 
+      console.log("[v0] mintToken called successfully")
       addDebugLog("✅ Transaction submitted, waiting for confirmation...")
       addDebugLog("🔄 If this fails, check the error logs above")
       addDebugLog("======================================================")
     } catch (error: any) {
+      console.log("[v0] ========== ERROR IN CATCH BLOCK ==========")
+      console.log("[v0] Error:", error)
+      console.log("[v0] Error message:", error.message)
+      console.log("[v0] Error name:", error.name)
+      console.log("[v0] Error cause:", error.cause)
+      console.log("[v0] Error stack:", error.stack)
+      console.log("[v0] Full error object:", JSON.stringify(error, Object.getOwnPropertyNames(error), 2))
+
       addDebugLog("❌ ========== MINT ERROR (CATCH BLOCK) ==========")
       addDebugLog(`❌ Error Message: ${error.message}`)
       addDebugLog(`❌ Error Name: ${error.name}`)
@@ -693,6 +735,37 @@ export default function TokenDetailPage() {
         </header>
 
         <main className="container mx-auto px-4 py-8">
+          {showDebugPanel && debugInfo.length > 0 && (
+            <div className="mb-8 max-w-6xl mx-auto">
+              <Card className="bg-gray-900 border-gray-700">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-white font-bold text-sm">🐛 Debug Logs</h3>
+                    <Button
+                      onClick={() => setShowDebugPanel(false)}
+                      variant="ghost"
+                      size="sm"
+                      className="text-white hover:bg-gray-800"
+                    >
+                      Ocultar
+                    </Button>
+                  </div>
+                  <div className="bg-black rounded p-3 max-h-96 overflow-y-auto">
+                    <pre className="text-xs text-green-400 font-mono whitespace-pre-wrap">{debugInfo.join("\n")}</pre>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {!showDebugPanel && debugInfo.length > 0 && (
+            <div className="mb-4 max-w-6xl mx-auto">
+              <Button onClick={() => setShowDebugPanel(true)} variant="outline" size="sm" className="w-full">
+                🐛 Mostrar Debug Logs ({debugInfo.length})
+              </Button>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-6xl mx-auto">
             <div className="relative aspect-square rounded-lg overflow-hidden bg-white shadow-xl">
               <Image
