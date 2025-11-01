@@ -93,6 +93,39 @@ const ZORA_1155_ABI = [
     stateMutability: "payable",
     type: "function",
   },
+  {
+    inputs: [
+      { name: "tokenId", type: "uint256" },
+      { name: "quantity", type: "uint256" },
+    ],
+    name: "purchase",
+    outputs: [],
+    stateMutability: "payable",
+    type: "function",
+  },
+  {
+    inputs: [
+      { name: "to", type: "address" },
+      { name: "id", type: "uint256" },
+      { name: "amount", type: "uint256" },
+      { name: "data", type: "bytes" },
+    ],
+    name: "mint",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      { name: "tokenId", type: "uint256" },
+      { name: "quantity", type: "uint256" },
+      { name: "recipient", type: "address" },
+    ],
+    name: "collect",
+    outputs: [],
+    stateMutability: "payable",
+    type: "function",
+  },
 ] as const
 
 async function fetchWithRetry<T>(fetchFn: () => Promise<T>, maxRetries = 3, baseDelay = 1000): Promise<T> {
@@ -610,11 +643,103 @@ export default function TokenDetailPage() {
       addDebugLog(`💵 USDC Balance: ${Number(usdcBalance) / 1e6} USDC`)
       addDebugLog(`✅ USDC Allowance: ${Number(usdcAllowance) / 1e6} USDC`)
 
-      const ERC20_MINTER_ADDRESS = "0x04E2516A2c207E84a1839755675dfd8eF6302F0a"
-      console.log("[v0] ERC20 Minter Address:", ERC20_MINTER_ADDRESS)
-      addDebugLog(`🎯 Using ERC20 Minter: ${ERC20_MINTER_ADDRESS}`)
+      addDebugLog("🎯 Attempting Method 1: purchase(tokenId, quantity)")
+      addDebugLog(`   Args: [${tokenId}, ${quantity}]`)
 
-      console.log("[v0] Encoding minter arguments...")
+      try {
+        mintToken({
+          address: contractAddress,
+          abi: [
+            {
+              inputs: [
+                { name: "tokenId", type: "uint256" },
+                { name: "quantity", type: "uint256" },
+              ],
+              name: "purchase",
+              outputs: [],
+              stateMutability: "payable",
+              type: "function",
+            },
+          ],
+          functionName: "purchase",
+          args: [BigInt(tokenId), BigInt(quantity)],
+        })
+
+        addDebugLog("✅ purchase() transaction submitted")
+        addDebugLog("🔄 Waiting for confirmation...")
+        return
+      } catch (error: any) {
+        addDebugLog(`❌ Method 1 failed: ${error.message}`)
+        addDebugLog("🔄 Trying Method 2...")
+      }
+
+      addDebugLog("🎯 Attempting Method 2: mint(to, id, amount, data)")
+      addDebugLog(`   Args: [${address}, ${tokenId}, ${quantity}, 0x]`)
+
+      try {
+        mintToken({
+          address: contractAddress,
+          abi: [
+            {
+              inputs: [
+                { name: "to", type: "address" },
+                { name: "id", type: "uint256" },
+                { name: "amount", type: "uint256" },
+                { name: "data", type: "bytes" },
+              ],
+              name: "mint",
+              outputs: [],
+              stateMutability: "nonpayable",
+              type: "function",
+            },
+          ],
+          functionName: "mint",
+          args: [address, BigInt(tokenId), BigInt(quantity), "0x"],
+        })
+
+        addDebugLog("✅ mint() transaction submitted")
+        addDebugLog("🔄 Waiting for confirmation...")
+        return
+      } catch (error: any) {
+        addDebugLog(`❌ Method 2 failed: ${error.message}`)
+        addDebugLog("🔄 Trying Method 3...")
+      }
+
+      addDebugLog("🎯 Attempting Method 3: collect(tokenId, quantity, recipient)")
+      addDebugLog(`   Args: [${tokenId}, ${quantity}, ${address}]`)
+
+      try {
+        mintToken({
+          address: contractAddress,
+          abi: [
+            {
+              inputs: [
+                { name: "tokenId", type: "uint256" },
+                { name: "quantity", type: "uint256" },
+                { name: "recipient", type: "address" },
+              ],
+              name: "collect",
+              outputs: [],
+              stateMutability: "payable",
+              type: "function",
+            },
+          ],
+          functionName: "collect",
+          args: [BigInt(tokenId), BigInt(quantity), address],
+        })
+
+        addDebugLog("✅ collect() transaction submitted")
+        addDebugLog("🔄 Waiting for confirmation...")
+        return
+      } catch (error: any) {
+        addDebugLog(`❌ Method 3 failed: ${error.message}`)
+        addDebugLog("🔄 Trying Method 4 (Zora pattern)...")
+      }
+
+      const ERC20_MINTER_ADDRESS = "0x04E2516A2c207E84a1839755675dfd8eF6302F0a"
+      addDebugLog(`🎯 Attempting Method 4: Zora mint pattern with ERC20 Minter`)
+      addDebugLog(`   Minter: ${ERC20_MINTER_ADDRESS}`)
+
       const minterArguments = encodeFunctionData({
         abi: [
           {
@@ -645,32 +770,30 @@ export default function TokenDetailPage() {
         ],
       })
 
-      console.log("[v0] Minter arguments encoded:", minterArguments)
-      addDebugLog(`📦 Minter Arguments Encoded: ${minterArguments}`)
-      addDebugLog(`📦 Minter Arguments Breakdown:`)
-      addDebugLog(`   - mintTo: ${address}`)
-      addDebugLog(`   - quantity: ${quantity}`)
-      addDebugLog(`   - tokenAddress: ${contractAddress}`)
-      addDebugLog(`   - tokenId: ${tokenId}`)
-      addDebugLog(`   - totalValue: ${totalCost.toString()} (${Number(totalCost) / 1e6} USDC)`)
-      addDebugLog(`   - currency: ${USDC_ADDRESS}`)
-      addDebugLog(`   - mintReferral: 0x0000000000000000000000000000000000000000`)
-
-      console.log("[v0] Calling mintToken...")
-      addDebugLog(`🎯 Calling mint function on contract...`)
-      addDebugLog(`   Function: mint(address minter, uint256 tokenId, uint256 quantity, bytes minterArguments)`)
-      addDebugLog(`   Args: [${ERC20_MINTER_ADDRESS}, ${tokenId}, ${quantity}, ${minterArguments}]`)
+      addDebugLog(`📦 Minter Arguments: ${minterArguments}`)
 
       mintToken({
         address: contractAddress,
-        abi: ZORA_1155_ABI,
+        abi: [
+          {
+            inputs: [
+              { name: "minter", type: "address" },
+              { name: "tokenId", type: "uint256" },
+              { name: "quantity", type: "uint256" },
+              { name: "minterArguments", type: "bytes" },
+            ],
+            name: "mint",
+            outputs: [],
+            stateMutability: "payable",
+            type: "function",
+          },
+        ],
         functionName: "mint",
         args: [ERC20_MINTER_ADDRESS, BigInt(tokenId), BigInt(quantity), minterArguments],
       })
 
-      console.log("[v0] mintToken called successfully")
-      addDebugLog("✅ Transaction submitted, waiting for confirmation...")
-      addDebugLog("🔄 If this fails, check the error logs above")
+      addDebugLog("✅ Zora mint() transaction submitted")
+      addDebugLog("🔄 Waiting for confirmation...")
       addDebugLog("======================================================")
     } catch (error: any) {
       console.log("[v0] ========== ERROR IN CATCH BLOCK ==========")
@@ -681,7 +804,7 @@ export default function TokenDetailPage() {
       console.log("[v0] Error stack:", error.stack)
       console.log("[v0] Full error object:", JSON.stringify(error, Object.getOwnPropertyNames(error), 2))
 
-      addDebugLog("❌ ========== MINT ERROR (CATCH BLOCK) ==========")
+      addDebugLog("❌ ========== ALL MINT METHODS FAILED ==========")
       addDebugLog(`❌ Error Message: ${error.message}`)
       addDebugLog(`❌ Error Name: ${error.name}`)
 
@@ -911,10 +1034,12 @@ export default function TokenDetailPage() {
                 <CardContent className="p-6">
                   <h3 className="font-extrabold text-sm text-gray-600 mb-2">Información del Contrato</h3>
                   <div className="space-y-2 text-sm font-normal">
-                    <div>
-                      <span className="text-gray-500">Hash:</span>
-                      <p className="font-mono text-xs text-gray-800 break-all">{mintHash}</p>
-                    </div>
+                    {mintHash && (
+                      <div>
+                        <span className="text-gray-500">Hash:</span>
+                        <p className="font-mono text-xs text-gray-800 break-all">{mintHash}</p>
+                      </div>
+                    )}
                     <div>
                       <span className="text-gray-500">Token ID:</span>
                       <p className="font-mono text-xs text-gray-800">{tokenId}</p>
