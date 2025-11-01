@@ -76,6 +76,7 @@ async function fetchArtistForToken(
       displayName: displayName,
     }
   } catch (error) {
+    console.error("[v0] Error fetching artist:", error)
     const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
     return {
       address: fallbackCreator.toLowerCase(),
