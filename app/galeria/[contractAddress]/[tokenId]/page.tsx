@@ -142,17 +142,10 @@ export default function TokenDetailPage() {
       } else if (isMinting) {
         setJustCollected(true)
         setIsMinting(false)
+        checkContractState()
       }
     }
   }, [isConfirmed, hash, isApproving, isMinting])
-
-  useEffect(() => {
-    if (writeError) {
-      addDebugLog(`❌ Transaction error: ${writeError.message}`)
-      setIsMinting(false)
-      setIsApproving(false)
-    }
-  }, [writeError])
 
   useEffect(() => {
     const checkAllowance = async () => {
@@ -174,55 +167,7 @@ export default function TokenDetailPage() {
         addDebugLog(`💰 Current USDC allowance: ${allowance.toString()}`)
         setIsApproved(allowance >= USDC_AMOUNT)
 
-        try {
-          const [userBalance, totalSupply, usdcBalance] = await Promise.all([
-            publicClient
-              .readContract({
-                address: contractAddress,
-                abi: ERC1155_ABI,
-                functionName: "balanceOf",
-                args: [address, BigInt(tokenId)],
-              })
-              .catch(() => BigInt(0)),
-            publicClient
-              .readContract({
-                address: contractAddress,
-                abi: ERC1155_ABI,
-                functionName: "totalSupply",
-                args: [BigInt(tokenId)],
-              })
-              .catch(() => BigInt(0)),
-            publicClient
-              .readContract({
-                address: USDC_ADDRESS,
-                abi: ERC20_ABI,
-                functionName: "balanceOf",
-                args: [address],
-              })
-              .catch(() => BigInt(0)),
-          ])
-
-          const info = {
-            userBalance: userBalance.toString(),
-            totalSupply: totalSupply.toString(),
-            usdcBalance: (Number(usdcBalance) / 1e6).toFixed(2),
-          }
-
-          setContractInfo(info)
-          addDebugLog(`📊 User already owns: ${info.userBalance} of this token`)
-          addDebugLog(`📊 Total supply of this token: ${info.totalSupply}`)
-          addDebugLog(`💵 User USDC balance: ${info.usdcBalance} USDC`)
-
-          if (Number(info.userBalance) > 0) {
-            addDebugLog(`⚠️ WARNING: User already owns this token!`)
-          }
-
-          if (Number(info.usdcBalance) < 1) {
-            addDebugLog(`⚠️ WARNING: Insufficient USDC balance! Need at least 1 USDC`)
-          }
-        } catch (error: any) {
-          addDebugLog(`⚠️ Could not fetch contract state: ${error.message}`)
-        }
+        await checkContractState()
       } catch (error: any) {
         console.error("[v0] Error checking allowance:", error)
         addDebugLog(`❌ Error checking allowance: ${error.message}`)
@@ -231,6 +176,66 @@ export default function TokenDetailPage() {
 
     checkAllowance()
   }, [address, contractAddress, isExperimentalMusicToken, tokenId])
+
+  const checkContractState = async () => {
+    if (!address || !isExperimentalMusicToken) return
+
+    try {
+      const publicClient = createPublicClient({
+        chain: base,
+        transport: http(),
+      })
+
+      const [userBalance, totalSupply, usdcBalance] = await Promise.all([
+        publicClient
+          .readContract({
+            address: contractAddress,
+            abi: ERC1155_ABI,
+            functionName: "balanceOf",
+            args: [address, BigInt(tokenId)],
+          })
+          .catch(() => BigInt(0)),
+        publicClient
+          .readContract({
+            address: contractAddress,
+            abi: ERC1155_ABI,
+            functionName: "totalSupply",
+            args: [BigInt(tokenId)],
+          })
+          .catch(() => BigInt(0)),
+        publicClient
+          .readContract({
+            address: USDC_ADDRESS,
+            abi: ERC20_ABI,
+            functionName: "balanceOf",
+            args: [address],
+          })
+          .catch(() => BigInt(0)),
+      ])
+
+      const info = {
+        userBalance: userBalance.toString(),
+        totalSupply: totalSupply.toString(),
+        usdcBalance: (Number(usdcBalance) / 1e6).toFixed(2),
+      }
+
+      setContractInfo(info)
+      addDebugLog(`📊 User already owns: ${info.userBalance} of this token`)
+      addDebugLog(`📊 Total supply of this token: ${info.totalSupply}`)
+      addDebugLog(`💵 User USDC balance: ${info.usdcBalance} USDC`)
+
+      if (Number(info.userBalance) > 0) {
+        addDebugLog(`✅ User already owns this token - showing success state`)
+        setJustCollected(true)
+      }
+
+      if (Number(info.usdcBalance) < 1) {
+        addDebugLog(`⚠️ WARNING: Insufficient USDC balance! Need at least 1 USDC`)
+      }
+    } catch (error: any) {
+      addDebugLog(`⚠️ Could not fetch contract state: ${error.message}`)
+    }
+  }
 
   useEffect(() => {
     const fetchTokenMetadata = async () => {
@@ -382,16 +387,6 @@ export default function TokenDetailPage() {
     fetchTokenMetadata()
   }, [contractAddress, tokenId])
 
-  useEffect(() => {
-    if (justCollected) {
-      const redirectTimer = setTimeout(() => {
-        router.push("/perfil")
-      }, 3000)
-
-      return () => clearTimeout(redirectTimer)
-    }
-  }, [justCollected, router])
-
   const handleApprove = async () => {
     addDebugLog("💰 Starting USDC approval...")
 
@@ -459,31 +454,6 @@ export default function TokenDetailPage() {
       setIsMinting(true)
       addDebugLog("📤 Calling mint function...")
       addDebugLog("💰 Contract will pull 1 USDC from your wallet")
-
-      try {
-        const publicClient = createPublicClient({
-          chain: base,
-          transport: http(),
-        })
-
-        addDebugLog("🔍 Simulating transaction before sending...")
-        await publicClient.simulateContract({
-          address: contractAddress,
-          abi: ERC1155_ABI,
-          functionName: "mint",
-          args: [address, BigInt(tokenId), BigInt(quantity)],
-          account: address,
-        })
-        addDebugLog("✅ Transaction simulation successful!")
-      } catch (simError: any) {
-        addDebugLog(`❌ Transaction simulation failed: ${simError.message}`)
-        addDebugLog(`🔍 Revert reason: ${simError.cause?.reason || "Unknown"}`)
-
-        const errorMsg = simError.cause?.reason || simError.message
-        alert(`La transacción fallaría: ${errorMsg}\n\nRevisa el panel de debug para más detalles.`)
-        setIsMinting(false)
-        return
-      }
 
       writeContract({
         address: contractAddress,
@@ -569,7 +539,11 @@ export default function TokenDetailPage() {
                       <div className="space-y-3">
                         <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
                           <p className="text-green-800 font-semibold mb-1">¡Colección exitosa!</p>
-                          <p className="text-green-600 text-sm">Redirigiendo a tu perfil en 3 segundos...</p>
+                          <p className="text-green-600 text-sm">
+                            {contractInfo && Number(contractInfo.userBalance) > 0
+                              ? `Ahora tienes ${contractInfo.userBalance} de este token`
+                              : "Token coleccionado exitosamente"}
+                          </p>
                         </div>
                         <ShareToFarcasterButton
                           mode="collect"
@@ -577,13 +551,20 @@ export default function TokenDetailPage() {
                           pieceTitle={tokenData?.name}
                           contractAddress={contractAddress}
                           tokenId={tokenId}
-                          onShareComplete={() => setJustCollected(false)}
+                          onShareComplete={() => {}}
                         />
                         <Button
                           onClick={() => router.push("/perfil")}
                           className="w-full bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-6 text-base"
                         >
-                          Ir a Mi Perfil Ahora
+                          Ver en Mi Perfil
+                        </Button>
+                        <Button
+                          onClick={() => setJustCollected(false)}
+                          variant="outline"
+                          className="w-full font-extrabold py-6 text-base"
+                        >
+                          Coleccionar Más
                         </Button>
                       </div>
                     ) : isExperimentalMusicToken ? (
