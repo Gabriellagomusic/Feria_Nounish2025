@@ -114,6 +114,17 @@ const ZORA_1155_ABI = [
     stateMutability: "view",
     type: "function",
   },
+  {
+    inputs: [
+      { name: "tokenId", type: "uint256" },
+      { name: "user", type: "address" },
+      { name: "permissionBits", type: "uint256" },
+    ],
+    name: "addPermission",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
 ] as const
 
 const ERC1155_ABI = [
@@ -283,13 +294,65 @@ export default function TokenDetailPage() {
 
   // Removed quantity change log
 
+  const grantMinterPermission = async () => {
+    if (!address) throw new Error("No wallet connected")
+
+    addDebugLog("========== GRANTING MINTER PERMISSION ==========", "info")
+    addDebugLog("🔑 Granting ERC20 Minter permission on main contract...", "info")
+    addDebugLog("⚠️ IMPORTANT: You must APPROVE this transaction in your wallet!", "warning")
+    addDebugLog("⚠️ This allows the ERC20 Minter to mint tokens on your contract.", "warning")
+    addDebugLog(`📍 Main Contract: ${contractAddress}`, "info")
+    addDebugLog(`📍 ERC20 Minter: ${ZORA_ERC20_MINTER}`, "info")
+    addDebugLog(`🔢 Permission Bits: 4 (PERMISSION_BIT_MINTER)`, "info")
+
+    const hash = await writeContractAsync({
+      address: contractAddress,
+      abi: ZORA_1155_ABI,
+      functionName: "addPermission",
+      args: [
+        BigInt(0), // tokenId 0 = contract-level permission
+        ZORA_ERC20_MINTER,
+        BigInt(4), // PERMISSION_BIT_MINTER = 2^2 = 4
+      ],
+    })
+
+    addDebugLog(`✅ Permission grant tx sent: ${hash}`, "success")
+    addDebugLog("⏳ Waiting for confirmation...", "info")
+
+    const publicClient = createPublicClient({
+      chain: base,
+      transport: http(),
+    })
+
+    const receipt = await publicClient.waitForTransactionReceipt({ hash })
+
+    if (receipt.status === "success") {
+      addDebugLog("✅ Minter permission granted successfully!", "success")
+      return true
+    } else {
+      addDebugLog("❌ Permission grant transaction failed", "error")
+      return false
+    }
+  }
+
   const setupSalesConfigDirectly = async () => {
     if (!address) throw new Error("No wallet connected")
 
-    addDebugLog("========== SETTING UP ERC20 MINTING ==========", "info")
-    addDebugLog("📝 Calling setSale directly on ERC20 Minter contract...", "info")
+    addDebugLog("========== STEP 1: GRANT MINTER PERMISSION ==========", "info")
+    try {
+      const permissionGranted = await grantMinterPermission()
+      if (!permissionGranted) {
+        throw new Error("Failed to grant minter permission")
+      }
+    } catch (permissionError: any) {
+      addDebugLog(`❌ Error granting permission: ${permissionError.message}`, "error")
+      throw new Error(`Failed to grant minter permission: ${permissionError.message}`)
+    }
+
+    addDebugLog("========== STEP 2: SET UP SALES CONFIG ==========", "info")
+    addDebugLog("📝 Calling setSale on ERC20 Minter contract...", "info")
     addDebugLog("⚠️ IMPORTANT: You must APPROVE this transaction in your wallet!", "warning")
-    addDebugLog("⚠️ This is a one-time setup. After this, anyone can mint with USDC.", "warning")
+    addDebugLog("⚠️ This configures the price and currency for minting.", "warning")
 
     const priceInWei = parseUnits("1", 6) // 1 USDC (6 decimals)
 
