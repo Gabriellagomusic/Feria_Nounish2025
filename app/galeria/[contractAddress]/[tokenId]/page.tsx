@@ -566,6 +566,7 @@ export default function TokenDetailPage() {
 
       if (!response.ok) {
         addDebugLog(`❌ API returned error: ${JSON.stringify(data, null, 2)}`)
+
         let errorMessage = data.error || "Failed to collect moment via InProcess API"
         if (data.details) {
           addDebugLog(`❌ Error details: ${JSON.stringify(data.details, null, 2)}`)
@@ -576,13 +577,12 @@ export default function TokenDetailPage() {
         if (data.status) {
           addDebugLog(`❌ HTTP status: ${data.status}`)
         }
-        if (data.stack) {
-          addDebugLog(`❌ Error stack: ${data.stack}`)
+        if (data.possibleCauses && data.possibleCauses.length > 0) {
+          addDebugLog(`📋 Possible causes: ${data.possibleCauses.join(", ")}`)
+          errorMessage += "\n\nPosibles causas:\n" + data.possibleCauses.map((cause: string) => `• ${cause}`).join("\n")
         }
-
-        if (errorMessage.includes("Insufficient balance")) {
-          errorMessage +=
-            "\n\nPosibles causas:\n• Saldo de ETH insuficiente para gas (necesitas ~0.001 ETH)\n• El API de InProcess está teniendo problemas\n\nPrueba usar 'Minteo Directo' como alternativa."
+        if (data.requestInfo?.attemptedFormats) {
+          addDebugLog(`📋 Attempted formats: ${data.requestInfo.attemptedFormats.join(", ")}`)
         }
 
         throw new Error(errorMessage)
