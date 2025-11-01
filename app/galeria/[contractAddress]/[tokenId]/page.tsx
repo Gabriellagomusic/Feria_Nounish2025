@@ -112,6 +112,8 @@ export default function TokenDetailPage() {
   const [creator, setCreator] = useState<string>("")
   const [artistName, setArtistName] = useState<string>("")
   const [justCollected, setJustCollected] = useState(false)
+  const [apiKey, setApiKey] = useState<string>("")
+  const [showApiKeyInput, setShowApiKeyInput] = useState(false)
 
   const [debugInfo, setDebugInfo] = useState<string[]>([])
   const [showDebug, setShowDebug] = useState(false)
@@ -452,7 +454,7 @@ export default function TokenDetailPage() {
   }
 
   const handleMint = async () => {
-    addDebugLog("🚀 Starting mint process...")
+    addDebugLog("🚀 Starting collect process via InProcess API...")
     setMintError(null)
 
     if (!isConnected) {
@@ -467,21 +469,15 @@ export default function TokenDetailPage() {
       return
     }
 
-    if (!isApproved) {
-      addDebugLog("❌ USDC not approved yet")
-      alert("Primero debes aprobar el gasto de USDC")
+    if (!apiKey && !showApiKeyInput) {
+      setShowApiKeyInput(true)
+      addDebugLog("⚠️ API key required for InProcess collect")
       return
     }
 
-    if (contractInfo) {
-      const requiredUSDC = quantity
-      if (Number(contractInfo.usdcBalance) < requiredUSDC) {
-        addDebugLog(`❌ Insufficient USDC balance for ${quantity} token(s)`)
-        alert(
-          `Saldo insuficiente de USDC. Tienes ${contractInfo.usdcBalance} USDC, necesitas al menos ${requiredUSDC} USDC para ${quantity} token(s)`,
-        )
-        return
-      }
+    if (!apiKey) {
+      alert("Por favor ingresa tu API key de InProcess")
+      return
     }
 
     addDebugLog(`📝 Wallet address: ${address}`)
@@ -490,32 +486,47 @@ export default function TokenDetailPage() {
     addDebugLog(`📝 Quantity: ${quantity}`)
 
     try {
-      addDebugLog("📤 Attempting mint transaction...")
-
       setIsMinting(true)
-      addDebugLog("📤 Calling mint function...")
-      addDebugLog(`💰 Contract will pull ${quantity} USDC from your wallet`)
+      addDebugLog("📤 Calling InProcess collect API...")
 
-      writeContract({
-        address: contractAddress,
-        abi: ERC1155_ABI,
-        functionName: "mint",
-        args: [address, BigInt(tokenId), BigInt(quantity)],
+      const response = await fetch("/api/inprocess/collect", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contractAddress,
+          tokenId,
+          amount: quantity,
+          comment: `Collected ${quantity} edition(s) via Feria Nounish!`,
+          apiKey,
+        }),
       })
 
-      addDebugLog("✅ Mint transaction sent, waiting for user confirmation...")
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to collect via InProcess API")
+      }
+
+      const data = await response.json()
+      addDebugLog(`✅ Collect successful! Transaction hash: ${data.hash}`)
+      addDebugLog(`✅ Chain ID: ${data.chainId}`)
+
+      setJustCollected(true)
+      setIsMinting(false)
+      await checkContractState()
     } catch (error: any) {
       addDebugLog(`❌ Error in handleMint: ${error.message}`)
       console.error("[v0] Mint error:", error)
       setIsMinting(false)
 
-      let errorMessage = "Error al intentar mintear: "
-      if (error.message.includes("User rejected")) {
-        errorMessage += "Transacción cancelada por el usuario."
+      let errorMessage = "Error al intentar coleccionar: "
+      if (error.message.includes("API key")) {
+        errorMessage += "API key inválida o faltante."
       } else if (error.message.includes("insufficient")) {
         errorMessage += "Fondos insuficientes."
       } else {
-        errorMessage += error.shortMessage || error.message
+        errorMessage += error.message
       }
 
       setMintError(errorMessage)
@@ -623,6 +634,30 @@ export default function TokenDetailPage() {
                       </div>
                     ) : isExperimentalMusicToken ? (
                       <>
+                        {showApiKeyInput && (
+                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-3">
+                            <p className="text-blue-800 font-semibold mb-2">🔑 API Key de InProcess</p>
+                            <p className="text-blue-600 text-sm mb-3">
+                              Para coleccionar, necesitas un API key de InProcess. Puedes obtener uno en{" "}
+                              <a
+                                href="https://inprocess.fun"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="underline"
+                              >
+                                inprocess.fun
+                              </a>
+                            </p>
+                            <input
+                              type="password"
+                              value={apiKey}
+                              onChange={(e) => setApiKey(e.target.value)}
+                              placeholder="art_sk_..."
+                              className="w-full px-3 py-2 border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                          </div>
+                        )}
+
                         {!isApproved ? (
                           <Button
                             onClick={handleApprove}
@@ -677,7 +712,7 @@ export default function TokenDetailPage() {
                                   : isConfirming
                                     ? "Confirmando transacción..."
                                     : isMinting
-                                      ? "Minteando..."
+                                      ? "Coleccionando..."
                                       : `Coleccionar (${quantity})`}
                             </Button>
                           </>
