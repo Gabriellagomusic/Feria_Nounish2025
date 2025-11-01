@@ -46,6 +46,40 @@ const ERC1155_ABI = [
     type: "function",
   },
   {
+    inputs: [
+      { name: "tokenId", type: "uint256" },
+      { name: "quantity", type: "uint256" },
+    ],
+    name: "purchase",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      { name: "recipient", type: "address" },
+      { name: "tokenId", type: "uint256" },
+      { name: "quantity", type: "uint256" },
+    ],
+    name: "collect",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      { name: "to", type: "address" },
+      { name: "tokenId", type: "uint256" },
+      { name: "quantity", type: "uint256" },
+      { name: "currency", type: "address" },
+      { name: "price", type: "uint256" },
+    ],
+    name: "mintWithERC20",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
     inputs: [{ name: "id", type: "uint256" }],
     name: "uri",
     outputs: [{ name: "", type: "string" }],
@@ -145,6 +179,7 @@ export default function TokenDetailPage() {
   } | null>(null)
 
   const [mintError, setMintError] = useState<string | null>(null)
+  const [attemptedFunctions, setAttemptedFunctions] = useState<string[]>([])
 
   const { writeContract, data: hash, error: writeError, isPending } = useWriteContract()
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({
@@ -558,24 +593,76 @@ export default function TokenDetailPage() {
       setIsMinting(true)
 
       if (salesConfig.type === "erc20Mint" && salesConfig.currency) {
+        const totalPrice = BigInt(salesConfig.pricePerToken) * BigInt(quantity)
         addDebugLog(`💰 Minting with ERC20 (${salesConfig.currency})`)
         addDebugLog(`💰 Price per token: ${salesConfig.pricePerToken}`)
-        addDebugLog(`💰 Total price: ${BigInt(salesConfig.pricePerToken) * BigInt(quantity)}`)
+        addDebugLog(`💰 Total price: ${totalPrice.toString()}`)
 
-        writeContract({
-          address: contractAddress,
-          abi: ERC1155_ABI,
-          functionName: "purchaseWithERC20",
-          args: [
-            BigInt(tokenId),
-            BigInt(quantity),
-            address,
-            salesConfig.currency as `0x${string}`,
-            BigInt(salesConfig.pricePerToken) * BigInt(quantity),
-          ],
-        })
+        addDebugLog("🔍 Attempting function: purchaseWithERC20(tokenId, quantity, recipient, currency, expectedPrice)")
+        addDebugLog(`🔍 Parameters: [${tokenId}, ${quantity}, ${address}, ${salesConfig.currency}, ${totalPrice}]`)
 
-        addDebugLog("✅ Mint transaction sent, waiting for confirmation...")
+        try {
+          writeContract({
+            address: contractAddress,
+            abi: ERC1155_ABI,
+            functionName: "purchaseWithERC20",
+            args: [BigInt(tokenId), BigInt(quantity), address, salesConfig.currency as `0x${string}`, totalPrice],
+          })
+
+          setAttemptedFunctions((prev) => [...prev, "purchaseWithERC20"])
+          addDebugLog("✅ purchaseWithERC20 transaction sent, waiting for confirmation...")
+        } catch (error: any) {
+          addDebugLog(`❌ purchaseWithERC20 failed: ${error.message}`)
+
+          addDebugLog("🔍 Attempting function: purchase(tokenId, quantity)")
+          addDebugLog(`🔍 Parameters: [${tokenId}, ${quantity}]`)
+
+          try {
+            writeContract({
+              address: contractAddress,
+              abi: ERC1155_ABI,
+              functionName: "purchase",
+              args: [BigInt(tokenId), BigInt(quantity)],
+            })
+
+            setAttemptedFunctions((prev) => [...prev, "purchase"])
+            addDebugLog("✅ purchase transaction sent, waiting for confirmation...")
+          } catch (error2: any) {
+            addDebugLog(`❌ purchase failed: ${error2.message}`)
+
+            addDebugLog("🔍 Attempting function: collect(recipient, tokenId, quantity)")
+            addDebugLog(`🔍 Parameters: [${address}, ${tokenId}, ${quantity}]`)
+
+            try {
+              writeContract({
+                address: contractAddress,
+                abi: ERC1155_ABI,
+                functionName: "collect",
+                args: [address, BigInt(tokenId), BigInt(quantity)],
+              })
+
+              setAttemptedFunctions((prev) => [...prev, "collect"])
+              addDebugLog("✅ collect transaction sent, waiting for confirmation...")
+            } catch (error3: any) {
+              addDebugLog(`❌ collect failed: ${error3.message}`)
+
+              addDebugLog("🔍 Attempting function: mintWithERC20(to, tokenId, quantity, currency, price)")
+              addDebugLog(
+                `🔍 Parameters: [${address}, ${tokenId}, ${quantity}, ${salesConfig.currency}, ${totalPrice}]`,
+              )
+
+              writeContract({
+                address: contractAddress,
+                abi: ERC1155_ABI,
+                functionName: "mintWithERC20",
+                args: [address, BigInt(tokenId), BigInt(quantity), salesConfig.currency as `0x${string}`, totalPrice],
+              })
+
+              setAttemptedFunctions((prev) => [...prev, "mintWithERC20"])
+              addDebugLog("✅ mintWithERC20 transaction sent, waiting for confirmation...")
+            }
+          }
+        }
       } else if (salesConfig.type === "fixedPrice") {
         addDebugLog(`💰 Minting with native token (ETH)`)
         addDebugLog(`💰 Price per token: ${salesConfig.pricePerToken}`)
@@ -595,11 +682,20 @@ export default function TokenDetailPage() {
     } catch (error: any) {
       console.error("[v0] Error in handleMint:", error)
       addDebugLog(`❌ Error in handleMint: ${error.message}`)
+      addDebugLog(`❌ Error name: ${error.name}`)
+      addDebugLog(`❌ Error cause: ${JSON.stringify(error.cause)}`)
       if (error.stack) {
         addDebugLog(`❌ Error stack: ${error.stack}`)
       }
+      if (error.details) {
+        addDebugLog(`❌ Error details: ${error.details}`)
+      }
+      addDebugLog(`❌ Attempted functions: ${attemptedFunctions.join(", ")}`)
+
       setIsMinting(false)
-      setMintError(error.message || "Error desconocido al coleccionar")
+      setMintError(
+        `Error al coleccionar: ${error.message}\n\nEl contrato no tiene las funciones esperadas. Posibles causas:\n• El contrato usa un sistema de minteo diferente\n• Se necesita usar el API de InProcess (requiere balance del artista)\n• El contrato tiene restricciones específicas`,
+      )
     }
   }
 
