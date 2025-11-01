@@ -68,6 +68,29 @@ const ZORA_ERC20_MINTER_ABI = [
     stateMutability: "nonpayable",
     type: "function",
   },
+  {
+    inputs: [
+      { name: "tokenContract", type: "address" },
+      { name: "tokenId", type: "uint256" },
+    ],
+    name: "sale",
+    outputs: [
+      {
+        components: [
+          { name: "saleStart", type: "uint64" },
+          { name: "saleEnd", type: "uint64" },
+          { name: "maxTokensPerAddress", type: "uint64" },
+          { name: "pricePerToken", type: "uint96" },
+          { name: "fundsRecipient", type: "address" },
+          { name: "currency", type: "address" },
+        ],
+        name: "",
+        type: "tuple",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
 ] as const
 
 const ZORA_ERC20_MINTER = "0x777777E8850d8D6d98De2B5f64fae401F96eFF31" as Address
@@ -385,6 +408,50 @@ export default function TokenDetailPage() {
     }
   }
 
+  const checkSalesConfig = async () => {
+    addDebugLog("🔍 Checking ERC20 sales configuration...", true)
+
+    try {
+      const publicClient = createPublicClient({
+        chain: base,
+        transport: http(),
+      })
+
+      const salesConfig = await publicClient.readContract({
+        address: ZORA_ERC20_MINTER,
+        abi: ZORA_ERC20_MINTER_ABI,
+        functionName: "sale",
+        args: [contractAddress, BigInt(tokenId)],
+      })
+
+      addDebugLog(`📊 Sales Config: ${JSON.stringify(salesConfig, null, 2)}`, true)
+      addDebugLog(`💰 Price Per Token: ${Number(salesConfig.pricePerToken) / 1e6} USDC`, true)
+      addDebugLog(`💵 Currency: ${salesConfig.currency}`, true)
+      addDebugLog(`📅 Sale Start: ${salesConfig.saleStart}`, true)
+      addDebugLog(`📅 Sale End: ${salesConfig.saleEnd}`, true)
+      addDebugLog(`👤 Funds Recipient: ${salesConfig.fundsRecipient}`, true)
+
+      // Check if sales config is set up
+      if (salesConfig.currency === "0x0000000000000000000000000000000000000000") {
+        addDebugLog("❌ No ERC20 sales config found for this token", true)
+        return null
+      }
+
+      // Check if currency matches USDC
+      if (salesConfig.currency.toLowerCase() !== USDC_ADDRESS.toLowerCase()) {
+        addDebugLog(
+          `⚠️ Sales config uses different currency: ${salesConfig.currency} (expected USDC: ${USDC_ADDRESS})`,
+          true,
+        )
+      }
+
+      return salesConfig
+    } catch (error: any) {
+      addDebugLog(`❌ Error checking sales config: ${error.message}`, true)
+      return null
+    }
+  }
+
   useEffect(() => {
     const fetchTokenMetadata = async () => {
       setIsLoading(true)
@@ -532,6 +599,25 @@ export default function TokenDetailPage() {
       addDebugLog(`💰 Total Cost: ${quantity} USDC + gas`, true)
       addDebugLog(`✨ Minting Type: COLLECTOR PAYS (you pay USDC + gas)`, true)
 
+      addDebugLog("📋 Step 0: Checking ERC20 sales configuration...", true)
+      const salesConfig = await checkSalesConfig()
+
+      if (!salesConfig || salesConfig.currency === "0x0000000000000000000000000000000000000000") {
+        const errorMsg =
+          "❌ Este token NO tiene configurado ERC20 minting. El artista debe configurar el ERC20 sales config en Zora primero."
+        addDebugLog(errorMsg, true)
+        setMintError(
+          "Este token no está configurado para minteo con USDC. El artista debe configurar el ERC20 sales config en Zora primero.",
+        )
+        setIsMinting(false)
+        return
+      }
+
+      // Use the price from sales config instead of hardcoded 1 USDC
+      const pricePerToken = salesConfig.pricePerToken
+
+      addDebugLog(`✅ Sales config found! Using price: ${Number(pricePerToken) / 1e6} USDC`, true)
+
       // Step 1: Check USDC allowance
       addDebugLog("📋 Step 1: Checking USDC allowance...", true)
       const hasAllowance = await checkUSDCAllowance()
@@ -548,15 +634,13 @@ export default function TokenDetailPage() {
       // Step 3: Mint with Zora ERC20 Minter
       addDebugLog("📋 Step 3: Minting with Zora ERC20 Minter...", true)
 
-      const pricePerToken = parseUnits("1", 6) // 1 USDC
-
       const mintArgs = {
         tokenContract: contractAddress,
         tokenId: BigInt(tokenId),
         mintTo: address,
         quantity: BigInt(quantity),
         currency: USDC_ADDRESS,
-        pricePerToken: pricePerToken,
+        pricePerToken: pricePerToken, // Use price from sales config
         mintReferral: "0x0000000000000000000000000000000000000000" as Address,
         comment: "Collected via Feria Nounish on Base!",
       }
