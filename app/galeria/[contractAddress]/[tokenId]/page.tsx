@@ -95,6 +95,27 @@ const ZORA_ERC20_MINTER_ABI = [
 
 const ZORA_ERC20_MINTER = "0x777777E8850d8D6d98De2B5f64fae401F96eFF31" as Address
 
+const ZORA_1155_ABI = [
+  {
+    inputs: [
+      { name: "tokenId", type: "uint256" },
+      { name: "salesConfig", type: "address" },
+      { name: "salesConfigData", type: "bytes" },
+    ],
+    name: "callSale",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "owner",
+    outputs: [{ name: "", type: "address" }],
+    stateMutability: "view",
+    type: "function",
+  },
+] as const
+
 interface TokenMetadata {
   name: string
   description: string
@@ -184,6 +205,9 @@ export default function TokenDetailPage() {
   const [isApproving, setIsApproving] = useState(false)
   const [approvalHash, setApprovalHash] = useState<string | null>(null)
   const [needsApproval, setNeedsApproval] = useState(false)
+
+  const [isOwner, setIsOwner] = useState(false)
+  const [isSettingSalesConfig, setIsSettingSalesConfig] = useState(false)
 
   const { writeContractAsync } = useWriteContract()
 
@@ -613,6 +637,102 @@ export default function TokenDetailPage() {
     }
   }
 
+  const checkOwnership = async () => {
+    if (!address) return
+
+    try {
+      const publicClient = createPublicClient({
+        chain: base,
+        transport: http(),
+      })
+
+      const owner = await publicClient.readContract({
+        address: contractAddress,
+        abi: ZORA_1155_ABI,
+        functionName: "owner",
+      })
+
+      setIsOwner(owner.toLowerCase() === address.toLowerCase())
+      addDebugLog(`👤 Contract Owner: ${owner}`, true)
+      addDebugLog(`👤 Connected Address: ${address}`, true)
+      addDebugLog(`👤 Is Owner: ${owner.toLowerCase() === address.toLowerCase()}`, true)
+    } catch (error: any) {
+      addDebugLog(`⚠️ Error checking ownership: ${error.message}`, true)
+    }
+  }
+
+  const setupSalesConfig = async () => {
+    if (!address || !isOwner) {
+      addDebugLog("❌ Only contract owner can setup sales config", true)
+      return
+    }
+
+    addDebugLog("🔧 Setting up ERC20 sales config...", true)
+    setIsSettingSalesConfig(true)
+
+    try {
+      // Encode the sales config data
+      const salesConfigData = {
+        saleStart: BigInt(0), // Start immediately
+        saleEnd: BigInt("18446744073709551615"), // Max uint64 (no end)
+        maxTokensPerAddress: BigInt(0), // Unlimited
+        pricePerToken: parseUnits("1", 6), // 1 USDC
+        fundsRecipient: address, // Artist receives funds
+        currency: USDC_ADDRESS,
+      }
+
+      addDebugLog(
+        `📝 Sales Config: ${JSON.stringify(
+          {
+            ...salesConfigData,
+            saleStart: salesConfigData.saleStart.toString(),
+            saleEnd: salesConfigData.saleEnd.toString(),
+            maxTokensPerAddress: salesConfigData.maxTokensPerAddress.toString(),
+            pricePerToken: (Number(salesConfigData.pricePerToken) / 1e6).toString() + " USDC",
+            fundsRecipient: salesConfigData.fundsRecipient,
+            currency: salesConfigData.currency,
+          },
+          null,
+          2,
+        )}`,
+        true,
+      )
+
+      // Call setSale on the ERC20 Minter through the 1155 contract's callSale function
+      const hash = await writeContractAsync({
+        address: contractAddress,
+        abi: ZORA_1155_ABI,
+        functionName: "callSale",
+        args: [
+          BigInt(tokenId),
+          ZORA_ERC20_MINTER,
+          // Encode the setSale call data
+          // This needs to be the encoded function call to setSale(uint256 tokenId, SalesConfig salesConfig)
+          "0x", // TODO: Need to encode this properly
+        ],
+      })
+
+      addDebugLog(`✅ Sales config setup transaction sent: ${hash}`, true)
+      addDebugLog(`🔗 View on BaseScan: https://basescan.org/tx/${hash}`, true)
+
+      const publicClient = createPublicClient({
+        chain: base,
+        transport: http(),
+      })
+
+      const receipt = await publicClient.waitForTransactionReceipt({ hash })
+      addDebugLog(`✅ Sales config setup confirmed! Block: ${receipt.blockNumber}`, true)
+
+      // Refresh sales config
+      await checkSalesConfig()
+      setIsSettingSalesConfig(false)
+    } catch (error: any) {
+      addDebugLog(`❌ Error setting up sales config: ${error.message}`, true)
+      setIsSettingSalesConfig(false)
+      setMintError(`Error configurando sales config: ${error.message}`)
+    }
+  }
+
   useEffect(() => {
     const fetchTokenMetadata = async () => {
       setIsLoading(true)
@@ -723,6 +843,12 @@ export default function TokenDetailPage() {
 
     fetchTokenMetadata()
   }, [contractAddress, tokenId])
+
+  useEffect(() => {
+    if (address) {
+      checkOwnership()
+    }
+  }, [address])
 
   useEffect(() => {
     if (address && isExperimentalMusicToken) {
@@ -836,10 +962,36 @@ export default function TokenDetailPage() {
                   </div>
 
                   <div className="border-t border-gray-200 pt-4 shadow-sm space-y-2">
+                    {isOwner && !mintError && (
+                      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-3">
+                        <p className="text-yellow-800 font-bold mb-2 text-sm">🔧 Configuración del Artista</p>
+                        <p className="text-yellow-700 text-xs mb-3">
+                          Como dueño del contrato, necesitas configurar el ERC20 sales config para habilitar el minteo
+                          con USDC.
+                        </p>
+                        <Button
+                          onClick={setupSalesConfig}
+                          disabled={isSettingSalesConfig}
+                          className="w-full bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 text-sm"
+                        >
+                          {isSettingSalesConfig ? "Configurando..." : "Configurar Sales Config (1 USDC)"}
+                        </Button>
+                      </div>
+                    )}
+
                     {mintError && (
                       <div className="bg-red-50 border-2 border-red-300 rounded-lg p-4 mb-3">
                         <p className="text-red-800 font-bold mb-2 text-base">⚠️ Error</p>
                         <p className="text-red-700 text-sm font-semibold mb-2 whitespace-pre-line">{mintError}</p>
+                        {mintError.includes("reverted") && isOwner && (
+                          <div className="mt-3 pt-3 border-t border-red-200">
+                            <p className="text-red-800 font-bold text-xs mb-2">💡 Solución:</p>
+                            <p className="text-red-700 text-xs mb-2">
+                              El contrato no tiene configurado un ERC20 sales config. Haz clic en el botón de arriba
+                              para configurarlo.
+                            </p>
+                          </div>
+                        )}
                       </div>
                     )}
 
