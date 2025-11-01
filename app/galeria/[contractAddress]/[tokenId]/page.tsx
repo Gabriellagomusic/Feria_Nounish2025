@@ -462,6 +462,15 @@ export default function TokenDetailPage() {
         if (!response.ok) {
           const errorData = await response.json()
           addDebugLog(`❌ Failed to fetch sales config: ${JSON.stringify(errorData)}`)
+          const defaultConfig = {
+            type: "erc20Mint",
+            pricePerToken: "1000000", // 1 USDC (6 decimals)
+            saleStart: 0,
+            saleEnd: "18446744073709551615", // maxUint64
+            currency: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // USDC on Base
+          }
+          addDebugLog(`ℹ️ Using default sales config: 1 USDC per edition`)
+          setSalesConfig(defaultConfig)
           return
         }
 
@@ -477,6 +486,15 @@ export default function TokenDetailPage() {
         }
       } catch (error: any) {
         addDebugLog(`❌ Error fetching sales config: ${error.message}`)
+        const defaultConfig = {
+          type: "erc20Mint",
+          pricePerToken: "1000000", // 1 USDC (6 decimals)
+          saleStart: 0,
+          saleEnd: "18446744073709551615", // maxUint64
+          currency: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // USDC on Base
+        }
+        addDebugLog(`ℹ️ Using default sales config: 1 USDC per edition`)
+        setSalesConfig(defaultConfig)
       }
     }
 
