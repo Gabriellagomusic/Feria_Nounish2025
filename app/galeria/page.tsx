@@ -49,22 +49,63 @@ async function fetchArtistForToken(
   tokenId: string,
 ): Promise<{ address: string; displayName: string }> {
   try {
-    // Fetch from inprocess API using the proper wrapper
+    console.log("[v0] Fetching artist for token:", { contractAddress, tokenId })
+
     const timelineData = await getTimeline(1, 100, true, undefined, 8453, false)
 
     if (!timelineData.moments || timelineData.moments.length === 0) {
+      console.log("[v0] No moments found in timeline")
       throw new Error("No moments found")
     }
 
-    // Find the moment that matches this contract address and tokenId
-    // Note: Moment.address is the contract address, Moment.tokenId is the token ID
-    const moment = timelineData.moments.find(
-      (m: Moment) =>
-        m.address.toLowerCase() === contractAddress.toLowerCase() && m.tokenId.toString() === tokenId.toString(),
+    console.log("[v0] Found moments:", timelineData.moments.length)
+
+    console.log(
+      "[v0] All moments:",
+      timelineData.moments.map((m: Moment) => ({
+        address: m.address,
+        tokenId: m.tokenId,
+        admin: m.admin,
+        username: m.username,
+      })),
     )
 
+    const normalizedSearchAddress = contractAddress.toLowerCase()
+    const normalizedSearchTokenId = tokenId.toString()
+
+    console.log("[v0] Searching for:", {
+      address: normalizedSearchAddress,
+      tokenId: normalizedSearchTokenId,
+    })
+
+    const moment = timelineData.moments.find((m: Moment) => {
+      const normalizedMomentAddress = m.address.toLowerCase()
+      const normalizedMomentTokenId = m.tokenId?.toString() || ""
+
+      const addressMatch = normalizedMomentAddress === normalizedSearchAddress
+      const tokenIdMatch = normalizedMomentTokenId === normalizedSearchTokenId
+
+      console.log("[v0] Comparing moment:", {
+        momentAddress: normalizedMomentAddress,
+        momentTokenId: normalizedMomentTokenId,
+        searchAddress: normalizedSearchAddress,
+        searchTokenId: normalizedSearchTokenId,
+        addressMatch,
+        tokenIdMatch,
+        username: m.username,
+        admin: m.admin,
+      })
+
+      return addressMatch && tokenIdMatch
+    })
+
     if (moment) {
-      // Use the username field from the moment if available, otherwise fetch via Farcaster
+      console.log("[v0] ✅ Found matching moment:", {
+        admin: moment.admin,
+        username: moment.username,
+        tokenId: moment.tokenId,
+      })
+
       const displayName = moment.username || (await getDisplayName(moment.admin))
       return {
         address: moment.admin.toLowerCase(),
@@ -72,7 +113,7 @@ async function fetchArtistForToken(
       }
     }
 
-    // Fallback if moment not found
+    console.log("[v0] ❌ No matching moment found, using fallback")
     const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
     const displayName = await getDisplayName(fallbackCreator)
     return {
@@ -80,7 +121,7 @@ async function fetchArtistForToken(
       displayName: displayName,
     }
   } catch (error) {
-    console.error("Error fetching artist for token:", error)
+    console.error("[v0] Error fetching artist for token:", error)
     const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
     return {
       address: fallbackCreator.toLowerCase(),
@@ -117,7 +158,6 @@ export default function GaleriaPage() {
         const tokenDataPromises = galleryData.tokens.map(
           async (config: { contractAddress: string; tokenId: string }) => {
             try {
-              // Fetch the actual artist for this specific token
               const artistInfo = await fetchArtistForToken(config.contractAddress, config.tokenId)
 
               const tokenURI = await publicClient.readContract({

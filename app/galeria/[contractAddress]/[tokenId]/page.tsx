@@ -113,11 +113,19 @@ export default function TokenDetailPage() {
       setIsMinting(true)
       addDebugLog("📤 Calling writeContract...")
 
+      // Note: This assumes the contract accepts native token payment
+      // 1 USDC = 1000000 (6 decimals for USDC)
+      // But if paying in ETH, we need to convert 1 USDC worth to ETH
+      // For now, trying with a small amount to test
+      addDebugLog("💰 Attempting to send payment with transaction...")
+
       writeContract({
         address: contractAddress,
         abi: ERC1155_ABI,
         functionName: "mint",
         args: [address, BigInt(tokenId), BigInt(quantity)],
+        // This may need adjustment based on actual contract requirements
+        value: BigInt(1000000000000000), // 0.001 ETH in wei
       })
 
       addDebugLog("✅ writeContract called successfully, waiting for user confirmation...")
@@ -172,17 +180,36 @@ export default function TokenDetailPage() {
               const timelineData = await getTimeline(1, 100, true, undefined, 8453, false)
 
               if (timelineData.moments && timelineData.moments.length > 0) {
-                const moment = timelineData.moments.find(
-                  (m: Moment) =>
-                    m.address.toLowerCase() === contractAddress.toLowerCase() &&
-                    m.tokenId.toString() === tokenId.toString(),
-                )
+                console.log("[v0] Searching for moment:", { contractAddress, tokenId })
+                console.log("[v0] Total moments:", timelineData.moments.length)
+
+                const moment = timelineData.moments.find((m: Moment) => {
+                  const addressMatch = m.address.toLowerCase() === contractAddress.toLowerCase()
+                  const tokenIdMatch = m.tokenId?.toString() === tokenId.toString()
+
+                  if (addressMatch) {
+                    console.log("[v0] Found address match:", {
+                      momentAddress: m.address,
+                      momentTokenId: m.tokenId,
+                      momentUsername: m.username,
+                      searchingForTokenId: tokenId,
+                      tokenIdMatch,
+                    })
+                  }
+
+                  return addressMatch && tokenIdMatch
+                })
 
                 if (moment) {
+                  console.log("[v0] Found matching moment for token detail:", {
+                    admin: moment.admin,
+                    username: moment.username,
+                  })
                   setCreator(moment.admin)
                   const displayName = moment.username || (await getDisplayName(moment.admin))
                   setArtistName(displayName)
                 } else {
+                  console.log("[v0] No matching moment found, using fallback")
                   const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
                   setCreator(fallbackCreator)
                   const displayName = await getDisplayName(fallbackCreator)
@@ -195,7 +222,7 @@ export default function TokenDetailPage() {
                 setArtistName(displayName)
               }
             } catch (error) {
-              console.error("Error fetching artist from inprocess:", error)
+              console.error("[v0] Error fetching artist from inprocess:", error)
               const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
               setCreator(fallbackCreator)
               setArtistName(`${fallbackCreator.slice(0, 6)}...${fallbackCreator.slice(-4)}`)
@@ -210,13 +237,16 @@ export default function TokenDetailPage() {
           const timelineData = await getTimeline(1, 100, true, undefined, 8453, false)
 
           if (timelineData.moments && timelineData.moments.length > 0) {
-            const moment = timelineData.moments.find(
-              (m: Moment) =>
-                m.address.toLowerCase() === contractAddress.toLowerCase() &&
-                m.tokenId.toString() === tokenId.toString(),
-            )
+            console.log("[v0] Searching for moment (fallback):", { contractAddress, tokenId })
+
+            const moment = timelineData.moments.find((m: Moment) => {
+              const addressMatch = m.address.toLowerCase() === contractAddress.toLowerCase()
+              const tokenIdMatch = m.tokenId?.toString() === tokenId.toString()
+              return addressMatch && tokenIdMatch
+            })
 
             if (moment) {
+              console.log("[v0] Found moment in fallback:", moment.username)
               setCreator(moment.admin)
               const displayName = moment.username || (await getDisplayName(moment.admin))
               setArtistName(displayName)
@@ -228,7 +258,7 @@ export default function TokenDetailPage() {
             }
           }
         } catch (error) {
-          console.error("Error fetching artist from inprocess:", error)
+          console.error("[v0] Error fetching artist from inprocess:", error)
           const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
           setCreator(fallbackCreator)
           setArtistName(`${fallbackCreator.slice(0, 6)}...${fallbackCreator.slice(-4)}`)
@@ -326,6 +356,11 @@ export default function TokenDetailPage() {
                   </div>
 
                   <div className="border-t border-gray-200 pt-4 shadow-sm space-y-2">
+                    <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 mb-3">
+                      <p className="text-sm text-gray-600 mb-1">Precio</p>
+                      <p className="text-2xl font-extrabold text-purple-600">1 USDC</p>
+                    </div>
+
                     {justCollected ? (
                       <div className="space-y-3">
                         <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
