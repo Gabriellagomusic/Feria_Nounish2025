@@ -106,7 +106,6 @@ export default function TokenDetailPage() {
 
   const [tokenData, setTokenData] = useState<TokenMetadata | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [metadataLoaded, setMetadataLoaded] = useState(false)
   const [quantity, setQuantity] = useState(1)
   const [creator, setCreator] = useState<string>("")
   const [artistName, setArtistName] = useState<string>("")
@@ -158,6 +157,14 @@ export default function TokenDetailPage() {
       }
     }
   }, [isConfirmed, hash, isApproving, isMinting])
+
+  useEffect(() => {
+    if (isApproved) {
+      addDebugLog(`🔄 Quantity changed to ${quantity}, resetting approval`)
+      setIsApproved(false)
+      setMintError(null)
+    }
+  }, [quantity])
 
   useEffect(() => {
     const checkAllowance = async () => {
@@ -278,7 +285,6 @@ export default function TokenDetailPage() {
   useEffect(() => {
     const fetchTokenMetadata = async () => {
       setIsLoading(true)
-      setMetadataLoaded(false)
 
       try {
         const publicClient = createPublicClient({
@@ -369,7 +375,6 @@ export default function TokenDetailPage() {
               setArtistName(`${fallbackCreator.slice(0, 6)}...${fallbackCreator.slice(-4)}`)
             }
 
-            setMetadataLoaded(true)
             setIsLoading(false)
             return
           }
@@ -422,7 +427,6 @@ export default function TokenDetailPage() {
           image: "/abstract-digital-composition.png",
         })
       } finally {
-        setMetadataLoaded(true)
         setIsLoading(false)
       }
     }
@@ -441,7 +445,9 @@ export default function TokenDetailPage() {
 
     try {
       setIsApproving(true)
-      addDebugLog(`📤 Approving ${usdcAmountNeeded.toString()} USDC (${quantity} USDC) for contract ${contractAddress}`)
+      addDebugLog(
+        ` morphOutput Approving ${usdcAmountNeeded.toString()} USDC (${quantity} USDC) for contract ${contractAddress}`,
+      )
 
       writeContract({
         address: USDC_ADDRESS,
@@ -533,11 +539,13 @@ export default function TokenDetailPage() {
     }
   }
 
-  if (isLoading || !metadataLoaded) {
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-white border-t-transparent rounded-full animate-spin" />
+          <div className="w-16 h-16 rounded-full bg-black flex items-center justify-center">
+            <div className="w-8 h-8 border-4 border-white border-t-transparent rounded-full animate-spin" />
+          </div>
           <p className="text-white text-lg">Cargando...</p>
         </div>
       </div>
@@ -627,6 +635,38 @@ export default function TokenDetailPage() {
                       </div>
                     ) : isExperimentalMusicToken ? (
                       <>
+                        <div className="flex items-center justify-center gap-4 p-4 bg-gray-50 rounded-lg">
+                          <Button
+                            onClick={() => {
+                              const newQuantity = Math.max(1, quantity - 1)
+                              setQuantity(newQuantity)
+                              setMintError(null)
+                            }}
+                            disabled={quantity <= 1}
+                            variant="outline"
+                            size="icon"
+                            className="h-10 w-10"
+                          >
+                            <Minus className="h-4 w-4" />
+                          </Button>
+                          <div className="text-center">
+                            <div className="text-2xl font-extrabold text-gray-800">{quantity}</div>
+                            <div className="text-xs text-gray-500">ediciones</div>
+                          </div>
+                          <Button
+                            onClick={() => {
+                              const newQuantity = quantity + 1
+                              setQuantity(newQuantity)
+                              setMintError(null)
+                            }}
+                            variant="outline"
+                            size="icon"
+                            className="h-10 w-10"
+                          >
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                        </div>
+
                         {!isApproved ? (
                           <Button
                             onClick={handleApprove}
@@ -644,57 +684,21 @@ export default function TokenDetailPage() {
                                     : `Aprobar ${quantity} USDC`}
                           </Button>
                         ) : (
-                          <>
-                            <div className="flex items-center justify-center gap-4 p-4 bg-gray-50 rounded-lg">
-                              <Button
-                                onClick={() => {
-                                  const newQuantity = Math.max(1, quantity - 1)
-                                  setQuantity(newQuantity)
-                                  setIsApproved(false) // Reset approval when quantity changes
-                                  setMintError(null)
-                                }}
-                                disabled={quantity <= 1}
-                                variant="outline"
-                                size="icon"
-                                className="h-10 w-10"
-                              >
-                                <Minus className="h-4 w-4" />
-                              </Button>
-                              <div className="text-center">
-                                <div className="text-2xl font-extrabold text-gray-800">{quantity}</div>
-                                <div className="text-xs text-gray-500">ediciones</div>
-                              </div>
-                              <Button
-                                onClick={() => {
-                                  const newQuantity = quantity + 1
-                                  setQuantity(newQuantity)
-                                  setIsApproved(false) // Reset approval when quantity changes
-                                  setMintError(null)
-                                }}
-                                variant="outline"
-                                size="icon"
-                                className="h-10 w-10"
-                              >
-                                <Plus className="h-4 w-4" />
-                              </Button>
-                            </div>
-
-                            <Button
-                              onClick={handleMint}
-                              disabled={!isConnected || isMinting || isPending || isConfirming || !!mintError}
-                              className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-extrabold py-6 text-base disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              {!isConnected
-                                ? "Conecta tu Wallet"
-                                : isPending
-                                  ? "Esperando confirmación..."
-                                  : isConfirming
-                                    ? "Confirmando transacción..."
-                                    : isMinting
-                                      ? "Coleccionando..."
-                                      : `Coleccionar (${quantity})`}
-                            </Button>
-                          </>
+                          <Button
+                            onClick={handleMint}
+                            disabled={!isConnected || isMinting || isPending || isConfirming || !!mintError}
+                            className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-extrabold py-6 text-base disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {!isConnected
+                              ? "Conecta tu Wallet"
+                              : isPending
+                                ? "Esperando confirmación..."
+                                : isConfirming
+                                  ? "Confirmando transacción..."
+                                  : isMinting
+                                    ? "Coleccionando..."
+                                    : `Coleccionar (${quantity})`}
+                          </Button>
                         )}
 
                         <Button onClick={() => setShowDebug(!showDebug)} variant="outline" className="w-full">
