@@ -227,6 +227,7 @@ export default function TokenDetailPage() {
 
   const checkSalesConfig = async () => {
     try {
+      console.log("[v0] 🔍 Checking sales config for token...")
       const publicClient = createPublicClient({
         chain: base,
         transport: http(),
@@ -239,14 +240,26 @@ export default function TokenDetailPage() {
         args: [contractAddress, BigInt(tokenId)],
       })
 
+      console.log("[v0] 📊 Sales Config:", {
+        saleStart: salesConfig.saleStart.toString(),
+        saleEnd: salesConfig.saleEnd.toString(),
+        maxTokensPerAddress: salesConfig.maxTokensPerAddress.toString(),
+        pricePerToken: salesConfig.pricePerToken.toString(),
+        pricePerTokenUSDC: `${Number(salesConfig.pricePerToken) / 1e6} USDC`,
+        fundsRecipient: salesConfig.fundsRecipient,
+        currency: salesConfig.currency,
+      })
+
       // Check if sales config is valid
       if (salesConfig.currency === "0x0000000000000000000000000000000000000000") {
+        console.log("[v0] ❌ No ERC20 sales config found for this token")
         return null
       }
 
+      console.log("[v0] ✅ Valid sales config found")
       return salesConfig
     } catch (error: any) {
-      console.error("[v0] Error checking sales config:", error)
+      console.error("[v0] ❌ Error checking sales config:", error.message)
       return null
     }
   }
@@ -254,7 +267,10 @@ export default function TokenDetailPage() {
   const setupSalesConfig = async () => {
     if (!address) throw new Error("No wallet connected")
 
-    console.log("[v0] Setting up sales config...")
+    console.log("[v0] 🔧 Setting up sales config...")
+    console.log("[v0] 👤 Wallet address:", address)
+    console.log("[v0] 🎨 Contract address:", contractAddress)
+    console.log("[v0] 🎫 Token ID:", tokenId)
 
     const salesConfigData = {
       saleStart: BigInt(0),
@@ -264,6 +280,15 @@ export default function TokenDetailPage() {
       fundsRecipient: address,
       currency: USDC_ADDRESS,
     }
+
+    console.log("[v0] 📝 Sales config data:", {
+      saleStart: salesConfigData.saleStart.toString(),
+      saleEnd: salesConfigData.saleEnd.toString(),
+      maxTokensPerAddress: salesConfigData.maxTokensPerAddress.toString(),
+      pricePerToken: salesConfigData.pricePerToken.toString(),
+      fundsRecipient: salesConfigData.fundsRecipient,
+      currency: salesConfigData.currency,
+    })
 
     const setSaleData = encodeAbiParameters(
       [
@@ -284,6 +309,9 @@ export default function TokenDetailPage() {
       [BigInt(tokenId), salesConfigData],
     )
 
+    console.log("[v0] 📦 Encoded sales config data:", setSaleData)
+
+    console.log("[v0] 📤 Sending callSale transaction...")
     const hash = await writeContractAsync({
       address: contractAddress,
       abi: ZORA_1155_ABI,
@@ -291,21 +319,23 @@ export default function TokenDetailPage() {
       args: [BigInt(tokenId), ZORA_ERC20_MINTER, setSaleData],
     })
 
-    console.log("[v0] Sales config setup tx:", hash)
+    console.log("[v0] ✅ Sales config setup tx hash:", hash)
 
     const publicClient = createPublicClient({
       chain: base,
       transport: http(),
     })
 
+    console.log("[v0] ⏳ Waiting for transaction confirmation...")
     await publicClient.waitForTransactionReceipt({ hash })
-    console.log("[v0] Sales config setup confirmed")
+    console.log("[v0] ✅ Sales config setup confirmed!")
   }
 
   const approveUSDC = async (amount: bigint) => {
     if (!address) throw new Error("No wallet connected")
 
-    console.log("[v0] Approving USDC...")
+    console.log("[v0] 💳 Approving USDC...")
+    console.log("[v0] 💰 Amount to approve:", Number(amount) / 1e6, "USDC")
 
     const hash = await writeContractAsync({
       address: USDC_ADDRESS,
@@ -314,19 +344,25 @@ export default function TokenDetailPage() {
       args: [ZORA_ERC20_MINTER, amount],
     })
 
-    console.log("[v0] USDC approval tx:", hash)
+    console.log("[v0] ✅ USDC approval tx hash:", hash)
 
     const publicClient = createPublicClient({
       chain: base,
       transport: http(),
     })
 
+    console.log("[v0] ⏳ Waiting for approval confirmation...")
     await publicClient.waitForTransactionReceipt({ hash })
-    console.log("[v0] USDC approval confirmed")
+    console.log("[v0] ✅ USDC approval confirmed!")
   }
 
   const handleMint = async () => {
     console.log("[v0] ========== STARTING MINT FLOW ==========")
+    console.log("[v0] 👤 Connected wallet:", address)
+    console.log("[v0] 🎨 Contract:", contractAddress)
+    console.log("[v0] 🎫 Token ID:", tokenId)
+    console.log("[v0] 🔢 Quantity:", quantity)
+    console.log("[v0] 👑 Is owner:", isOwner)
 
     if (!address) {
       setMintError("Por favor conecta tu wallet primero")
@@ -344,19 +380,24 @@ export default function TokenDetailPage() {
       })
 
       // Step 1: Check sales config
-      console.log("[v0] Step 1: Checking sales config...")
+      console.log("[v0] ========== STEP 1: CHECK SALES CONFIG ==========")
       let salesConfig = await checkSalesConfig()
 
       if (!salesConfig) {
+        console.log("[v0] ⚠️ No sales config found")
         if (!isOwner) {
+          console.log("[v0] ❌ User is not owner, cannot setup sales config")
           throw new Error("Este token no tiene configurado ERC20 minting. Contacta al artista.")
         }
 
-        console.log("[v0] No sales config found, setting up...")
+        console.log("[v0] ✅ User is owner, setting up sales config...")
         await setupSalesConfig()
+
+        console.log("[v0] 🔄 Re-checking sales config after setup...")
         salesConfig = await checkSalesConfig()
 
         if (!salesConfig) {
+          console.log("[v0] ❌ Sales config still not found after setup")
           throw new Error("Error configurando sales config")
         }
       }
@@ -364,11 +405,11 @@ export default function TokenDetailPage() {
       const pricePerToken = salesConfig.pricePerToken || parseUnits("1", 6)
       const totalCost = pricePerToken * BigInt(quantity)
 
-      console.log("[v0] Price per token:", Number(pricePerToken) / 1e6, "USDC")
-      console.log("[v0] Total cost:", Number(totalCost) / 1e6, "USDC")
+      console.log("[v0] 💰 Price per token:", Number(pricePerToken) / 1e6, "USDC")
+      console.log("[v0] 💰 Total cost:", Number(totalCost) / 1e6, "USDC")
 
       // Step 2: Check USDC balance
-      console.log("[v0] Step 2: Checking USDC balance...")
+      console.log("[v0] ========== STEP 2: CHECK USDC BALANCE ==========")
       const balance = await publicClient.readContract({
         address: USDC_ADDRESS,
         abi: ERC20_ABI,
@@ -376,14 +417,19 @@ export default function TokenDetailPage() {
         args: [address],
       })
 
+      console.log("[v0] 💵 USDC balance:", Number(balance) / 1e6, "USDC")
+
       if (balance < totalCost) {
+        console.log("[v0] ❌ Insufficient USDC balance")
         throw new Error(
           `Balance insuficiente. Necesitas ${Number(totalCost) / 1e6} USDC pero tienes ${Number(balance) / 1e6} USDC`,
         )
       }
 
+      console.log("[v0] ✅ Sufficient USDC balance")
+
       // Step 3: Check and approve USDC if needed
-      console.log("[v0] Step 3: Checking USDC allowance...")
+      console.log("[v0] ========== STEP 3: CHECK USDC ALLOWANCE ==========")
       const allowance = await publicClient.readContract({
         address: USDC_ADDRESS,
         abi: ERC20_ABI,
@@ -391,13 +437,19 @@ export default function TokenDetailPage() {
         args: [address, ZORA_ERC20_MINTER],
       })
 
+      console.log("[v0] 💳 Current allowance:", Number(allowance) / 1e6, "USDC")
+
       if (allowance < totalCost) {
-        console.log("[v0] Insufficient allowance, approving...")
-        await approveUSDC(totalCost * BigInt(2)) // Approve 2x for future mints
+        console.log("[v0] ⚠️ Insufficient allowance, need to approve")
+        const approvalAmount = totalCost * BigInt(2) // Approve 2x for future mints
+        console.log("[v0] 💳 Approving:", Number(approvalAmount) / 1e6, "USDC")
+        await approveUSDC(approvalAmount)
+      } else {
+        console.log("[v0] ✅ Sufficient allowance already exists")
       }
 
       // Step 4: Mint
-      console.log("[v0] Step 4: Minting...")
+      console.log("[v0] ========== STEP 4: MINT ==========")
       const mintArgs = {
         tokenContract: contractAddress,
         tokenId: BigInt(tokenId),
@@ -409,6 +461,18 @@ export default function TokenDetailPage() {
         comment: "Collected via Feria Nounish on Base!",
       }
 
+      console.log("[v0] 📤 Mint Arguments:", {
+        tokenContract: mintArgs.tokenContract,
+        tokenId: mintArgs.tokenId.toString(),
+        mintTo: mintArgs.mintTo,
+        quantity: mintArgs.quantity.toString(),
+        currency: mintArgs.currency,
+        pricePerToken: `${Number(mintArgs.pricePerToken) / 1e6} USDC`,
+        mintReferral: mintArgs.mintReferral,
+        comment: mintArgs.comment,
+      })
+
+      console.log("[v0] 📤 Sending mint transaction...")
       const hash = await writeContractAsync({
         address: ZORA_ERC20_MINTER,
         abi: ZORA_ERC20_MINTER_ABI,
@@ -417,16 +481,21 @@ export default function TokenDetailPage() {
       })
 
       setMintHash(hash)
-      console.log("[v0] Mint tx:", hash)
+      console.log("[v0] ✅ Mint tx hash:", hash)
 
+      console.log("[v0] ⏳ Waiting for mint confirmation...")
       await publicClient.waitForTransactionReceipt({ hash })
-      console.log("[v0] Mint confirmed!")
+      console.log("[v0] ✅ Mint confirmed!")
+      console.log("[v0] ========== MINT FLOW COMPLETE ==========")
 
       setJustCollected(true)
       setIsMinting(false)
       await checkContractState()
     } catch (error: any) {
-      console.error("[v0] Mint error:", error)
+      console.error("[v0] ========== MINT FLOW ERROR ==========")
+      console.error("[v0] ❌ Error:", error)
+      console.error("[v0] ❌ Error message:", error.message)
+      console.error("[v0] ❌ Error stack:", error.stack)
 
       let errorMessage = error.message || "Error desconocido"
 
