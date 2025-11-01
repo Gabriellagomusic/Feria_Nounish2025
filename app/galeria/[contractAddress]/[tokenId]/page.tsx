@@ -416,11 +416,17 @@ export default function TokenDetailPage() {
           addDebugLog(`💡 This error means: The ARTIST's InProcess account doesn't have enough ETH`, true)
           addDebugLog(`💡 NOT your wallet (${address})`, true)
           addDebugLog(`💡 The artist (${creator || "unknown"}) needs to add ETH to their InProcess account`, true)
-          addDebugLog(`💡 InProcess account is separate from the artist's regular wallet`, true)
-          addDebugLog(`💡 The artist needs to deposit ETH on Base chain to their InProcess account`, true)
+          addDebugLog(`💡 ⚠️ IMPORTANTE: Tener ETH en la wallet NO es suficiente`, true)
+          addDebugLog(`💡 ⚠️ El artista debe DEPOSITAR ETH en su cuenta de InProcess`, true)
+          addDebugLog(`💡 ⚠️ La cuenta de InProcess es SEPARADA de la wallet regular`, true)
+          addDebugLog(`💡 📝 Pasos para el artista:`, true)
+          addDebugLog(`💡 1. Ir a https://inprocess.fun`, true)
+          addDebugLog(`💡 2. Conectar su wallet (${creator || "unknown"})`, true)
+          addDebugLog(`💡 3. Depositar ETH desde su wallet a su cuenta de InProcess en Base`, true)
+          addDebugLog(`💡 4. Después de depositar, el minteo gasless funcionará`, true)
 
           const errorMsg =
-            "El artista necesita recargar su cuenta de InProcess con ETH en Base para patrocinar el minteo gasless. Por favor contacta al artista."
+            "El artista necesita DEPOSITAR ETH en su cuenta de InProcess (no solo tenerlo en su wallet). El artista debe ir a https://inprocess.fun y depositar ETH desde su wallet a su cuenta de InProcess en Base."
           console.log("[v0] Error:", errorMsg)
           addDebugLog(`❌ ${errorMsg}`, true)
           setMintError(errorMsg)
@@ -605,9 +611,34 @@ export default function TokenDetailPage() {
 
                   <div className="border-t border-gray-200 pt-4 shadow-sm space-y-2">
                     {mintError && (
-                      <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-3">
-                        <p className="text-red-800 font-semibold mb-1">⚠️ Error</p>
-                        <p className="text-red-600 text-sm whitespace-pre-line">{mintError}</p>
+                      <div className="bg-red-50 border-2 border-red-300 rounded-lg p-4 mb-3">
+                        <p className="text-red-800 font-bold mb-2 text-base">⚠️ Error</p>
+                        <p className="text-red-700 text-sm font-semibold mb-2 whitespace-pre-line">{mintError}</p>
+                        {mintError.includes("DEPOSITAR ETH") && (
+                          <div className="mt-3 pt-3 border-t border-red-200">
+                            <p className="text-red-800 font-semibold text-xs mb-2">📝 Instrucciones para el artista:</p>
+                            <ol className="text-red-700 text-xs space-y-1 list-decimal list-inside">
+                              <li>
+                                Ir a{" "}
+                                <a
+                                  href="https://inprocess.fun"
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="underline font-semibold"
+                                >
+                                  inprocess.fun
+                                </a>
+                              </li>
+                              <li>Conectar la wallet del artista</li>
+                              <li>Depositar ETH desde la wallet a la cuenta de InProcess en Base</li>
+                              <li>Después de depositar, el minteo gasless funcionará</li>
+                            </ol>
+                            <p className="text-red-600 text-xs mt-2 italic">
+                              💡 Nota: Tener ETH en la wallet NO es suficiente. Debe depositarse en la cuenta de
+                              InProcess.
+                            </p>
+                          </div>
+                        )}
                       </div>
                     )}
 
