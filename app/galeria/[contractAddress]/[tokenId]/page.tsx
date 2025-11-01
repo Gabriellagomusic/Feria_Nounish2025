@@ -5,7 +5,7 @@ import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { useState, useEffect, useRef } from "react"
 import { useParams } from "next/navigation"
-import { createPublicClient, http, parseUnits, type Address, encodeAbiParameters } from "viem"
+import { createPublicClient, http, parseUnits, type Address, encodeFunctionData } from "viem"
 import { base } from "viem/chains"
 import { useAccount, useWriteContract, useConnect } from "wagmi"
 import { ArrowLeft, Plus, Minus, ChevronDown, ChevronUp, Copy, Check } from "lucide-react"
@@ -329,28 +329,39 @@ export default function TokenDetailPage() {
       "info",
     )
 
-    const setSaleData = encodeAbiParameters(
-      [
-        { name: "tokenId", type: "uint256" },
+    const setSaleData = encodeFunctionData({
+      abi: [
         {
-          name: "salesConfig",
-          type: "tuple",
-          components: [
-            { name: "saleStart", type: "uint64" },
-            { name: "saleEnd", type: "uint64" },
-            { name: "maxTokensPerAddress", type: "uint64" },
-            { name: "pricePerToken", type: "uint96" },
-            { name: "fundsRecipient", type: "address" },
-            { name: "currency", type: "address" },
+          inputs: [
+            { name: "tokenId", type: "uint256" },
+            {
+              name: "salesConfig",
+              type: "tuple",
+              components: [
+                { name: "saleStart", type: "uint64" },
+                { name: "saleEnd", type: "uint64" },
+                { name: "maxTokensPerAddress", type: "uint64" },
+                { name: "pricePerToken", type: "uint96" },
+                { name: "fundsRecipient", type: "address" },
+                { name: "currency", type: "address" },
+              ],
+            },
           ],
+          name: "setSale",
+          outputs: [],
+          stateMutability: "nonpayable",
+          type: "function",
         },
       ],
-      [BigInt(tokenId), salesConfigData],
-    )
+      functionName: "setSale",
+      args: [BigInt(tokenId), salesConfigData],
+    })
 
-    addDebugLog(`📦 Encoded sales config data: ${setSaleData}`, "info")
+    addDebugLog(`📦 Encoded setSale data: ${setSaleData}`, "info")
 
+    addDebugLog("⚠️ IMPORTANT: Please APPROVE the transaction in your wallet to set up ERC20 minting", "warning")
     addDebugLog("📤 Sending callSale transaction...", "info")
+
     const hash = await writeContractAsync({
       address: contractAddress,
       abi: ZORA_1155_ABI,
@@ -430,6 +441,11 @@ export default function TokenDetailPage() {
         }
 
         addDebugLog("✅ User is owner, setting up sales config...", "success")
+        addDebugLog("📢 IMPORTANT: You will be prompted to approve a transaction to set up ERC20 minting.", "warning")
+        addDebugLog("📢 This is a ONE-TIME setup. Please APPROVE the transaction in your wallet.", "warning")
+        addDebugLog("📢 After this setup, anyone will be able to mint this token with USDC.", "info")
+        addDebugLog("📢 If you REJECT the transaction, the minting process will fail.", "warning")
+
         await setupSalesConfig()
 
         addDebugLog("🔄 Re-checking sales config after setup...", "info")
