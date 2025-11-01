@@ -3,10 +3,14 @@ import { type NextRequest, NextResponse } from "next/server"
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { contractAddress, tokenId, amount, comment, walletAddress } = body
+    const { contractAddress, tokenId, amount, comment, walletAddress, chainId } = body
 
     console.log("[v0] 🔍 Collect API called with body:", JSON.stringify(body, null, 2))
     console.log("[v0] 📥 Request headers:", JSON.stringify(Object.fromEntries(request.headers.entries()), null, 2))
+
+    if (chainId && chainId !== 8453) {
+      console.log(`[v0] ⚠️ Warning: chainId ${chainId} is not Base (8453)`)
+    }
 
     if (!contractAddress || !tokenId || !amount || !walletAddress) {
       console.log("[v0] ❌ Missing required fields")
@@ -35,6 +39,7 @@ export async function POST(request: NextRequest) {
     console.log("[v0] 📝 API key length:", apiKey.length)
     console.log("[v0] 📝 API key starts with:", apiKey.substring(0, 3))
     console.log("[v0] 👛 Collector wallet address:", walletAddress)
+    console.log("[v0] 🔗 Chain ID:", chainId || "8453 (Base - default)")
 
     const requestFormats = [
       {
@@ -46,7 +51,7 @@ export async function POST(request: NextRequest) {
           },
           amount,
           collector: walletAddress,
-          comment: comment || "Collected via Feria Nounish!",
+          comment: comment || "Collected via Feria Nounish on Base!",
         },
       },
       {
@@ -58,7 +63,7 @@ export async function POST(request: NextRequest) {
           },
           amount,
           collectorAddress: walletAddress,
-          comment: comment || "Collected via Feria Nounish!",
+          comment: comment || "Collected via Feria Nounish on Base!",
         },
       },
       {
@@ -70,7 +75,7 @@ export async function POST(request: NextRequest) {
           },
           amount,
           walletAddress: walletAddress,
-          comment: comment || "Collected via Feria Nounish!",
+          comment: comment || "Collected via Feria Nounish on Base!",
         },
       },
       {
@@ -82,7 +87,7 @@ export async function POST(request: NextRequest) {
           },
           amount,
           address: walletAddress,
-          comment: comment || "Collected via Feria Nounish!",
+          comment: comment || "Collected via Feria Nounish on Base!",
         },
       },
     ]
@@ -90,7 +95,6 @@ export async function POST(request: NextRequest) {
     let lastError: any = null
     let lastResponse: any = null
 
-    // Try each format until one works
     for (const format of requestFormats) {
       console.log(`[v0] 🔄 Trying ${format.name}...`)
       console.log("[v0] 📤 Request body:", JSON.stringify(format.body, null, 2))
@@ -114,18 +118,16 @@ export async function POST(request: NextRequest) {
       console.log(`[v0] 📥 ${format.name} response:`, responseText)
 
       if (response.ok) {
-        // Success! Return the result
         let data
         try {
           data = JSON.parse(responseText)
         } catch {
           data = { message: responseText }
         }
-        console.log(`[v0] ✅ ${format.name} succeeded!`)
+        console.log(`[v0] ✅ ${format.name} succeeded on Base chain!`)
         return NextResponse.json(data)
       }
 
-      // Store the error for later
       try {
         lastError = JSON.parse(responseText)
       } catch {
@@ -134,7 +136,6 @@ export async function POST(request: NextRequest) {
       lastResponse = response
     }
 
-    // All formats failed, return detailed error
     console.error("[v0] ❌ All request formats failed")
     console.error("[v0] ❌ Last error:", JSON.stringify(lastError, null, 2))
 
@@ -149,15 +150,17 @@ export async function POST(request: NextRequest) {
           tokenId,
           amount,
           walletAddress,
+          chainId: chainId || 8453,
+          chain: "Base",
           apiKeyPresent: !!apiKey,
           apiKeyLength: apiKey.length,
           attemptedFormats: requestFormats.map((f) => f.name),
         },
         possibleCauses: [
-          "El balance de la cuenta del artista en InProcess es insuficiente (no el balance del coleccionista)",
+          "El balance de la cuenta del artista en InProcess es insuficiente (necesita ETH en Base)",
           "El API key no tiene permisos para este contrato",
           "El contrato tiene restricciones específicas",
-          "Se necesita un flujo diferente (firma del coleccionista, etc.)",
+          "La red Base (8453) no está configurada correctamente en InProcess",
         ],
       },
       { status: lastResponse?.status || 500 },

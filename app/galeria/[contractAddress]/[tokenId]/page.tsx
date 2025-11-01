@@ -5,7 +5,7 @@ import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { useState, useEffect } from "react"
 import { useParams } from "next/navigation"
-import { createPublicClient, http } from "viem"
+import { createPublicClient, http, encodeFunctionData } from "viem"
 import { base } from "viem/chains"
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi"
 import { ArrowLeft, Plus, Minus } from "lucide-react"
@@ -21,71 +21,6 @@ interface TokenMetadata {
 }
 
 const ERC1155_ABI = [
-  {
-    inputs: [
-      { name: "to", type: "address" },
-      { name: "tokenId", type: "uint256" },
-      { name: "quantity", type: "uint256" },
-    ],
-    name: "mint",
-    outputs: [],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-  {
-    inputs: [
-      { name: "tokenId", type: "uint256" },
-      { name: "quantity", type: "uint256" },
-      { name: "recipient", type: "address" },
-      { name: "currency", type: "address" },
-      { name: "expectedPrice", type: "uint256" },
-    ],
-    name: "purchaseWithERC20",
-    outputs: [],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-  {
-    inputs: [
-      { name: "tokenId", type: "uint256" },
-      { name: "quantity", type: "uint256" },
-    ],
-    name: "purchase",
-    outputs: [],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-  {
-    inputs: [
-      { name: "recipient", type: "address" },
-      { name: "tokenId", type: "uint256" },
-      { name: "quantity", type: "uint256" },
-    ],
-    name: "collect",
-    outputs: [],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-  {
-    inputs: [
-      { name: "to", type: "address" },
-      { name: "tokenId", type: "uint256" },
-      { name: "quantity", type: "uint256" },
-      { name: "currency", type: "address" },
-      { name: "price", type: "uint256" },
-    ],
-    name: "mintWithERC20",
-    outputs: [],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-  {
-    inputs: [{ name: "id", type: "uint256" }],
-    name: "uri",
-    outputs: [{ name: "", type: "string" }],
-    stateMutability: "view",
-    type: "function",
-  },
   {
     inputs: [
       { name: "account", type: "address" },
@@ -104,15 +39,18 @@ const ERC1155_ABI = [
     type: "function",
   },
   {
-    inputs: [],
-    name: "maxPerAddress",
-    outputs: [{ name: "", type: "uint256" }],
+    inputs: [{ name: "id", type: "uint256" }],
+    name: "uri",
+    outputs: [{ name: "", type: "string" }],
     stateMutability: "view",
     type: "function",
   },
 ] as const
 
-const ERC20_ABI = [
+const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" // USDC on Base
+const PRICE_PER_TOKEN = BigInt(1000000) // 1 USDC (6 decimals)
+
+const USDC_ABI = [
   {
     inputs: [
       { name: "spender", type: "address" },
@@ -142,7 +80,20 @@ const ERC20_ABI = [
   },
 ] as const
 
-const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as `0x${string}`
+const ZORA_1155_ABI = [
+  {
+    inputs: [
+      { name: "minter", type: "address" },
+      { name: "tokenId", type: "uint256" },
+      { name: "quantity", type: "uint256" },
+      { name: "minterArguments", type: "bytes" },
+    ],
+    name: "mint",
+    outputs: [],
+    stateMutability: "payable",
+    type: "function",
+  },
+] as const
 
 async function fetchWithRetry<T>(fetchFn: () => Promise<T>, maxRetries = 3, baseDelay = 1000): Promise<T> {
   let lastError: Error | null = null
@@ -179,15 +130,11 @@ export default function TokenDetailPage() {
   const [justCollected, setJustCollected] = useState(false)
 
   const [debugInfo, setDebugInfo] = useState<string[]>([])
-  const [showDebug, setShowDebug] = useState(false)
   const [isMinting, setIsMinting] = useState(false)
-  const [isApproving, setIsApproving] = useState(false)
-  const [isApproved, setIsApproved] = useState(false)
   const [contractInfo, setContractInfo] = useState<{
     userBalance: string
     totalSupply: string
-    usdcBalance: string
-    maxPerAddress?: string
+    ethBalance: string
   } | null>(null)
 
   const [salesConfig, setSalesConfig] = useState<{
@@ -199,21 +146,11 @@ export default function TokenDetailPage() {
   } | null>(null)
 
   const [mintError, setMintError] = useState<string | null>(null)
-  const [attemptedFunctions, setAttemptedFunctions] = useState<string[]>([])
-
-  const { writeContract, data: hash, error: writeError, isPending } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({
-    hash,
-  })
 
   const isExperimentalMusicToken =
     contractAddress.toLowerCase() === "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5" && tokenId === "1"
 
-  const usdcAmountNeeded = salesConfig
-    ? BigInt(salesConfig.pricePerToken) * BigInt(quantity)
-    : BigInt(1000000) * BigInt(quantity) // 1 USDC = 1000000 (6 decimals)
-
-  const usdcAmountDisplay = salesConfig ? (Number(salesConfig.pricePerToken) / 1e6) * quantity : quantity
+  const ethAmountDisplay = salesConfig ? (Number(salesConfig.pricePerToken) / 1e18) * quantity : 0.0003 * quantity
 
   const addDebugLog = (message: string) => {
     const timestamp = new Date().toISOString()
@@ -221,60 +158,6 @@ export default function TokenDetailPage() {
     console.log("[v0]", logMessage)
     setDebugInfo((prev) => [...prev, logMessage])
   }
-
-  useEffect(() => {
-    if (isConfirmed && hash) {
-      addDebugLog(`✅ Transaction confirmed! Hash: ${hash}`)
-
-      if (isApproving) {
-        addDebugLog("✅ USDC approval confirmed!")
-        setIsApproved(true)
-        setIsApproving(false)
-      } else if (isMinting) {
-        setJustCollected(true)
-        setIsMinting(false)
-        checkContractState()
-      }
-    }
-  }, [isConfirmed, hash, isApproving, isMinting])
-
-  useEffect(() => {
-    if (isApproved) {
-      addDebugLog(`🔄 Quantity changed to ${quantity}, resetting approval`)
-      setIsApproved(false)
-      setMintError(null)
-    }
-  }, [quantity])
-
-  useEffect(() => {
-    const checkAllowance = async () => {
-      if (!address || !isExperimentalMusicToken) return
-
-      try {
-        const publicClient = createPublicClient({
-          chain: base,
-          transport: http(),
-        })
-
-        const allowance = await publicClient.readContract({
-          address: USDC_ADDRESS,
-          abi: ERC20_ABI,
-          functionName: "allowance",
-          args: [address, contractAddress],
-        })
-
-        addDebugLog(`💰 Current USDC allowance: ${allowance.toString()}`)
-        setIsApproved(allowance >= usdcAmountNeeded)
-
-        await checkContractState()
-      } catch (error: any) {
-        console.error("[v0] Error checking allowance:", error)
-        addDebugLog(`❌ Error checking allowance: ${error.message}`)
-      }
-    }
-
-    checkAllowance()
-  }, [address, contractAddress, isExperimentalMusicToken, tokenId, quantity, usdcAmountNeeded])
 
   const checkContractState = async () => {
     if (!address || !isExperimentalMusicToken) return
@@ -285,7 +168,7 @@ export default function TokenDetailPage() {
         transport: http(),
       })
 
-      const [userBalance, totalSupply, usdcBalance, maxPerAddress] = await Promise.all([
+      const [userBalance, totalSupply, ethBalance] = await Promise.all([
         publicClient
           .readContract({
             address: contractAddress,
@@ -302,60 +185,82 @@ export default function TokenDetailPage() {
             args: [BigInt(tokenId)],
           })
           .catch(() => BigInt(0)),
-        publicClient
-          .readContract({
-            address: USDC_ADDRESS,
-            abi: ERC20_ABI,
-            functionName: "balanceOf",
-            args: [address],
-          })
-          .catch(() => BigInt(0)),
-        publicClient
-          .readContract({
-            address: contractAddress,
-            abi: ERC1155_ABI,
-            functionName: "maxPerAddress",
-            args: [],
-          })
-          .catch(() => null),
+        publicClient.getBalance({ address }).catch(() => BigInt(0)),
       ])
 
       const info = {
         userBalance: userBalance.toString(),
         totalSupply: totalSupply.toString(),
-        usdcBalance: (Number(usdcBalance) / 1e6).toFixed(2),
-        maxPerAddress: maxPerAddress ? maxPerAddress.toString() : undefined,
+        ethBalance: (Number(ethBalance) / 1e18).toFixed(4),
       }
 
       setContractInfo(info)
-      addDebugLog(`📊 User already owns: ${info.userBalance} of this token`)
-      addDebugLog(`📊 Total supply of this token: ${info.totalSupply}`)
-      addDebugLog(`💵 User USDC balance: ${info.usdcBalance} USDC`)
-      if (info.maxPerAddress) {
-        addDebugLog(`🔒 Max per address: ${info.maxPerAddress}`)
-      }
+      addDebugLog(`📊 [Base Chain] User already owns: ${info.userBalance} of this token`)
+      addDebugLog(`📊 [Base Chain] Total supply of this token: ${info.totalSupply}`)
+      addDebugLog(`💎 [Base Chain] User ETH balance: ${info.ethBalance} ETH`)
 
-      if (Number(info.usdcBalance) < quantity) {
-        addDebugLog(
-          `⚠️ WARNING: Insufficient USDC balance! Need at least ${quantity} USDC, have ${info.usdcBalance} USDC`,
-        )
-        setMintError(
-          `Saldo insuficiente: Necesitas ${quantity} USDC para coleccionar ${quantity} edición(es). Tienes ${info.usdcBalance} USDC.`,
-        )
-      } else {
-        setMintError(null)
-      }
-
-      if (info.maxPerAddress && Number(info.userBalance) >= Number(info.maxPerAddress)) {
-        addDebugLog(`⚠️ WARNING: User has reached max per address limit (${info.maxPerAddress})`)
-        setMintError(
-          `Has alcanzado el límite máximo de ${info.maxPerAddress} token(s) por dirección. No puedes coleccionar más.`,
-        )
+      const requiredEth = ethAmountDisplay
+      if (Number(info.ethBalance) < requiredEth) {
+        addDebugLog(`⚠️ WARNING: Low ETH balance! Have ${info.ethBalance} ETH on Base (though minting is gasless)`)
       }
     } catch (error: any) {
       addDebugLog(`⚠️ Could not fetch contract state: ${error.message}`)
     }
   }
+
+  const checkUSDCBalance = async () => {
+    if (!address) return
+
+    try {
+      const publicClient = createPublicClient({
+        chain: base,
+        transport: http(),
+      })
+
+      const [balance, allowance] = await Promise.all([
+        publicClient.readContract({
+          address: USDC_ADDRESS,
+          abi: USDC_ABI,
+          functionName: "balanceOf",
+          args: [address],
+        }),
+        publicClient.readContract({
+          address: USDC_ADDRESS,
+          abi: USDC_ABI,
+          functionName: "allowance",
+          args: [address, contractAddress],
+        }),
+      ])
+
+      setUsdcBalance(balance)
+      setUsdcAllowance(allowance)
+
+      const totalCost = PRICE_PER_TOKEN * BigInt(quantity)
+      addDebugLog(`💵 [Base] USDC Balance: ${Number(balance) / 1e6} USDC`)
+      addDebugLog(`✅ [Base] USDC Allowance: ${Number(allowance) / 1e6} USDC`)
+      addDebugLog(`💰 [Base] Total Cost: ${Number(totalCost) / 1e6} USDC`)
+
+      setIsApproved(allowance >= totalCost)
+    } catch (error: any) {
+      addDebugLog(`❌ Error checking USDC: ${error.message}`)
+    }
+  }
+
+  const [isApproving, setIsApproving] = useState(false)
+  const [isApproved, setIsApproved] = useState(false)
+  const [usdcBalance, setUsdcBalance] = useState<bigint>(BigInt(0))
+  const [usdcAllowance, setUsdcAllowance] = useState<bigint>(BigInt(0))
+
+  const { writeContract: approveUSDC, data: approveHash } = useWriteContract()
+  const { writeContract: mintToken, data: mintHash } = useWriteContract()
+
+  const { isSuccess: approveSuccess } = useWaitForTransactionReceipt({
+    hash: approveHash,
+  })
+
+  const { isSuccess: mintSuccess } = useWaitForTransactionReceipt({
+    hash: mintHash,
+  })
 
   useEffect(() => {
     const fetchTokenMetadata = async () => {
@@ -436,8 +341,7 @@ export default function TokenDetailPage() {
             } else {
               const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
               setCreator(fallbackCreator)
-              const displayName = await getDisplayName(fallbackCreator)
-              setArtistName(displayName)
+              setArtistName(await getDisplayName(fallbackCreator))
             }
           } catch (error) {
             console.error("[v0] Error fetching artist from inprocess after retries:", error)
@@ -510,44 +414,46 @@ export default function TokenDetailPage() {
       if (!isExperimentalMusicToken) return
 
       try {
-        addDebugLog("📤 Fetching sales config from InProcess API...")
-        const response = await fetch(`/api/inprocess/moment?contractAddress=${contractAddress}&tokenId=${tokenId}`)
+        addDebugLog("📤 [Base Chain] Fetching sales config from InProcess API...")
+        const response = await fetch(
+          `/api/inprocess/moment?contractAddress=${contractAddress}&tokenId=${tokenId}&chainId=8453`,
+        )
 
         if (!response.ok) {
           const errorData = await response.json()
           addDebugLog(`❌ Failed to fetch sales config: ${JSON.stringify(errorData)}`)
           const defaultConfig = {
-            type: "erc20Mint",
-            pricePerToken: "1000000", // 1 USDC (6 decimals)
+            type: "fixedPrice",
+            pricePerToken: "300000000000000", // 0.0003 ETH ≈ 1 USD
             saleStart: 0,
             saleEnd: "18446744073709551615", // maxUint64
-            currency: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // USDC on Base
           }
-          addDebugLog(`ℹ️ Using default sales config: 1 USDC per edition`)
+          addDebugLog(`ℹ️ Using default sales config: 0.0003 ETH per edition on Base`)
           setSalesConfig(defaultConfig)
           return
         }
 
         const data = await response.json()
-        addDebugLog(`✅ Sales config fetched: ${JSON.stringify(data.salesConfig, null, 2)}`)
+        addDebugLog(`✅ [Base Chain] Sales config fetched: ${JSON.stringify(data.salesConfig, null, 2)}`)
 
         if (data.salesConfig) {
           setSalesConfig(data.salesConfig)
           addDebugLog(`💰 Price per token: ${data.salesConfig.pricePerToken}`)
-          addDebugLog(`💵 Currency: ${data.salesConfig.currency || "Native token (ETH)"}`)
+          addDebugLog(
+            `💎 Type: ${data.salesConfig.type} (${data.salesConfig.type === "fixedPrice" ? "Native ETH on Base" : "ERC20"})`,
+          )
           addDebugLog(`📅 Sale start: ${data.salesConfig.saleStart}`)
           addDebugLog(`📅 Sale end: ${data.salesConfig.saleEnd}`)
         }
       } catch (error: any) {
         addDebugLog(`❌ Error fetching sales config: ${error.message}`)
         const defaultConfig = {
-          type: "erc20Mint",
-          pricePerToken: "1000000", // 1 USDC (6 decimals)
+          type: "fixedPrice",
+          pricePerToken: "300000000000000", // 0.0003 ETH ≈ 1 USD
           saleStart: 0,
           saleEnd: "18446744073709551615", // maxUint64
-          currency: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // USDC on Base
         }
-        addDebugLog(`ℹ️ Using default sales config: 1 USDC per edition`)
+        addDebugLog(`ℹ️ Using default sales config: 0.0003 ETH per edition on Base`)
         setSalesConfig(defaultConfig)
       }
     }
@@ -556,66 +462,55 @@ export default function TokenDetailPage() {
   }, [contractAddress, tokenId, isExperimentalMusicToken])
 
   useEffect(() => {
-    if (writeError) {
-      addDebugLog(`❌ Write Contract Error Detected:`)
-      addDebugLog(`❌ Error message: ${writeError.message}`)
-      addDebugLog(`❌ Error name: ${writeError.name}`)
-      addDebugLog(`❌ Error keys: ${Object.keys(writeError).join(", ")}`)
-      if ("cause" in writeError && writeError.cause) {
-        addDebugLog(`❌ Error cause: ${JSON.stringify(writeError.cause, null, 2)}`)
-      }
-      if ("details" in writeError) {
-        addDebugLog(`❌ Error details: ${(writeError as any).details}`)
-      }
-      if ("shortMessage" in writeError) {
-        addDebugLog(`❌ Short message: ${(writeError as any).shortMessage}`)
-      }
-      if ("metaMessages" in writeError) {
-        addDebugLog(`❌ Meta messages: ${JSON.stringify((writeError as any).metaMessages)}`)
-      }
-      if ("data" in writeError && (writeError as any).data) {
-        addDebugLog(`❌ Revert data: ${(writeError as any).data}`)
-      }
-      try {
-        addDebugLog(`❌ Full error object: ${JSON.stringify(writeError, Object.getOwnPropertyNames(writeError), 2)}`)
-      } catch (e) {
-        addDebugLog(`❌ Could not stringify error object`)
-      }
-      setMintError(
-        `Error al coleccionar: ${writeError.message}\n\nFunciones intentadas: ${attemptedFunctions.join(", ") || "purchaseWithERC20"}\n\nPosibles causas:\n• El contrato usa un sistema de minteo diferente (ej: Zora minter pattern)\n• Se necesita usar el API de InProcess (requiere balance del artista)\n• El contrato tiene restricciones específicas\n• La venta no está activa o tiene condiciones no cumplidas`,
-      )
-      setIsMinting(false)
+    if (address && isExperimentalMusicToken) {
+      checkContractState()
+      checkUSDCBalance()
     }
-  }, [writeError])
+  }, [address, quantity, isExperimentalMusicToken])
+
+  useEffect(() => {
+    if (approveSuccess) {
+      addDebugLog("✅ [Base] USDC approval successful!")
+      setIsApproving(false)
+      checkUSDCBalance()
+    }
+  }, [approveSuccess])
+
+  useEffect(() => {
+    if (mintSuccess) {
+      addDebugLog("✅ [Base] Mint successful!")
+      setJustCollected(true)
+      setIsMinting(false)
+      checkContractState()
+    }
+  }, [mintSuccess])
 
   const handleApprove = async () => {
-    addDebugLog("💰 Starting USDC approval...")
-
-    if (!isConnected || !address) {
-      addDebugLog("❌ Wallet not connected")
-      alert("Por favor conecta tu wallet primero")
+    if (!address) {
+      addDebugLog("❌ No wallet connected")
       return
     }
 
     try {
+      setMintError(null)
       setIsApproving(true)
-      addDebugLog(
-        `morphOutput Approving ${usdcAmountNeeded.toString()} USDC (${quantity} USDC) for contract ${contractAddress}`,
-      )
 
-      writeContract({
+      const totalCost = PRICE_PER_TOKEN * BigInt(quantity)
+      addDebugLog(`🔐 [Base] Approving ${Number(totalCost) / 1e6} USDC...`)
+      addDebugLog(`📝 USDC Address: ${USDC_ADDRESS}`)
+      addDebugLog(`📝 Spender (Contract): ${contractAddress}`)
+      addDebugLog(`📝 Amount: ${totalCost.toString()} (${Number(totalCost) / 1e6} USDC)`)
+
+      approveUSDC({
         address: USDC_ADDRESS,
-        abi: ERC20_ABI,
+        abi: USDC_ABI,
         functionName: "approve",
-        args: [contractAddress, usdcAmountNeeded],
+        args: [contractAddress, totalCost],
       })
-
-      addDebugLog("✅ Approval transaction sent, waiting for confirmation...")
     } catch (error: any) {
-      addDebugLog(`❌ Error in handleApprove: ${error.message}`)
-      console.error("[v0] Approve error:", error)
+      addDebugLog(`❌ Error approving USDC: ${error.message}`)
+      setMintError(`Error al aprobar USDC: ${error.message}`)
       setIsApproving(false)
-      alert(`Error al aprobar USDC: ${error.message}`)
     }
   }
 
@@ -625,142 +520,76 @@ export default function TokenDetailPage() {
       return
     }
 
+    if (!isApproved) {
+      addDebugLog("❌ USDC not approved")
+      setMintError("Primero debes aprobar el gasto de USDC")
+      return
+    }
+
     try {
       setMintError(null)
-      setAttemptedFunctions([])
-      addDebugLog("🚀 Starting collection via InProcess API...")
-      addDebugLog(`📝 Wallet address: ${address}`)
-      addDebugLog(`📝 Contract address: ${contractAddress}`)
-      addDebugLog(`📝 Token ID: ${tokenId}`)
-      addDebugLog(`📝 Quantity: ${quantity}`)
-
       setIsMinting(true)
 
-      addDebugLog("📤 Calling InProcess API /api/inprocess/collect...")
-      const response = await fetch("/api/inprocess/collect", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          contractAddress,
-          tokenId,
-          amount: quantity,
-          comment: "Collected via Feria Nounish!",
-          walletAddress: address,
-        }),
+      const totalCost = PRICE_PER_TOKEN * BigInt(quantity)
+      addDebugLog("🚀 [Base] Starting mint (COLLECTOR PAYS)...")
+      addDebugLog(`📝 Wallet: ${address}`)
+      addDebugLog(`📝 Contract: ${contractAddress}`)
+      addDebugLog(`📝 Token ID: ${tokenId}`)
+      addDebugLog(`📝 Quantity: ${quantity}`)
+      addDebugLog(`💰 Total Cost: ${Number(totalCost) / 1e6} USDC on Base`)
+      addDebugLog(`💎 Collector pays: ${Number(totalCost) / 1e6} USDC + gas`)
+
+      // Try Zora 1155 mint pattern with ERC20 Minter
+      // The minter arguments need to be encoded as:
+      // (address mintTo, uint256 quantity, address tokenAddress, uint256 tokenId, uint256 totalValue, address currency, address mintReferral)
+
+      const ERC20_MINTER_ADDRESS = "0x04E2516A2c207E84a1839755675dfd8eF6302F0a" // Zora ERC20 Minter on Base
+
+      const minterArguments = encodeFunctionData({
+        abi: [
+          {
+            inputs: [
+              { name: "mintTo", type: "address" },
+              { name: "quantity", type: "uint256" },
+              { name: "tokenAddress", type: "address" },
+              { name: "tokenId", type: "uint256" },
+              { name: "totalValue", type: "uint256" },
+              { name: "currency", type: "address" },
+              { name: "mintReferral", type: "address" },
+            ],
+            name: "mint",
+            outputs: [],
+            stateMutability: "nonpayable",
+            type: "function",
+          },
+        ],
+        functionName: "mint",
+        args: [
+          address, // mintTo
+          BigInt(quantity), // quantity
+          contractAddress, // tokenAddress
+          BigInt(tokenId), // tokenId
+          totalCost, // totalValue
+          USDC_ADDRESS, // currency
+          "0x0000000000000000000000000000000000000000", // mintReferral (zero address)
+        ],
       })
 
-      addDebugLog(`📥 InProcess API response status: ${response.status}`)
-      const responseText = await response.text()
-      addDebugLog(`📥 InProcess API response: ${responseText}`)
+      addDebugLog(`📦 Encoded minter arguments: ${minterArguments}`)
+      addDebugLog(`🎯 Calling mint on contract with ERC20 Minter...`)
 
-      if (!response.ok) {
-        let errorData
-        try {
-          errorData = JSON.parse(responseText)
-        } catch {
-          errorData = { message: responseText }
-        }
-
-        addDebugLog(`❌ InProcess API error: ${JSON.stringify(errorData, null, 2)}`)
-
-        // Check if it's an insufficient balance error
-        if (
-          errorData.details?.message?.includes("Insufficient balance") ||
-          errorData.details?.includes("Insufficient balance") ||
-          responseText.includes("Insufficient balance")
-        ) {
-          setMintError(
-            `Error del API de InProcess: Balance insuficiente.\n\nEsto significa que la cuenta del artista en InProcess no tiene suficiente balance para patrocinar esta transacción.\n\nPosibles soluciones:\n• El artista necesita agregar fondos a su cuenta de InProcess\n• Contacta al artista para que recargue su cuenta\n• Espera a que el artista agregue más fondos`,
-          )
-        } else {
-          setMintError(
-            `Error del API de InProcess: ${errorData.error || errorData.message || "Error desconocido"}\n\n${errorData.possibleCauses ? `Posibles causas:\n${errorData.possibleCauses.map((c: string) => `• ${c}`).join("\n")}` : ""}\n\nDetalles: ${JSON.stringify(errorData.details || {}, null, 2)}`,
-          )
-        }
-
-        setIsMinting(false)
-        return
-      }
-
-      // Success!
-      let data
-      try {
-        data = JSON.parse(responseText)
-      } catch {
-        data = { message: responseText }
-      }
-
-      addDebugLog(`✅ Collection successful via InProcess API!`)
-      addDebugLog(`✅ Response data: ${JSON.stringify(data, null, 2)}`)
-
-      // Show success state
-      setJustCollected(true)
-      setIsMinting(false)
-      await checkContractState()
+      mintToken({
+        address: contractAddress,
+        abi: ZORA_1155_ABI,
+        functionName: "mint",
+        args: [ERC20_MINTER_ADDRESS, BigInt(tokenId), BigInt(quantity), minterArguments],
+      })
     } catch (error: any) {
-      console.error("[v0] Error in handleMint:", error)
-      addDebugLog(`❌ Error in handleMint: ${error.message}`)
-      addDebugLog(`❌ Error name: ${error.name}`)
-      if (error.cause) {
-        addDebugLog(`❌ Error cause: ${JSON.stringify(error.cause, null, 2)}`)
-      }
-      if (error.stack) {
-        addDebugLog(`❌ Error stack: ${error.stack.substring(0, 500)}...`)
-      }
-
+      addDebugLog(`❌ Error minting: ${error.message}`)
+      addDebugLog(`❌ Error details: ${JSON.stringify(error, null, 2)}`)
+      setMintError(`Error al mintear: ${error.message}`)
       setIsMinting(false)
-      setMintError(
-        `Error al coleccionar: ${error.message}\n\nRevisa los logs de debug para más detalles sobre el error específico.`,
-      )
     }
-  }
-
-  const copyDebugLogs = () => {
-    const debugText = `🔍 Debug Information:
-Connected: ${isConnected ? "✅ Yes" : "❌ No"}
-Address: ${address || "N/A"}
-Contract: ${contractAddress}
-Token ID: ${tokenId}
-Is Experimental Token: ${isExperimentalMusicToken ? "✅ Yes" : "❌ No"}
-USDC Approved: ${isApproved ? "✅ Yes" : "❌ No"}
-Approving: ${isApproving ? "✅ Yes" : "❌ No"}
-Minting: ${isMinting ? "✅ Yes" : "❌ No"}
-Pending: ${isPending ? "✅ Yes" : "❌ No"}
-Confirming: ${isConfirming ? "✅ Yes" : "❌ No"}
-
-📊 Contract State:
-${
-  contractInfo
-    ? `User Token Balance: ${contractInfo.userBalance}
-Total Supply: ${contractInfo.totalSupply}
-User USDC Balance: ${contractInfo.usdcBalance} USDC
-${contractInfo.maxPerAddress ? `Max Per Address: ${contractInfo.maxPerAddress}` : ""}`
-    : "Not loaded yet"
-}
-
-${
-  mintError
-    ? `❌ Mint Error:
-${mintError}
-`
-    : ""
-}
-${hash ? `Tx Hash: ${hash}` : ""}
-
-📋 Transaction Log:
-${debugInfo.join("\n")}`
-
-    navigator.clipboard.writeText(debugText).then(
-      () => {
-        alert("Debug logs copiados al portapapeles!")
-      },
-      (err) => {
-        console.error("[v0] Could not copy text: ", err)
-        alert("Error al copiar los logs")
-      },
-    )
   }
 
   if (isLoading) {
@@ -812,7 +641,6 @@ ${debugInfo.join("\n")}`
               <Card>
                 <CardContent className="p-6">
                   <h1 className="font-extrabold text-3xl text-gray-800 mb-2">{tokenData?.name}</h1>
-
                   <p className="text-sm text-gray-500 font-normal mb-4">por: {artistName || "Cargando..."}</p>
 
                   <div className="border-t border-gray-200 pt-4 mb-4">
@@ -850,6 +678,7 @@ ${debugInfo.join("\n")}`
                           onClick={() => {
                             setJustCollected(false)
                             setMintError(null)
+                            setIsApproved(false)
                           }}
                           variant="outline"
                           className="w-full font-extrabold py-6 text-base"
@@ -865,6 +694,7 @@ ${debugInfo.join("\n")}`
                               const newQuantity = Math.max(1, quantity - 1)
                               setQuantity(newQuantity)
                               setMintError(null)
+                              setIsApproved(false)
                             }}
                             disabled={quantity <= 1}
                             variant="outline"
@@ -882,6 +712,7 @@ ${debugInfo.join("\n")}`
                               const newQuantity = quantity + 1
                               setQuantity(newQuantity)
                               setMintError(null)
+                              setIsApproved(false)
                             }}
                             variant="outline"
                             size="icon"
@@ -891,20 +722,41 @@ ${debugInfo.join("\n")}`
                           </Button>
                         </div>
 
-                        <Button
-                          onClick={handleMint}
-                          disabled={!isConnected || isMinting || isPending || isConfirming || !!mintError}
-                          className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-extrabold py-6 text-base disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {!isConnected
-                            ? "Conecta tu Wallet"
-                            : isMinting
-                              ? "Coleccionando vía InProcess..."
-                              : `Coleccionar Gratis (${quantity})`}
-                        </Button>
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
+                          <p className="text-blue-800 font-semibold">
+                            💰 Total: {Number(PRICE_PER_TOKEN * BigInt(quantity)) / 1e6} USDC + gas
+                          </p>
+                          <p className="text-blue-600 text-xs mt-1">El coleccionista paga todo en Base</p>
+                        </div>
+
+                        {!isApproved ? (
+                          <Button
+                            onClick={handleApprove}
+                            disabled={!isConnected || isApproving}
+                            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-6 text-base disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {!isConnected
+                              ? "Conecta tu Wallet"
+                              : isApproving
+                                ? "Aprobando USDC..."
+                                : `Aprobar ${Number(PRICE_PER_TOKEN * BigInt(quantity)) / 1e6} USDC`}
+                          </Button>
+                        ) : (
+                          <Button
+                            onClick={handleMint}
+                            disabled={!isConnected || isMinting}
+                            className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-extrabold py-6 text-base disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {!isConnected
+                              ? "Conecta tu Wallet"
+                              : isMinting
+                                ? "Minteando..."
+                                : `Mintear ${quantity} edición${quantity > 1 ? "es" : ""}`}
+                          </Button>
+                        )}
 
                         <p className="text-xs text-center text-gray-500">
-                          ✨ Colección patrocinada por el artista (sin gas fees)
+                          💎 Pagas {Number(PRICE_PER_TOKEN * BigInt(quantity)) / 1e6} USDC + gas en Base
                         </p>
                       </>
                     ) : (
@@ -924,31 +776,13 @@ ${debugInfo.join("\n")}`
                   <h3 className="font-extrabold text-sm text-gray-600 mb-2">Información del Contrato</h3>
                   <div className="space-y-2 text-sm font-normal">
                     <div>
-                      <span className="text-gray-500">Contrato:</span>
-                      <p className="font-mono text-xs text-gray-800 break-all">{contractAddress}</p>
+                      <span className="text-gray-500">Hash:</span>
+                      <p className="font-mono text-xs text-gray-800 break-all">{mintHash}</p>
                     </div>
                     <div>
                       <span className="text-gray-500">Token ID:</span>
                       <p className="font-mono text-xs text-gray-800">{tokenId}</p>
                     </div>
-                    {salesConfig && (
-                      <>
-                        <div>
-                          <span className="text-gray-500">Precio por token:</span>
-                          <p className="font-mono text-xs text-gray-800">
-                            {salesConfig.type === "erc20Mint"
-                              ? `${Number(salesConfig.pricePerToken) / 1e6} USDC`
-                              : `${Number(salesConfig.pricePerToken) / 1e18} ETH`}
-                          </p>
-                        </div>
-                        <div>
-                          <span className="text-gray-500">Tipo de venta:</span>
-                          <p className="font-mono text-xs text-gray-800">
-                            {salesConfig.type === "erc20Mint" ? "ERC20 (USDC)" : "Precio fijo (ETH)"}
-                          </p>
-                        </div>
-                      </>
-                    )}
                   </div>
                 </CardContent>
               </Card>
