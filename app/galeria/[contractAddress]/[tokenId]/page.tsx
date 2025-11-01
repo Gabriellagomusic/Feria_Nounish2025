@@ -5,7 +5,7 @@ import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { useState, useEffect, useRef } from "react"
 import { useParams } from "next/navigation"
-import { createPublicClient, http, parseUnits, type Address } from "viem"
+import { createPublicClient, http, parseUnits, type Address, encodeAbiParameters } from "viem"
 import { base } from "viem/chains"
 import { useAccount, useWriteContract, useConnect } from "wagmi"
 import { ArrowLeft, Plus, Minus } from "lucide-react"
@@ -89,6 +89,27 @@ const ZORA_ERC20_MINTER_ABI = [
       },
     ],
     stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      { name: "tokenId", type: "uint256" },
+      {
+        components: [
+          { name: "saleStart", type: "uint64" },
+          { name: "saleEnd", type: "uint64" },
+          { name: "maxTokensPerAddress", type: "uint64" },
+          { name: "pricePerToken", type: "uint96" },
+          { name: "fundsRecipient", type: "address" },
+          { name: "currency", type: "address" },
+        ],
+        name: "salesConfig",
+        type: "tuple",
+      },
+    ],
+    name: "setSale",
+    outputs: [],
+    stateMutability: "nonpayable",
     type: "function",
   },
 ] as const
@@ -533,19 +554,45 @@ export default function TokenDetailPage() {
       addDebugLog(`✨ Minting Type: COLLECTOR PAYS (you pay USDC + gas)`, true)
 
       addDebugLog("📋 Step 0: Checking ERC20 sales configuration...", true)
-      const salesConfig = await checkSalesConfig()
+      let salesConfig = await checkSalesConfig()
 
       if (!salesConfig) {
-        addDebugLog("❌ STOPPING: No valid ERC20 sales config found", true)
-        setIsMinting(false)
-        setMintError(
-          "❌ Este token NO tiene configurado ERC20 minting.\n\n" +
-            "El artista debe configurar el ERC20 sales config primero.\n\n" +
-            (isOwner
-              ? "💡 Como dueño del contrato, usa el botón 'Configurar Sales Config' arriba."
-              : "💡 Contacta al artista para que configure el sales config."),
-        )
-        return
+        addDebugLog("⚠️ No sales config found", true)
+
+        if (isOwner) {
+          addDebugLog("✅ You are the owner, setting up sales config automatically...", true)
+          setIsSettingSalesConfig(true)
+
+          try {
+            await setupSalesConfig()
+            addDebugLog("✅ Sales config set up successfully!", true)
+
+            salesConfig = await checkSalesConfig()
+            setIsSettingSalesConfig(false)
+
+            if (!salesConfig) {
+              throw new Error("Sales config setup succeeded but config is still not found")
+            }
+          } catch (error: any) {
+            setIsSettingSalesConfig(false)
+            addDebugLog(`❌ Failed to set up sales config: ${error.message}`, true)
+            setIsMinting(false)
+            setMintError(
+              `❌ Error configurando sales config: ${error.message}\n\n` +
+                "Por favor intenta de nuevo o contacta al soporte.",
+            )
+            return
+          }
+        } else {
+          addDebugLog("❌ STOPPING: No valid ERC20 sales config found and you are not the owner", true)
+          setIsMinting(false)
+          setMintError(
+            "❌ Este token NO tiene configurado ERC20 minting.\n\n" +
+              "El artista debe configurar el ERC20 sales config primero.\n\n" +
+              "💡 Contacta al artista para que configure el sales config.",
+          )
+          return
+        }
       }
 
       const pricePerToken = salesConfig.pricePerToken || parseUnits("1", 6) // Use config price or default to 1 USDC
@@ -670,9 +717,9 @@ export default function TokenDetailPage() {
   }
 
   const setupSalesConfig = async () => {
-    if (!address || !isOwner) {
-      addDebugLog("❌ Only contract owner can setup sales config", true)
-      return
+    if (!address) {
+      addDebugLog("❌ No wallet connected", true)
+      throw new Error("No wallet connected")
     }
 
     addDebugLog("🔧 Setting up ERC20 sales config...", true)
@@ -706,18 +753,33 @@ export default function TokenDetailPage() {
         true,
       )
 
+      const setSaleData = encodeAbiParameters(
+        [
+          { name: "tokenId", type: "uint256" },
+          {
+            name: "salesConfig",
+            type: "tuple",
+            components: [
+              { name: "saleStart", type: "uint64" },
+              { name: "saleEnd", type: "uint64" },
+              { name: "maxTokensPerAddress", type: "uint64" },
+              { name: "pricePerToken", type: "uint96" },
+              { name: "fundsRecipient", type: "address" },
+              { name: "currency", type: "address" },
+            ],
+          },
+        ],
+        [BigInt(tokenId), salesConfigData],
+      )
+
+      addDebugLog(`📝 Encoded setSale data: ${setSaleData}`, true)
+
       // Call setSale on the ERC20 Minter through the 1155 contract's callSale function
       const hash = await writeContractAsync({
         address: contractAddress,
         abi: ZORA_1155_ABI,
         functionName: "callSale",
-        args: [
-          BigInt(tokenId),
-          ZORA_ERC20_MINTER,
-          // Encode the setSale call data
-          // This needs to be the encoded function call to setSale(uint256 tokenId, SalesConfig salesConfig)
-          "0x", // TODO: Need to encode this properly
-        ],
+        args: [BigInt(tokenId), ZORA_ERC20_MINTER, setSaleData],
       })
 
       addDebugLog(`✅ Sales config setup transaction sent: ${hash}`, true)
@@ -1070,20 +1132,27 @@ export default function TokenDetailPage() {
                         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
                           <p className="text-blue-800 font-semibold">💰 Precio: 1 USDC por edición</p>
                           <p className="text-blue-600 text-xs mt-1">💳 Tú pagas: {quantity} USDC + gas en Base</p>
+                          {isOwner && (
+                            <p className="text-blue-600 text-xs mt-1">
+                              🔧 Si no hay sales config, se configurará automáticamente
+                            </p>
+                          )}
                         </div>
 
                         <Button
                           onClick={handleMint}
-                          disabled={!isConnected || isMinting || isApproving}
+                          disabled={!isConnected || isMinting || isApproving || isSettingSalesConfig}
                           className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-extrabold py-6 text-base disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {!isConnected
                             ? "Conecta tu Wallet"
-                            : isApproving
-                              ? "Aprobando USDC..."
-                              : isMinting
-                                ? "Coleccionando..."
-                                : "Coleccionar"}
+                            : isSettingSalesConfig
+                              ? "Configurando Sales Config..."
+                              : isApproving
+                                ? "Aprobando USDC..."
+                                : isMinting
+                                  ? "Coleccionando..."
+                                  : "Coleccionar"}
                         </Button>
 
                         <p className="text-xs text-center text-gray-500">
