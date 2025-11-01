@@ -338,6 +338,11 @@ export default function TokenDetailPage() {
   const setupSalesConfigDirectly = async () => {
     if (!address) throw new Error("No wallet connected")
 
+    addDebugLog("========== WALLET ADDRESS VERIFICATION ==========", "info")
+    addDebugLog(`🔐 Connected wallet address: ${address}`, "info")
+    addDebugLog(`💰 This address will receive the funds from sales`, "info")
+    addDebugLog("========================================", "info")
+
     addDebugLog("========== STEP 1: GRANT MINTER PERMISSION ==========", "info")
     try {
       const permissionGranted = await grantMinterPermission()
@@ -358,7 +363,7 @@ export default function TokenDetailPage() {
 
     addDebugLog(`💰 Price: 1 USDC per token`, "info")
     addDebugLog(`💵 Currency: USDC (${USDC_ADDRESS})`, "info")
-    addDebugLog(`👤 Funds recipient: ${address}`, "info")
+    addDebugLog(`👤 Funds recipient (YOUR wallet): ${address}`, "info")
     addDebugLog(`📍 ERC20 Minter: ${ZORA_ERC20_MINTER}`, "info")
 
     const hash = await writeContractAsync({
@@ -373,7 +378,7 @@ export default function TokenDetailPage() {
           saleEnd: BigInt("18446744073709551615"),
           maxTokensPerAddress: BigInt(0),
           pricePerToken: priceInWei,
-          fundsRecipient: address,
+          fundsRecipient: address, // This is the connected wallet from useAccount()
           currency: USDC_ADDRESS,
         },
       ],
@@ -426,7 +431,7 @@ export default function TokenDetailPage() {
 
   const handleMint = async () => {
     addDebugLog("========== STARTING MINT FLOW ==========", "info")
-    addDebugLog(`👤 Connected wallet: ${address}`, "info")
+    addDebugLog(`🔐 Connected wallet (from MiniKit/Farcaster): ${address}`, "info")
     addDebugLog(`🎨 Contract: ${contractAddress}`, "info")
     addDebugLog(`🎫 Token ID: ${tokenId}`, "info")
     addDebugLog(`🔢 Quantity: ${quantity}`, "info")
@@ -434,6 +439,7 @@ export default function TokenDetailPage() {
 
     if (!address) {
       setMintError("Por favor conecta tu wallet primero")
+      addDebugLog("❌ No wallet address found - please connect wallet", "error")
       return
     }
 
