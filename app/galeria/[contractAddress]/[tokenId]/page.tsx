@@ -143,6 +143,31 @@ const ERC1155_ABI = [
   },
 ] as const
 
+const ERC20_MINTER_SET_SALE_ABI = [
+  {
+    name: "setSale",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "tokenContract", type: "address" },
+      { name: "tokenId", type: "uint256" },
+      {
+        name: "salesConfig",
+        type: "tuple",
+        components: [
+          { name: "saleStart", type: "uint64" },
+          { name: "saleEnd", type: "uint64" },
+          { name: "maxTokensPerAddress", type: "uint64" },
+          { name: "pricePerToken", type: "uint96" },
+          { name: "fundsRecipient", type: "address" },
+          { name: "currency", type: "address" },
+        ],
+      },
+    ],
+    outputs: [],
+  },
+] as const
+
 interface TokenMetadata {
   name: string
   description: string
@@ -258,52 +283,57 @@ export default function TokenDetailPage() {
 
   // Removed quantity change log
 
-  const setupSalesConfig = async () => {
+  const setupSalesConfigDirectly = async () => {
     if (!address) throw new Error("No wallet connected")
 
-    addDebugLog("🔧 Calling sales config API...", "info")
+    addDebugLog("========== SETTING UP ERC20 MINTING ==========", "info")
+    addDebugLog("📝 Calling setSale directly on ERC20 Minter contract...", "info")
+    addDebugLog("⚠️ IMPORTANT: You must APPROVE this transaction in your wallet!", "warning")
+    addDebugLog("⚠️ This is a one-time setup. After this, anyone can mint with USDC.", "warning")
 
-    const response = await fetch("/api/zora/setup-sales-config", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contractAddress: contractAddress,
-        tokenId: tokenId,
-        fundsRecipient: address,
-      }),
-    })
+    const priceInWei = parseUnits("1", 6) // 1 USDC (6 decimals)
 
-    if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.details || error.error || "Failed to prepare sales config")
-    }
-
-    const data = await response.json()
-    addDebugLog("✅ Sales config data prepared by API", "success")
-    addDebugLog(`📦 setSale data: ${data.setSaleData}`, "info")
-    addDebugLog(`💰 Price: ${data.salesConfig.pricePerToken}`, "info")
-    addDebugLog(`💵 Currency: ${data.salesConfig.currency}`, "info")
-
-    addDebugLog("⚠️ IMPORTANT: Please APPROVE the transaction in your wallet to set up ERC20 minting", "warning")
-    addDebugLog("📤 Sending callSale transaction...", "info")
+    addDebugLog(`💰 Price: 1 USDC per token`, "info")
+    addDebugLog(`💵 Currency: USDC (${USDC_ADDRESS})`, "info")
+    addDebugLog(`👤 Funds recipient: ${address}`, "info")
+    addDebugLog(`📍 ERC20 Minter: ${ZORA_ERC20_MINTER}`, "info")
 
     const hash = await writeContractAsync({
-      address: contractAddress,
-      abi: ZORA_1155_ABI,
-      functionName: "callSale",
-      args: [BigInt(tokenId), ZORA_ERC20_MINTER, data.setSaleData as `0x${string}`],
+      address: ZORA_ERC20_MINTER,
+      abi: ERC20_MINTER_SET_SALE_ABI,
+      functionName: "setSale",
+      args: [
+        contractAddress,
+        BigInt(tokenId),
+        {
+          saleStart: BigInt(0),
+          saleEnd: BigInt("18446744073709551615"),
+          maxTokensPerAddress: BigInt(0),
+          pricePerToken: priceInWei,
+          fundsRecipient: address,
+          currency: USDC_ADDRESS,
+        },
+      ],
     })
 
-    addDebugLog(`✅ Sales config setup tx hash: ${hash}`, "success")
+    addDebugLog(`✅ Transaction sent: ${hash}`, "success")
+    addDebugLog("⏳ Waiting for confirmation...", "info")
 
     const publicClient = createPublicClient({
       chain: base,
       transport: http(),
     })
 
-    addDebugLog("⏳ Waiting for transaction confirmation...", "info")
-    await publicClient.waitForTransactionReceipt({ hash })
-    addDebugLog("✅ Sales config setup confirmed!", "success")
+    const receipt = await publicClient.waitForTransactionReceipt({ hash })
+
+    if (receipt.status === "success") {
+      addDebugLog("✅ Sales config set up successfully!", "success")
+      addDebugLog("🎉 ERC20 minting is now enabled with 1 USDC per token", "success")
+      return true
+    } else {
+      addDebugLog("❌ Transaction failed", "error")
+      return false
+    }
   }
 
   const approveUSDC = async (amount: bigint) => {
@@ -362,28 +392,51 @@ export default function TokenDetailPage() {
         addDebugLog("❌ No ERC20 sales config found for this token", "error")
 
         if (isOwner) {
-          addDebugLog("⚠️ You are the owner. Please set up ERC20 minting:", "warning")
-          addDebugLog("1. Go to https://zora.co", "info")
-          addDebugLog("2. Find your collection", "info")
-          addDebugLog("3. Enable ERC20 minting with USDC", "info")
-          addDebugLog("4. Set price to 1 USDC per token", "info")
-          setMintError(
-            "Please set up ERC20 minting on Zora first.\n\n" +
-              "Steps:\n" +
-              "1. Go to https://zora.co\n" +
-              "2. Find your collection\n" +
-              "3. Enable ERC20 minting with USDC\n" +
-              "4. Set price to 1 USDC per token\n\n" +
-              "Check the debug logs for more details.",
-          )
+          addDebugLog("⚠️ You are the owner. Attempting to set up ERC20 minting...", "warning")
+
+          try {
+            const setupSuccess = await setupSalesConfigDirectly()
+
+            if (!setupSuccess) {
+              setMintError("Failed to set up sales config. Please check the debug logs for details.")
+              setIsMinting(false)
+              return
+            }
+
+            // Recheck sales config after setup
+            addDebugLog("🔄 Rechecking sales config after setup...", "info")
+            const newSalesConfig = await checkSalesConfig()
+
+            if (!newSalesConfig) {
+              setMintError("Sales config setup completed but verification failed. Please try minting again.")
+              setIsMinting(false)
+              return
+            }
+
+            addDebugLog("✅ Sales config verified! Continuing with mint...", "success")
+          } catch (setupError: any) {
+            addDebugLog(`❌ Error setting up sales config: ${setupError.message}`, "error")
+
+            if (setupError.message?.includes("User rejected")) {
+              setMintError(
+                "You rejected the sales config setup transaction. Please try again and approve it to enable ERC20 minting.",
+              )
+            } else {
+              setMintError(
+                `Failed to set up sales config: ${setupError.message}\n\nAlternatively, you can set it up manually at https://zora.co`,
+              )
+            }
+
+            setIsMinting(false)
+            return
+          }
         } else {
           addDebugLog("⚠️ This token doesn't have ERC20 minting configured", "warning")
           addDebugLog("⚠️ Please contact the artist to set it up", "warning")
           setMintError("Este token no tiene configurado ERC20 minting. Contacta al artista.")
+          setIsMinting(false)
+          return
         }
-
-        setIsMinting(false)
-        return
       }
 
       addDebugLog("✅ Sales config found!", "success")
