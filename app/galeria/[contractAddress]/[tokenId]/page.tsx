@@ -5,7 +5,7 @@ import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { useState, useEffect } from "react"
 import { useParams } from "next/navigation"
-import { createPublicClient, http, parseUnits } from "viem"
+import { createPublicClient, http } from "viem"
 import { base } from "viem/chains"
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi"
 import { ArrowLeft, Plus, Minus } from "lucide-react"
@@ -155,8 +155,10 @@ export default function TokenDetailPage() {
     contractAddress.toLowerCase() === "0xff55cdf0d7f7fe5491593afa43493a6de79ec0f5" && tokenId === "1"
 
   const usdcAmountNeeded = salesConfig
-    ? parseUnits((quantity * Number(salesConfig.pricePerToken)).toString(), 6)
-    : parseUnits((quantity * 1).toString(), 6)
+    ? BigInt(salesConfig.pricePerToken) * BigInt(quantity)
+    : BigInt(1000000) * BigInt(quantity) // 1 USDC = 1000000 (6 decimals)
+
+  const usdcAmountDisplay = salesConfig ? (Number(salesConfig.pricePerToken) / 1e6) * quantity : quantity
 
   const addDebugLog = (message: string) => {
     const timestamp = new Date().toISOString()
@@ -789,7 +791,7 @@ ${debugInfo.join("\n")}`
                                   ? "Confirmando aprobación..."
                                   : isApproving
                                     ? "Aprobando USDC..."
-                                    : `Aprobar ${quantity} USDC`}
+                                    : `Aprobar ${usdcAmountDisplay} USDC`}
                           </Button>
                         ) : (
                           <>
