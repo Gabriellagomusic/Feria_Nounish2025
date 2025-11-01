@@ -8,7 +8,7 @@ import { useParams } from "next/navigation"
 import { createPublicClient, http, parseUnits } from "viem"
 import { base } from "viem/chains"
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi"
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, Plus, Minus } from "lucide-react"
 import { getDisplayName } from "@/lib/farcaster"
 import { ShareToFarcasterButton } from "@/components/share/ShareToFarcasterButton"
 import { getTimeline, type Moment } from "@/lib/inprocess"
@@ -474,17 +474,12 @@ export default function TokenDetailPage() {
     }
 
     if (contractInfo) {
-      if (Number(contractInfo.usdcBalance) < 1) {
-        addDebugLog("❌ Insufficient USDC balance")
-        alert(`Saldo insuficiente de USDC. Tienes ${contractInfo.usdcBalance} USDC, necesitas al menos 1 USDC`)
-        return
-      }
-
-      if (contractInfo.maxPerAddress && Number(contractInfo.userBalance) >= Number(contractInfo.maxPerAddress)) {
-        addDebugLog("❌ User has reached max per address limit")
-        const errorMsg = `Has alcanzado el límite máximo de ${contractInfo.maxPerAddress} token(s) por dirección. No puedes coleccionar más.`
-        setMintError(errorMsg)
-        alert(errorMsg)
+      const requiredUSDC = quantity
+      if (Number(contractInfo.usdcBalance) < requiredUSDC) {
+        addDebugLog(`❌ Insufficient USDC balance for ${quantity} token(s)`)
+        alert(
+          `Saldo insuficiente de USDC. Tienes ${contractInfo.usdcBalance} USDC, necesitas al menos ${requiredUSDC} USDC para ${quantity} token(s)`,
+        )
         return
       }
     }
@@ -495,12 +490,11 @@ export default function TokenDetailPage() {
     addDebugLog(`📝 Quantity: ${quantity}`)
 
     try {
-      // The wallet will simulate it anyway, and we'll get better error messages from the wallet
       addDebugLog("📤 Attempting mint transaction...")
 
       setIsMinting(true)
       addDebugLog("📤 Calling mint function...")
-      addDebugLog("💰 Contract will pull 1 USDC from your wallet")
+      addDebugLog(`💰 Contract will pull ${quantity} USDC from your wallet`)
 
       writeContract({
         address: contractAddress,
@@ -520,8 +514,6 @@ export default function TokenDetailPage() {
         errorMessage += "Transacción cancelada por el usuario."
       } else if (error.message.includes("insufficient")) {
         errorMessage += "Fondos insuficientes."
-      } else if (error.message.includes("max")) {
-        errorMessage += "Has alcanzado el límite máximo permitido."
       } else {
         errorMessage += error.shortMessage || error.message
       }
@@ -618,19 +610,16 @@ export default function TokenDetailPage() {
                         >
                           Ver en Mi Perfil
                         </Button>
-                        {(!contractInfo?.maxPerAddress ||
-                          Number(contractInfo.userBalance) < Number(contractInfo.maxPerAddress)) && (
-                          <Button
-                            onClick={() => {
-                              setJustCollected(false)
-                              setMintError(null)
-                            }}
-                            variant="outline"
-                            className="w-full font-extrabold py-6 text-base"
-                          >
-                            Coleccionar Más
-                          </Button>
-                        )}
+                        <Button
+                          onClick={() => {
+                            setJustCollected(false)
+                            setMintError(null)
+                          }}
+                          variant="outline"
+                          className="w-full font-extrabold py-6 text-base"
+                        >
+                          Coleccionar Más
+                        </Button>
                       </div>
                     ) : isExperimentalMusicToken ? (
                       <>
@@ -651,31 +640,47 @@ export default function TokenDetailPage() {
                                     : "Aprobar 1 USDC"}
                           </Button>
                         ) : (
-                          <Button
-                            onClick={handleMint}
-                            disabled={
-                              !isConnected ||
-                              isMinting ||
-                              isPending ||
-                              isConfirming ||
-                              (contractInfo?.maxPerAddress &&
-                                Number(contractInfo.userBalance) >= Number(contractInfo.maxPerAddress))
-                            }
-                            className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-extrabold py-6 text-base disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {!isConnected
-                              ? "Conecta tu Wallet"
-                              : contractInfo?.maxPerAddress &&
-                                  Number(contractInfo.userBalance) >= Number(contractInfo.maxPerAddress)
-                                ? `Límite Alcanzado (${contractInfo.maxPerAddress} max)`
+                          <>
+                            <div className="flex items-center justify-center gap-4 p-4 bg-gray-50 rounded-lg">
+                              <Button
+                                onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                                disabled={quantity <= 1}
+                                variant="outline"
+                                size="icon"
+                                className="h-10 w-10"
+                              >
+                                <Minus className="h-4 w-4" />
+                              </Button>
+                              <div className="text-center">
+                                <div className="text-2xl font-extrabold text-gray-800">{quantity}</div>
+                                <div className="text-xs text-gray-500">ediciones</div>
+                              </div>
+                              <Button
+                                onClick={() => setQuantity(quantity + 1)}
+                                variant="outline"
+                                size="icon"
+                                className="h-10 w-10"
+                              >
+                                <Plus className="h-4 w-4" />
+                              </Button>
+                            </div>
+
+                            <Button
+                              onClick={handleMint}
+                              disabled={!isConnected || isMinting || isPending || isConfirming}
+                              className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-extrabold py-6 text-base disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {!isConnected
+                                ? "Conecta tu Wallet"
                                 : isPending
                                   ? "Esperando confirmación..."
                                   : isConfirming
                                     ? "Confirmando transacción..."
                                     : isMinting
                                       ? "Minteando..."
-                                      : "Coleccionar Ahora"}
-                          </Button>
+                                      : `Coleccionar (${quantity})`}
+                            </Button>
+                          </>
                         )}
 
                         <Button onClick={() => setShowDebug(!showDebug)} variant="outline" className="w-full">
