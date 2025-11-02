@@ -27,10 +27,8 @@ export function ShareToFarcasterButton({
     setIsSharing(true)
 
     try {
-      // Construct the piece URL
       const pieceUrl = `${window.location.origin}/galeria/${contractAddress}/${tokenId}`
 
-      // Construct the cast text based on mode
       let text = ""
       if (mode === "add") {
         text = pieceTitle
@@ -42,34 +40,43 @@ export function ShareToFarcasterButton({
           : `¡Mira la pieza de la Feria Nounish que acabo de coleccionar! ${pieceUrl}`
       }
 
-      // Try programmatic posting first
-      const response = await fetch("/api/farcaster/cast", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text,
-          embeds: [pieceUrl],
-        }),
-      })
+      const isMiniKitContext =
+        (typeof window !== "undefined" && (window as any).ethereum?.isMiniPay) ||
+        (window as any).ethereum?.isCoinbaseWallet ||
+        window.location.ancestorOrigins?.[0]?.includes("farcaster") ||
+        window.location.ancestorOrigins?.[0]?.includes("warpcast")
 
-      const data = await response.json()
+      if (isMiniKitContext) {
+        // Try programmatic posting via API
+        const response = await fetch("/api/farcaster/cast", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text,
+            embeds: [pieceUrl],
+          }),
+        })
 
-      if (data.ok) {
-        // Success! Programmatic posting worked
-        alert("¡Publicado en Farcaster exitosamente!")
+        const data = await response.json()
+
+        if (data.ok) {
+          alert("¡Publicado en Farcaster exitosamente!")
+          onShareComplete?.()
+          return
+        }
+      }
+
+      if (isMiniKitContext) {
+        const farcasterUrl = `farcaster://compose?text=${encodeURIComponent(text)}&embeds[]=${encodeURIComponent(pieceUrl)}`
+        window.location.href = farcasterUrl
         onShareComplete?.()
-      } else if (data.fallbackToComposer) {
-        // Fallback to Warpcast composer
-        console.log("[v0] Falling back to Warpcast composer")
-        openWarpcastComposer(text, pieceUrl)
       } else {
-        // Error
-        throw new Error(data.error || "Failed to share")
+        // Fallback to Warpcast composer for web browsers
+        openWarpcastComposer(text, pieceUrl)
       }
     } catch (error) {
       console.error("[v0] Error sharing to Farcaster:", error)
 
-      // Fallback to Warpcast composer on any error
       const pieceUrl = `${window.location.origin}/galeria/${contractAddress}/${tokenId}`
       let text = ""
       if (mode === "add") {

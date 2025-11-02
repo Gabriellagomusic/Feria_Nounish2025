@@ -116,18 +116,16 @@ export default function GaleriaPage() {
   useEffect(() => {
     const fetchTokenMetadata = async () => {
       try {
-        const allMoments = await fetchWithRetry(async () => {
-          return await getAllMoments(8453)
-        })
-        const momentLookup = buildMomentLookupMap(allMoments)
+        const [allMoments, galleryData] = await Promise.all([
+          fetchWithRetry(async () => await getAllMoments(8453)),
+          fetchWithRetry(async () => {
+            const response = await fetch("/api/gallery/list")
+            if (!response.ok) throw new Error(`HTTP ${response.status}`)
+            return await response.json()
+          }),
+        ])
 
-        const galleryData = await fetchWithRetry(async () => {
-          const response = await fetch("/api/gallery/list")
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`)
-          }
-          return await response.json()
-        })
+        const momentLookup = buildMomentLookupMap(allMoments)
 
         if (!galleryData.tokens || galleryData.tokens.length === 0) {
           setTokens([])
@@ -140,84 +138,89 @@ export default function GaleriaPage() {
           transport: http(),
         })
 
-        const tokenDataPromises = galleryData.tokens.map(
-          async (config: { contractAddress: string; tokenId: string }) => {
-            try {
-              const artistInfo = await fetchArtistForToken(config.contractAddress, config.tokenId, momentLookup)
+        const BATCH_SIZE = 5
+        const tokenData: TokenMetadata[] = []
 
-              const tokenURI = await fetchWithRetry(async () => {
-                return await publicClient.readContract({
-                  address: config.contractAddress as `0x${string}`,
-                  abi: ERC1155_ABI,
-                  functionName: "uri",
-                  args: [BigInt(1)],
-                })
-              })
+        for (let i = 0; i < galleryData.tokens.length; i += BATCH_SIZE) {
+          const batch = galleryData.tokens.slice(i, i + BATCH_SIZE)
 
-              if (tokenURI) {
-                let metadataUrl = tokenURI.replace("{id}", "1")
-                if (metadataUrl.startsWith("ar://")) {
-                  metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
-                }
+          const batchResults = await Promise.all(
+            batch.map(async (config: { contractAddress: string; tokenId: string }) => {
+              try {
+                const artistInfo = await fetchArtistForToken(config.contractAddress, config.tokenId, momentLookup)
 
-                try {
-                  const metadata = await fetchWithRetry(async () => {
-                    const response = await fetch(metadataUrl)
-                    if (!response.ok) {
-                      throw new Error(`HTTP ${response.status}`)
-                    }
-                    return await response.json()
+                const tokenURI = await fetchWithRetry(async () => {
+                  return await publicClient.readContract({
+                    address: config.contractAddress as `0x${string}`,
+                    abi: ERC1155_ABI,
+                    functionName: "uri",
+                    args: [BigInt(1)],
                   })
+                })
 
-                  let imageUrl = metadata.image
-                  if (imageUrl?.startsWith("ipfs://")) {
-                    imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-                  } else if (imageUrl?.startsWith("ar://")) {
-                    imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+                if (tokenURI) {
+                  let metadataUrl = tokenURI.replace("{id}", "1")
+                  if (metadataUrl.startsWith("ar://")) {
+                    metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
                   }
 
-                  return {
-                    name: metadata.name || `Obra de Arte #${config.tokenId}`,
-                    description: metadata.description || "Obra de arte digital única",
-                    image: imageUrl || "/placeholder.svg",
-                    artist: artistInfo.address,
-                    artistDisplay: artistInfo.displayName,
-                    contractAddress: config.contractAddress,
-                    tokenId: config.tokenId,
+                  try {
+                    const metadata = await fetchWithRetry(async () => {
+                      const response = await fetch(metadataUrl)
+                      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+                      return await response.json()
+                    })
+
+                    let imageUrl = metadata.image
+                    if (imageUrl?.startsWith("ipfs://")) {
+                      imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+                    } else if (imageUrl?.startsWith("ar://")) {
+                      imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+                    }
+
+                    return {
+                      name: metadata.name || `Obra de Arte #${config.tokenId}`,
+                      description: metadata.description || "Obra de arte digital única",
+                      image: imageUrl || "/placeholder.svg",
+                      artist: artistInfo.address,
+                      artistDisplay: artistInfo.displayName,
+                      contractAddress: config.contractAddress,
+                      tokenId: config.tokenId,
+                    }
+                  } catch (fetchError) {
+                    console.error("[v0] Error fetching metadata after retries:", fetchError)
                   }
-                } catch (fetchError) {
-                  console.error("[v0] Error fetching metadata after retries:", fetchError)
+                }
+
+                return {
+                  name: `Obra de Arte #${config.tokenId}`,
+                  description: "Obra de arte digital única de la colección oficial",
+                  image: "/placeholder.svg",
+                  artist: artistInfo.address,
+                  artistDisplay: artistInfo.displayName,
+                  contractAddress: config.contractAddress,
+                  tokenId: config.tokenId,
+                }
+              } catch (error) {
+                console.error("[v0] Error processing token:", error)
+
+                const fallbackArtist = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
+                return {
+                  name: `Obra de Arte #${config.tokenId}`,
+                  description: "Obra de arte digital única de la colección oficial",
+                  image: "/placeholder.svg",
+                  artist: fallbackArtist,
+                  artistDisplay: formatAddress(fallbackArtist),
+                  contractAddress: config.contractAddress,
+                  tokenId: config.tokenId,
                 }
               }
+            }),
+          )
 
-              return {
-                name: `Obra de Arte #${config.tokenId}`,
-                description: "Obra de arte digital única de la colección oficial",
-                image: "/placeholder.svg",
-                artist: artistInfo.address,
-                artistDisplay: artistInfo.displayName,
-                contractAddress: config.contractAddress,
-                tokenId: config.tokenId,
-              }
-            } catch (error) {
-              console.error("[v0] Error processing token:", error)
-
-              const fallbackArtist = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
-              return {
-                name: `Obra de Arte #${config.tokenId}`,
-                description: "Obra de arte digital única de la colección oficial",
-                image: "/placeholder.svg",
-                artist: fallbackArtist,
-                artistDisplay: formatAddress(fallbackArtist),
-                contractAddress: config.contractAddress,
-                tokenId: config.tokenId,
-              }
-            }
-          },
-        )
-
-        const tokenData = await Promise.all(tokenDataPromises)
-        setTokens(shuffleArray(tokenData))
+          tokenData.push(...batchResults)
+          setTokens(shuffleArray([...tokenData]))
+        }
       } catch (error) {
         console.error("[v0] Fatal error in fetchTokenMetadata:", error)
         setTokens([])

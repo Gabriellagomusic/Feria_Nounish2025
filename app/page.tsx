@@ -190,7 +190,7 @@ export default function Home() {
             className="flex items-center justify-center w-12 h-12 rounded-full bg-white/20 backdrop-blur-md hover:bg-white/30 transition-all shadow-lg"
             aria-label="Farcaster"
           >
-            <Image src="/images/farcaster-icon.svg" alt="Farcaster" width={24} height={24} className="w-6 h-6" />
+            <Image src="/images/farcaster-icon.png" alt="Farcaster" width={24} height={24} className="w-6 h-6" />
           </a>
           <a
             href="https://www.instagram.com/ferianounish/"
