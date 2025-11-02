@@ -102,9 +102,11 @@ export default function CrearPage() {
       let imageUri = "https://arweave.net/placeholder123"
 
       if (selectedFile) {
+        console.log("[v0] Uploading image to Arweave...")
         const formData = new FormData()
         formData.append("file", selectedFile)
         imageUri = await uploadToArweave(formData)
+        console.log("[v0] Image uploaded to:", imageUri)
       }
 
       let artistName = address ? `${address.slice(0, 6)}...${address.slice(-4)}` : "Unknown Artist"
@@ -133,9 +135,9 @@ export default function CrearPage() {
         },
       }
 
-      console.log("[v0] Creating moment with metadata:", metadata)
-
+      console.log("[v0] Uploading metadata to Arweave...")
       const tokenMetadataURI = await uploadJson(metadata)
+      console.log("[v0] Metadata uploaded to:", tokenMetadataURI)
 
       const payload = {
         contract: {
@@ -144,35 +146,30 @@ export default function CrearPage() {
         },
         token: {
           tokenMetadataURI: tokenMetadataURI,
-          createReferral: "0x1234567890123456789012345678901234567890",
-          salesConfig: {
-            type: "erc20Mint",
-            pricePerToken: "1000000",
-            saleStart: 1717200000,
-            saleEnd: 1790198804,
-            currency: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-          },
-          mintToCreatorCount: 1,
         },
-        account: address || "0x0987654321098765432109876543210987654321",
+        account: address,
       }
 
-      const response = await fetch("https://inprocess.fun/api/moment/create", {
+      console.log("[v0] Creating moment with payload:", payload)
+
+      const response = await fetch("/api/inprocess/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       })
 
       const data = await response.json()
+      console.log("[v0] API response:", data)
 
       if (response.ok) {
         alert(`Momento creado exitosamente!\nContract: ${data.contractAddress}\nToken ID: ${data.tokenId}`)
         router.push("/perfil")
       } else {
-        alert(`Error al crear momento: ${data.message || "Error desconocido"}`)
+        console.error("[v0] Error response:", data)
+        alert(`Error al crear momento: ${data.error || data.details?.message || "Error desconocido"}`)
       }
     } catch (error) {
-      console.error("Error calling API:", error)
+      console.error("[v0] Error calling API:", error)
       alert(`Error de conexión: ${error.message}`)
     } finally {
       setIsLoading(false)
