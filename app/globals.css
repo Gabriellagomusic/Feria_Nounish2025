@@ -93,6 +93,7 @@
     @apply bg-background text-foreground;
     font-family: var(--font-barlow), sans-serif;
     text-transform: uppercase;
+    background-color: #000000;
   }
   h1,
   h2,

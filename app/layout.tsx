@@ -31,7 +31,7 @@ export const metadata = {
           name: "Feria Nounish 2025",
           url: URL,
           splashImageUrl: "https://ferianounish2025.vercel.app/images/feria-logo.png",
-          splashBackgroundColor: "#FFD700",
+          splashBackgroundColor: "#000000",
         },
       },
     }),

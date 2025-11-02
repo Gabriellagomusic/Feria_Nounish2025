@@ -8,8 +8,6 @@ import { useEffect, useState, useMemo } from "react"
 import { createPublicClient, http } from "viem"
 import { base } from "viem/chains"
 import { ArrowLeft, Search, ChevronDown, ChevronUp, Copy, Check } from "lucide-react"
-import { getDisplayName } from "@/lib/farcaster"
-import { getAllMoments, buildMomentLookupMap, type Moment } from "@/lib/inprocess"
 import { Button } from "@/components/ui/button"
 
 interface TokenMetadata {
@@ -17,7 +15,6 @@ interface TokenMetadata {
   description: string
   image: string
   artist: string
-  artistDisplay: string
   contractAddress: string
   tokenId: string
 }
@@ -36,6 +33,13 @@ const ERC1155_ABI = [
     stateMutability: "view",
     type: "function",
   },
+  {
+    inputs: [],
+    name: "owner",
+    outputs: [{ name: "", type: "address" }],
+    stateMutability: "view",
+    type: "function",
+  },
 ] as const
 
 function shuffleArray<T>(array: T[]): T[] {
@@ -51,54 +55,26 @@ function formatAddress(address: string): string {
   return address.slice(0, 6) + "..." + address.slice(-4)
 }
 
-async function fetchArtistForToken(
+async function fetchContractOwner(
   contractAddress: string,
-  tokenId: string,
-  momentLookup: Map<string, Moment>,
+  publicClient: any,
   addLog: (message: string, data?: any) => void,
-): Promise<{ address: string; displayName: string }> {
+): Promise<string> {
   try {
-    addLog(`🔍 Fetching artist for contract: ${contractAddress}, tokenId: ${tokenId}`)
-    const normalizedAddress = contractAddress.toLowerCase()
-    addLog(`📝 Normalized address: ${normalizedAddress}`)
+    addLog(`🔍 Fetching owner for contract: ${contractAddress}`)
 
-    const moment = momentLookup.get(normalizedAddress)
-    addLog(`🗺️ Moment lookup result:`, moment ? { admin: moment.admin, username: moment.username } : null)
+    const owner = await publicClient.readContract({
+      address: contractAddress as `0x${string}`,
+      abi: ERC1155_ABI,
+      functionName: "owner",
+    })
 
-    if (!moment) {
-      addLog(`⚠️ No moment found for ${normalizedAddress}, using fallback`)
-      const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
-      const displayName = await getDisplayName(fallbackCreator)
-      addLog(`✅ Fallback artist: ${displayName} (${fallbackCreator})`)
-      return {
-        address: fallbackCreator.toLowerCase(),
-        displayName: displayName,
-      }
-    }
-
-    if (moment.username) {
-      addLog(`✅ Found username in moment: ${moment.username}`)
-      return {
-        address: moment.admin.toLowerCase(),
-        displayName: moment.username,
-      }
-    }
-
-    addLog(`🔄 No username in moment, fetching display name for: ${moment.admin}`)
-    const displayName = await getDisplayName(moment.admin)
-    addLog(`✅ Fetched display name: ${displayName}`)
-
-    return {
-      address: moment.admin.toLowerCase(),
-      displayName: displayName,
-    }
+    addLog(`✅ Found owner: ${owner}`)
+    return (owner as string).toLowerCase()
   } catch (error) {
-    addLog(`❌ Error fetching artist:`, error)
+    addLog(`❌ Error fetching owner, using fallback:`, error)
     const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
-    return {
-      address: fallbackCreator.toLowerCase(),
-      displayName: formatAddress(fallbackCreator),
-    }
+    return fallbackCreator.toLowerCase()
   }
 }
 
@@ -166,22 +142,13 @@ export default function GaleriaPage() {
       try {
         addDebugLog("🚀 Starting gallery fetch")
 
-        const [allMoments, galleryData] = await Promise.all([
-          fetchWithRetry(async () => await getAllMoments(8453)),
-          fetchWithRetry(async () => {
-            const response = await fetch("/api/gallery/list")
-            if (!response.ok) throw new Error(`HTTP ${response.status}`)
-            return await response.json()
-          }),
-        ])
-
-        addDebugLog(`📊 Fetched ${allMoments.length} moments from InProcess`)
-        addDebugLog(`📊 Fetched ${galleryData.tokens?.length || 0} tokens from gallery API`)
-
-        const momentLookup = buildMomentLookupMap(allMoments)
-        addDebugLog(`🗺️ Built moment lookup map with ${momentLookup.size} entries`, {
-          keys: Array.from(momentLookup.keys()),
+        const galleryData = await fetchWithRetry(async () => {
+          const response = await fetch("/api/gallery/list")
+          if (!response.ok) throw new Error(`HTTP ${response.status}`)
+          return await response.json()
         })
+
+        addDebugLog(`📊 Fetched ${galleryData.tokens?.length || 0} tokens from gallery API`)
 
         if (!galleryData.tokens || galleryData.tokens.length === 0) {
           addDebugLog("⚠️ No tokens found in gallery data")
@@ -195,7 +162,7 @@ export default function GaleriaPage() {
           transport: http(),
         })
 
-        const BATCH_SIZE = 5
+        const BATCH_SIZE = 10
         const tokenData: TokenMetadata[] = []
 
         for (let i = 0; i < galleryData.tokens.length; i += BATCH_SIZE) {
@@ -209,21 +176,17 @@ export default function GaleriaPage() {
               try {
                 addDebugLog(`🎨 Processing token: ${config.contractAddress} #${config.tokenId}`)
 
-                const artistInfo = await fetchArtistForToken(
-                  config.contractAddress,
-                  config.tokenId,
-                  momentLookup,
-                  addDebugLog,
-                )
-
-                const tokenURI = await fetchWithRetry(async () => {
-                  return await publicClient.readContract({
-                    address: config.contractAddress as `0x${string}`,
-                    abi: ERC1155_ABI,
-                    functionName: "uri",
-                    args: [BigInt(1)],
-                  })
-                })
+                const [artistAddress, tokenURI] = await Promise.all([
+                  fetchContractOwner(config.contractAddress, publicClient, addDebugLog),
+                  fetchWithRetry(async () => {
+                    return await publicClient.readContract({
+                      address: config.contractAddress as `0x${string}`,
+                      abi: ERC1155_ABI,
+                      functionName: "uri",
+                      args: [BigInt(1)],
+                    })
+                  }),
+                ])
 
                 if (tokenURI) {
                   let metadataUrl = tokenURI.replace("{id}", "1")
@@ -246,16 +209,15 @@ export default function GaleriaPage() {
                     }
 
                     addDebugLog(`✅ Successfully processed token: ${metadata.name}`, {
-                      artist: artistInfo.displayName,
-                      address: artistInfo.address,
+                      artist: artistAddress,
+                      contract: config.contractAddress,
                     })
 
                     return {
                       name: metadata.name || `Obra de Arte #${config.tokenId}`,
                       description: metadata.description || "Obra de arte digital única",
                       image: imageUrl || "/placeholder.svg",
-                      artist: artistInfo.address,
-                      artistDisplay: artistInfo.displayName,
+                      artist: artistAddress,
                       contractAddress: config.contractAddress,
                       tokenId: config.tokenId,
                     }
@@ -268,8 +230,7 @@ export default function GaleriaPage() {
                   name: `Obra de Arte #${config.tokenId}`,
                   description: "Obra de arte digital única de la colección oficial",
                   image: "/placeholder.svg",
-                  artist: artistInfo.address,
-                  artistDisplay: artistInfo.displayName,
+                  artist: artistAddress,
                   contractAddress: config.contractAddress,
                   tokenId: config.tokenId,
                 }
@@ -281,8 +242,7 @@ export default function GaleriaPage() {
                   name: `Obra de Arte #${config.tokenId}`,
                   description: "Obra de arte digital única de la colección oficial",
                   image: "/placeholder.svg",
-                  artist: fallbackArtist,
-                  artistDisplay: formatAddress(fallbackArtist),
+                  artist: fallbackArtist.toLowerCase(),
                   contractAddress: config.contractAddress,
                   tokenId: config.tokenId,
                 }
@@ -313,8 +273,7 @@ export default function GaleriaPage() {
       filtered = filtered.filter(
         (token) =>
           token.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          token.artist.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          token.artistDisplay.toLowerCase().includes(searchQuery.toLowerCase()),
+          token.artist.toLowerCase().includes(searchQuery.toLowerCase()),
       )
     }
 
@@ -400,10 +359,7 @@ export default function GaleriaPage() {
                       <div className="p-6 bg-white">
                         <h3 className="font-extrabold text-xl text-gray-800 mb-2">{token.name}</h3>
                         <p className="text-sm text-gray-600 line-clamp-2 mb-2">{token.description}</p>
-                        <div className="space-y-1">
-                          <p className="text-xs text-gray-500">Por: {token.artistDisplay}</p>
-                          <p className="text-xs text-gray-400 font-mono">{formatAddress(token.artist)}</p>
-                        </div>
+                        <p className="text-xs text-gray-400 font-mono">{formatAddress(token.artist)}</p>
                       </div>
                     </CardContent>
                   </Card>
