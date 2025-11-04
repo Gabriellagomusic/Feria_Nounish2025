@@ -23,7 +23,7 @@ export async function generateMetadata({
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://ferianounish.vercel.app"
   const tokenUrl = `${baseUrl}/galeria/${contractAddress}/${tokenId}`
 
-  let imageUrl = "/placeholder.svg"
+  let imageUrl = `${baseUrl}/placeholder.svg`
   let tokenName = `Obra de Arte #${tokenId}`
   let tokenDescription = "Obra de arte digital única de la Feria Nounish"
 
@@ -105,23 +105,28 @@ export async function generateMetadata({
       canonical: tokenUrl,
     },
     other: {
-      // Farcaster Frames v2 metadata
       "fc:frame": "vNext",
       "fc:frame:image": imageUrl,
       "fc:frame:image:aspect_ratio": "1:1",
-      "fc:frame:button:1": "Coleccionar 🎨",
+      "fc:frame:button:1": "Ver Token",
       "fc:frame:button:1:action": "link",
       "fc:frame:button:1:target": tokenUrl,
-      "fc:frame:post_url": tokenUrl,
+      "fc:frame:button:2": "Coleccionar",
+      "fc:frame:button:2:action": "link",
+      "fc:frame:button:2:target": tokenUrl,
+      "fc:frame:post_url": `${baseUrl}/api/frame`,
 
       // Open Frames metadata for broader compatibility
       "of:version": "vNext",
       "of:accepts:farcaster": "vNext",
       "of:image": imageUrl,
       "of:image:aspect_ratio": "1:1",
-      "of:button:1": "Coleccionar 🎨",
+      "of:button:1": "Ver Token",
       "of:button:1:action": "link",
       "of:button:1:target": tokenUrl,
+      "of:button:2": "Coleccionar",
+      "of:button:2:action": "link",
+      "of:button:2:target": tokenUrl,
     },
   }
 }

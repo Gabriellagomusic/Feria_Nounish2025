@@ -662,6 +662,38 @@ async function fetchWithRetry<T>(fetchFn: () => Promise<T>, maxRetries = 2, base
   throw lastError || new Error("Failed after retries")
 }
 
+function getOwnershipFromLocalStorage(contractAddress: string, tokenId: string, address: string): boolean | null {
+  if (typeof window === "undefined") return null
+
+  try {
+    const key = `token_ownership_${contractAddress.toLowerCase()}_${tokenId}_${address.toLowerCase()}`
+    const item = localStorage.getItem(key)
+    if (!item) return null
+
+    const parsed = JSON.parse(item)
+    if (Date.now() - parsed.timestamp > 60000) {
+      // 1 minute cache
+      localStorage.removeItem(key)
+      return null
+    }
+
+    return parsed.value
+  } catch {
+    return null
+  }
+}
+
+function setOwnershipToLocalStorage(contractAddress: string, tokenId: string, address: string, ownsToken: boolean) {
+  if (typeof window === "undefined") return
+
+  try {
+    const key = `token_ownership_${contractAddress.toLowerCase()}_${tokenId}_${address.toLowerCase()}`
+    localStorage.setItem(key, JSON.stringify({ value: ownsToken, timestamp: Date.now() }))
+  } catch {
+    // Ignore localStorage errors
+  }
+}
+
 export default function TokenDetailPage() {
   const router = useRouter()
   const params = useParams()
@@ -1173,6 +1205,16 @@ export default function TokenDetailPage() {
   const checkContractState = async () => {
     if (!address) return
 
+    const cachedOwnership = getOwnershipFromLocalStorage(contractAddress, tokenId, address)
+    if (cachedOwnership !== null) {
+      console.log("[v0] Using cached ownership status:", cachedOwnership)
+      setContractInfo({
+        userBalance: cachedOwnership ? "1" : "0",
+        totalSupply: "0",
+      })
+      return
+    }
+
     try {
       const publicClient = createPublicClient({
         chain: base,
@@ -1199,10 +1241,13 @@ export default function TokenDetailPage() {
         console.log("[v0] totalSupply not available for this contract")
       }
 
+      const ownsToken = userBalance > BigInt(0)
       setContractInfo({
         userBalance: userBalance.toString(),
         totalSupply: totalSupply.toString(),
       })
+
+      setOwnershipToLocalStorage(contractAddress, tokenId, address, ownsToken)
     } catch (error: any) {
       addDebugLog(`Error checking contract state: ${error.message}`, "error")
     }
@@ -1378,12 +1423,12 @@ export default function TokenDetailPage() {
 
         <main className="container mx-auto px-4 py-8">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-6xl mx-auto">
-            <div className="relative aspect-square rounded-lg overflow-hidden bg-white shadow-xl">
+            <div className="relative w-full rounded-lg overflow-hidden bg-white shadow-xl" style={{ aspectRatio: "1" }}>
               <Image
                 src={tokenData?.image || "/placeholder.svg"}
                 alt={tokenData?.name || "Token"}
                 fill
-                className="object-cover"
+                className="object-contain"
                 priority
               />
             </div>

@@ -483,12 +483,12 @@ export default function GaleriaPage() {
                   >
                     <Card className="overflow-hidden transition-all duration-300 hover:shadow-2xl hover:-translate-y-2">
                       <CardContent className="p-0">
-                        <div className="relative aspect-square overflow-hidden bg-gray-100">
+                        <div className="relative w-full bg-gray-100" style={{ aspectRatio: "1" }}>
                           <Image
                             src={token.image || "/placeholder.svg"}
                             alt={token.name}
                             fill
-                            className="object-cover transition-transform duration-300 group-hover:scale-105"
+                            className="object-contain transition-transform duration-300 group-hover:scale-105"
                           />
                         </div>
                         <div className="p-6 bg-white">
