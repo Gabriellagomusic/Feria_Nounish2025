@@ -37,15 +37,55 @@ const ERC1155_ABI = [
   },
 ] as const
 
+const LOCALSTORAGE_CACHE_DURATION = 24 * 60 * 60 * 1000 // 24 hours
+
+function getOwnerFromLocalStorage(contractAddress: string): string | null {
+  if (typeof window === "undefined") return null
+
+  try {
+    const key = `contract_owner_${contractAddress.toLowerCase()}`
+    const item = localStorage.getItem(key)
+    if (!item) return null
+
+    const parsed = JSON.parse(item)
+    if (Date.now() - parsed.timestamp > LOCALSTORAGE_CACHE_DURATION) {
+      localStorage.removeItem(key)
+      return null
+    }
+
+    return parsed.value
+  } catch {
+    return null
+  }
+}
+
+function setOwnerToLocalStorage(contractAddress: string, owner: string) {
+  if (typeof window === "undefined") return
+
+  try {
+    const key = `contract_owner_${contractAddress.toLowerCase()}`
+    localStorage.setItem(key, JSON.stringify({ value: owner, timestamp: Date.now() }))
+  } catch {
+    // Ignore localStorage errors
+  }
+}
+
 const contractOwnerCache = new Map<string, string>()
 
 async function fetchContractOwner(contractAddress: string, publicClient: any): Promise<string> {
+  const localStorageOwner = getOwnerFromLocalStorage(contractAddress)
+  if (localStorageOwner) {
+    console.log(`[v0] Using localStorage cached owner for ${contractAddress}`)
+    contractOwnerCache.set(contractAddress.toLowerCase(), localStorageOwner)
+    return localStorageOwner
+  }
+
   const cached = contractOwnerCache.get(contractAddress.toLowerCase())
   if (cached) {
     return cached
   }
 
-  await new Promise((resolve) => setTimeout(resolve, 100))
+  await new Promise((resolve) => setTimeout(resolve, 500))
 
   try {
     const owner = await publicClient.readContract({
@@ -56,6 +96,7 @@ async function fetchContractOwner(contractAddress: string, publicClient: any): P
 
     const ownerAddress = (owner as string).toLowerCase()
     contractOwnerCache.set(contractAddress.toLowerCase(), ownerAddress)
+    setOwnerToLocalStorage(contractAddress, ownerAddress)
     return ownerAddress
   } catch (error) {
     console.error(`[v0] Error fetching owner for ${contractAddress}:`, error)
@@ -119,7 +160,7 @@ export default function GaleriaPage() {
           transport: http(),
         })
 
-        const BATCH_SIZE = 5
+        const BATCH_SIZE = 3
         const tokenData: TokenMetadata[] = []
 
         for (let i = 0; i < galleryData.tokens.length; i += BATCH_SIZE) {
@@ -130,7 +171,7 @@ export default function GaleriaPage() {
               const artistAddress = await fetchContractOwner(config.contractAddress, publicClient)
               const artistDisplay = artistAddress ? await getDisplayName(artistAddress) : "Artista Desconocido"
 
-              await new Promise((resolve) => setTimeout(resolve, 150))
+              await new Promise((resolve) => setTimeout(resolve, 1000))
 
               const tokenURI = await fetchWithRetry(async () => {
                 return await publicClient.readContract({
@@ -210,7 +251,7 @@ export default function GaleriaPage() {
           setTokens(shuffleArray([...tokenData]))
 
           if (i + BATCH_SIZE < galleryData.tokens.length) {
-            await new Promise((resolve) => setTimeout(resolve, 500))
+            await new Promise((resolve) => setTimeout(resolve, 2000))
           }
         }
       } catch (error) {

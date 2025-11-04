@@ -10,6 +10,7 @@ interface ShareToBaseappButtonProps {
   pieceTitle?: string
   contractAddress: string
   tokenId: string
+  artistUsername?: string // Added artistUsername prop to tag artist in share text
   onShareComplete?: () => void
 }
 
@@ -19,6 +20,7 @@ export function ShareToBaseappButton({
   pieceTitle,
   contractAddress,
   tokenId,
+  artistUsername, // Added artistUsername parameter
   onShareComplete,
 }: ShareToBaseappButtonProps) {
   const [isSharing, setIsSharing] = useState(false)
@@ -29,15 +31,17 @@ export function ShareToBaseappButton({
     try {
       const pieceUrl = `${window.location.origin}/galeria/${contractAddress}/${tokenId}`
 
+      const artistTag = artistUsername ? ` by @${artistUsername}` : ""
+
       let text = ""
       if (mode === "add") {
         text = pieceTitle
-          ? `Mira mi nueva pieza para la Feria Nounish! "${pieceTitle}"`
-          : `Mira mi nueva pieza para la Feria Nounish!`
+          ? `Mira mi nueva pieza para la Feria Nounish! "${pieceTitle}"${artistTag}`
+          : `Mira mi nueva pieza para la Feria Nounish!${artistTag}`
       } else {
         text = pieceTitle
-          ? `¡Mira la pieza de la Feria Nounish que acabo de coleccionar! "${pieceTitle}"`
-          : `¡Mira la pieza de la Feria Nounish que acabo de coleccionar!`
+          ? `¡Mira la pieza de la Feria Nounish que acabo de coleccionar! "${pieceTitle}"${artistTag}`
+          : `¡Mira la pieza de la Feria Nounish que acabo de coleccionar!${artistTag}`
       }
 
       // Check if we're in a mobile context
@@ -61,15 +65,17 @@ export function ShareToBaseappButton({
     } catch (error) {
       console.error("[v0] Error sharing to Baseapp:", error)
       const pieceUrl = `${window.location.origin}/galeria/${contractAddress}/${tokenId}`
+      const artistTag = artistUsername ? ` by @${artistUsername}` : ""
+
       let text = ""
       if (mode === "add") {
         text = pieceTitle
-          ? `Mira mi nueva pieza para la Feria Nounish! "${pieceTitle}"`
-          : `Mira mi nueva pieza para la Feria Nounish!`
+          ? `Mira mi nueva pieza para la Feria Nounish! "${pieceTitle}"${artistTag}`
+          : `Mira mi nueva pieza para la Feria Nounish!${artistTag}`
       } else {
         text = pieceTitle
-          ? `¡Mira la pieza de la Feria Nounish que acabo de coleccionar! "${pieceTitle}"`
-          : `¡Mira la pieza de la Feria Nounish que acabo de coleccionar!`
+          ? `¡Mira la pieza de la Feria Nounish que acabo de coleccionar! "${pieceTitle}"${artistTag}`
+          : `¡Mira la pieza de la Feria Nounish que acabo de coleccionar!${artistTag}`
       }
       openWebShare(text, pieceUrl)
     } finally {

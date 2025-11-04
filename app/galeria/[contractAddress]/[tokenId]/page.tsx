@@ -1198,7 +1198,7 @@ export default function TokenDetailPage() {
           }
 
           setTokenData({
-            name: metadata.name || `Obra de Arte #${tokenId}`,
+            name: metadata.name || `Obra de arte #${tokenId}`,
             description: metadata.description || "Obra de arte digital única",
             image: imageUrl || "/placeholder.svg",
             creator: metadata.creator,
@@ -1245,7 +1245,7 @@ export default function TokenDetailPage() {
         setCreator("")
         setArtistName("Artista Desconocido")
         setTokenData({
-          name: `Obra de Arte #${tokenId}`,
+          name: `Obra de arte #${tokenId}`,
           description: "Obra de arte digital única de la colección oficial",
           image: "/abstract-digital-composition.png",
         })
@@ -1255,7 +1255,7 @@ export default function TokenDetailPage() {
         setCreator("")
         setArtistName("Artista Desconocido")
         setTokenData({
-          name: `Obra de Arte #${tokenId}`,
+          name: `Obra de arte #${tokenId}`,
           description: "Obra de arte digital única de la colección oficial",
           image: "/abstract-digital-composition.png",
         })
@@ -1359,6 +1359,7 @@ export default function TokenDetailPage() {
                           pieceTitle={tokenData?.name}
                           contractAddress={contractAddress}
                           tokenId={tokenId}
+                          artistUsername={artistName !== "Artista Desconocido" ? artistName : undefined}
                           onShareComplete={() => {}}
                         />
                         <ShareToBaseappButton
@@ -1367,6 +1368,7 @@ export default function TokenDetailPage() {
                           pieceTitle={tokenData?.name}
                           contractAddress={contractAddress}
                           tokenId={tokenId}
+                          artistUsername={artistName !== "Artista Desconocido" ? artistName : undefined}
                           onShareComplete={() => {}}
                         />
                         <Button

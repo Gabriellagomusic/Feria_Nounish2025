@@ -2,7 +2,6 @@
 const usernameCache = new Map<string, { username: string | null; timestamp: number }>()
 const profilePicCache = new Map<string, { profilePicUrl: string | null; timestamp: number }>()
 const basenameCache = new Map<string, { basename: string | null; timestamp: number }>()
-const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
 
 // Pending requests to prevent duplicate calls
 const pendingUsernameRequests = new Map<string, Promise<string | null>>()
@@ -11,7 +10,10 @@ const pendingBasenameRequests = new Map<string, Promise<string | null>>()
 
 // Rate limiting queue
 let lastRequestTime = 0
-const MIN_REQUEST_INTERVAL = 350 // 350ms between requests (max ~3 requests per second)
+const MIN_REQUEST_INTERVAL = 12000 // 12 seconds between requests for Neynar FREE plan (6 requests per 60s)
+
+const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes in-memory
+const LOCALSTORAGE_CACHE_DURATION = 24 * 60 * 60 * 1000 // 24 hours in localStorage
 
 async function waitForRateLimit() {
   const now = Date.now()
@@ -19,20 +21,57 @@ async function waitForRateLimit() {
 
   if (timeSinceLastRequest < MIN_REQUEST_INTERVAL) {
     const waitTime = MIN_REQUEST_INTERVAL - timeSinceLastRequest
+    console.log(`[v0] Rate limiting: waiting ${waitTime}ms before next request`)
     await new Promise((resolve) => setTimeout(resolve, waitTime))
   }
 
   lastRequestTime = Date.now()
 }
 
+function getFromLocalStorage(key: string): { value: string | null; timestamp: number } | null {
+  if (typeof window === "undefined") return null
+
+  try {
+    const item = localStorage.getItem(key)
+    if (!item) return null
+
+    const parsed = JSON.parse(item)
+    if (Date.now() - parsed.timestamp > LOCALSTORAGE_CACHE_DURATION) {
+      localStorage.removeItem(key)
+      return null
+    }
+
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function setToLocalStorage(key: string, value: string | null) {
+  if (typeof window === "undefined") return
+
+  try {
+    localStorage.setItem(key, JSON.stringify({ value, timestamp: Date.now() }))
+  } catch {
+    // Ignore localStorage errors
+  }
+}
+
 /**
  * Fetches Farcaster username from wallet address using server-side API
- * With caching and deduplication
+ * With caching, deduplication, and localStorage persistence
  */
 export async function getFarcasterUsername(address: string): Promise<string | null> {
   const normalizedAddress = address.toLowerCase()
 
-  // Check cache first
+  const localStorageKey = `fc_username_${normalizedAddress}`
+  const localStorageData = getFromLocalStorage(localStorageKey)
+  if (localStorageData) {
+    console.log(`[v0] Using localStorage cached username for ${normalizedAddress}`)
+    return localStorageData.value
+  }
+
+  // Check in-memory cache
   const cached = usernameCache.get(normalizedAddress)
   if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
     return cached.username
@@ -52,24 +91,26 @@ export async function getFarcasterUsername(address: string): Promise<string | nu
       const response = await fetch(`/api/farcaster/username?address=${normalizedAddress}`)
 
       if (!response.ok) {
-        console.log("[v0] Farcaster API error:", response.status)
-        // Cache null result to avoid repeated failed requests
-        usernameCache.set(normalizedAddress, { username: null, timestamp: Date.now() })
-        return null
+        console.log(`[v0] Farcaster API error: ${response.status}`)
+        const nullResult = null
+        usernameCache.set(normalizedAddress, { username: nullResult, timestamp: Date.now() })
+        setToLocalStorage(localStorageKey, nullResult)
+        return nullResult
       }
 
       const data = await response.json()
       const username = data.username || null
 
-      // Cache the result
       usernameCache.set(normalizedAddress, { username, timestamp: Date.now() })
+      setToLocalStorage(localStorageKey, username)
 
       return username
     } catch (error) {
       console.error("[v0] Error fetching Farcaster username:", error)
-      // Cache null result
-      usernameCache.set(normalizedAddress, { username: null, timestamp: Date.now() })
-      return null
+      const nullResult = null
+      usernameCache.set(normalizedAddress, { username: nullResult, timestamp: Date.now() })
+      setToLocalStorage(localStorageKey, nullResult)
+      return nullResult
     } finally {
       // Remove from pending requests
       pendingUsernameRequests.delete(normalizedAddress)
@@ -110,7 +151,6 @@ export async function getFarcasterProfilePic(address: string): Promise<string | 
 
       if (!response.ok) {
         console.log("[v0] Farcaster profile pic API error:", response.status)
-        // Cache null result
         profilePicCache.set(normalizedAddress, { profilePicUrl: null, timestamp: Date.now() })
         return null
       }
@@ -124,7 +164,6 @@ export async function getFarcasterProfilePic(address: string): Promise<string | 
       return profilePicUrl
     } catch (error) {
       console.error("[v0] Error fetching Farcaster profile pic:", error)
-      // Cache null result
       profilePicCache.set(normalizedAddress, { profilePicUrl: null, timestamp: Date.now() })
       return null
     } finally {
@@ -148,12 +187,19 @@ export function formatAddress(address: string): string {
 
 /**
  * Fetches Basename for a wallet address
- * With caching and deduplication
+ * With caching, deduplication, and localStorage persistence
  */
 export async function getBasename(address: string): Promise<string | null> {
   const normalizedAddress = address.toLowerCase()
 
-  // Check cache first
+  const localStorageKey = `basename_${normalizedAddress}`
+  const localStorageData = getFromLocalStorage(localStorageKey)
+  if (localStorageData) {
+    console.log(`[v0] Using localStorage cached basename for ${normalizedAddress}`)
+    return localStorageData.value
+  }
+
+  // Check in-memory cache
   const cached = basenameCache.get(normalizedAddress)
   if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
     return cached.basename
@@ -168,27 +214,31 @@ export async function getBasename(address: string): Promise<string | null> {
   // Create new request with rate limiting
   const requestPromise = (async () => {
     try {
-      await waitForRateLimit()
+      await new Promise((resolve) => setTimeout(resolve, 500))
 
       // Query Basename API (Base's ENS-like service)
       const response = await fetch(`https://resolver.base.org/v1/name/${normalizedAddress}`)
 
       if (!response.ok) {
-        basenameCache.set(normalizedAddress, { basename: null, timestamp: Date.now() })
-        return null
+        const nullResult = null
+        basenameCache.set(normalizedAddress, { basename: nullResult, timestamp: Date.now() })
+        setToLocalStorage(localStorageKey, nullResult)
+        return nullResult
       }
 
       const data = await response.json()
       const basename = data.name || null
 
-      // Cache the result
       basenameCache.set(normalizedAddress, { basename, timestamp: Date.now() })
+      setToLocalStorage(localStorageKey, basename)
 
       return basename
     } catch (error) {
       console.error("[v0] Error fetching Basename:", error)
-      basenameCache.set(normalizedAddress, { basename: null, timestamp: Date.now() })
-      return null
+      const nullResult = null
+      basenameCache.set(normalizedAddress, { basename: nullResult, timestamp: Date.now() })
+      setToLocalStorage(localStorageKey, nullResult)
+      return nullResult
     } finally {
       pendingBasenameRequests.delete(normalizedAddress)
     }
@@ -200,8 +250,8 @@ export async function getBasename(address: string): Promise<string | null> {
 }
 
 /**
- * Gets display name: Farcaster username, Basename, or formatted address
- * With caching and deduplication
+ * Gets display name: Farcaster username, Basename, or "Artista Desconocido"
+ * With caching, deduplication, and localStorage persistence
  */
 export async function getDisplayName(address: string): Promise<string> {
   try {

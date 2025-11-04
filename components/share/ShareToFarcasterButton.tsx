@@ -10,6 +10,7 @@ interface ShareToFarcasterButtonProps {
   pieceTitle?: string
   contractAddress: string
   tokenId: string
+  artistUsername?: string // Added artistUsername prop to tag artist in share text
   onShareComplete?: () => void
 }
 
@@ -19,6 +20,7 @@ export function ShareToFarcasterButton({
   pieceTitle,
   contractAddress,
   tokenId,
+  artistUsername, // Added artistUsername parameter
   onShareComplete,
 }: ShareToFarcasterButtonProps) {
   const [isSharing, setIsSharing] = useState(false)
@@ -29,15 +31,17 @@ export function ShareToFarcasterButton({
     try {
       const pieceUrl = `${window.location.origin}/galeria/${contractAddress}/${tokenId}`
 
+      const artistTag = artistUsername ? ` by @${artistUsername}` : ""
+
       let text = ""
       if (mode === "add") {
         text = pieceTitle
-          ? `Mira mi nueva pieza para la Feria Nounish! "${pieceTitle}" ${pieceUrl}`
-          : `Mira mi nueva pieza para la Feria Nounish! ${pieceUrl}`
+          ? `Mira mi nueva pieza para la Feria Nounish! "${pieceTitle}"${artistTag} ${pieceUrl}`
+          : `Mira mi nueva pieza para la Feria Nounish!${artistTag} ${pieceUrl}`
       } else {
         text = pieceTitle
-          ? `¡Mira la pieza de la Feria Nounish que acabo de coleccionar! "${pieceTitle}" ${pieceUrl}`
-          : `¡Mira la pieza de la Feria Nounish que acabo de coleccionar! ${pieceUrl}`
+          ? `¡Mira la pieza de la Feria Nounish que acabo de coleccionar! "${pieceTitle}"${artistTag} ${pieceUrl}`
+          : `¡Mira la pieza de la Feria Nounish que acabo de coleccionar!${artistTag} ${pieceUrl}`
       }
 
       const isMiniKitContext =
@@ -64,15 +68,17 @@ export function ShareToFarcasterButton({
       console.error("[v0] Error sharing to Farcaster:", error)
 
       const pieceUrl = `${window.location.origin}/galeria/${contractAddress}/${tokenId}`
+      const artistTag = artistUsername ? ` by @${artistUsername}` : ""
+
       let text = ""
       if (mode === "add") {
         text = pieceTitle
-          ? `Mira mi nueva pieza para la Feria Nounish! "${pieceTitle}"`
-          : `Mira mi nueva pieza para la Feria Nounish!`
+          ? `Mira mi nueva pieza para la Feria Nounish! "${pieceTitle}"${artistTag}`
+          : `Mira mi nueva pieza para la Feria Nounish!${artistTag}`
       } else {
         text = pieceTitle
-          ? `¡Mira la pieza de la Feria Nounish que acabo de coleccionar! "${pieceTitle}"`
-          : `¡Mira la pieza de la Feria Nounish que acabo de coleccionar!`
+          ? `¡Mira la pieza de la Feria Nounish que acabo de coleccionar! "${pieceTitle}"${artistTag}`
+          : `¡Mira la pieza de la Feria Nounish que acabo de coleccionar!${artistTag}`
       }
 
       openWarpcastComposer(text, pieceUrl)
