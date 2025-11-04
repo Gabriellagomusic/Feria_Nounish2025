@@ -11,6 +11,7 @@ import { useAccount, useWriteContract, useConnect } from "wagmi"
 import { ArrowLeft, Plus, Minus, ChevronDown, ChevronUp, Copy, Check } from "lucide-react"
 import { getDisplayName } from "@/lib/farcaster"
 import { ShareToFarcasterButton } from "@/components/share/ShareToFarcasterButton"
+import { ShareToBaseappButton } from "@/components/share/ShareToBaseappButton"
 import { getTimeline, type Moment } from "@/lib/inprocess"
 import { useMiniKit } from "@coinbase/onchainkit/minikit"
 
@@ -634,8 +635,11 @@ async function fetchWithRetry<T>(fetchFn: () => Promise<T>, maxRetries = 3, base
       return await fetchFn()
     } catch (error) {
       lastError = error as Error
+      const isRateLimitError =
+        error instanceof Error && (error.message.includes("429") || error.message.includes("rate limit"))
       if (attempt < maxRetries) {
-        const delay = baseDelay * Math.pow(2, attempt)
+        const delay = isRateLimitError ? baseDelay * Math.pow(3, attempt) : baseDelay * Math.pow(2, attempt)
+        console.log(`[v0] Retry attempt ${attempt + 1}/${maxRetries} after ${delay}ms delay`)
         await new Promise((resolve) => setTimeout(resolve, delay))
       }
     }
@@ -943,24 +947,26 @@ export default function TokenDetailPage() {
       }
 
       addDebugLog("✅ Sales config found!", "success")
-      addDebugLog(`💰 Price: ${Number(salesConfig.pricePerToken) / 1e6} USDC`, "info")
-      addDebugLog(`💵 Currency: ${salesConfig.currency}`, "info")
-      addDebugLog(`👤 Funds recipient: ${salesConfig.fundsRecipient}`, "info")
-
-      const pricePerToken = salesConfig.pricePerToken || parseUnits("1", 6)
+      const pricePerToken = parseUnits("1", 6)
       const totalCost = pricePerToken * BigInt(quantity)
 
-      addDebugLog(`💰 Price per token: ${Number(pricePerToken) / 1e6} USDC`, "info")
-      addDebugLog(`💰 Total cost: ${Number(totalCost) / 1e6} USDC`, "info")
+      addDebugLog(`💰 Price per token: 1 USDC (hardcoded)`, "info")
+      addDebugLog(`💰 Total cost: ${quantity} USDC`, "info")
 
-      // Step 2: Check USDC balance
+      // Step 2: Check USDC balance with retry
       addDebugLog("========== STEP 2: CHECK USDC BALANCE ==========", "info")
-      const balance = await publicClient.readContract({
-        address: USDC_ADDRESS,
-        abi: ERC20_ABI,
-        functionName: "balanceOf",
-        args: [address],
-      })
+      const balance = await fetchWithRetry(
+        async () => {
+          return await publicClient.readContract({
+            address: USDC_ADDRESS,
+            abi: ERC20_ABI,
+            functionName: "balanceOf",
+            args: [address],
+          })
+        },
+        5,
+        2000,
+      )
 
       addDebugLog(`💵 USDC balance: ${Number(balance) / 1e6} USDC`, "info")
 
@@ -973,14 +979,20 @@ export default function TokenDetailPage() {
 
       addDebugLog("✅ Sufficient USDC balance", "success")
 
-      // Step 3: Check and approve USDC if needed
+      // Step 3: Check and approve USDC if needed with retry
       addDebugLog("========== STEP 3: CHECK USDC ALLOWANCE ==========", "info")
-      const allowance = await publicClient.readContract({
-        address: USDC_ADDRESS,
-        abi: ERC20_ABI,
-        functionName: "allowance",
-        args: [address, ZORA_ERC20_MINTER],
-      })
+      const allowance = await fetchWithRetry(
+        async () => {
+          return await publicClient.readContract({
+            address: USDC_ADDRESS,
+            abi: ERC20_ABI,
+            functionName: "allowance",
+            args: [address, ZORA_ERC20_MINTER],
+          })
+        },
+        5,
+        2000,
+      )
 
       addDebugLog(`💳 Current allowance: ${Number(allowance) / 1e6} USDC`, "info")
 
@@ -995,16 +1007,6 @@ export default function TokenDetailPage() {
 
       // Step 4: Mint
       addDebugLog("========== STEP 4: MINT ==========", "info")
-      const mintArgs = {
-        tokenContract: contractAddress,
-        tokenId: BigInt(tokenId),
-        mintTo: address,
-        quantity: BigInt(quantity),
-        currency: USDC_ADDRESS,
-        pricePerToken: pricePerToken,
-        mintReferral: "0x0000000000000000000000000000000000000000" as Address,
-        comment: "Collected via Feria Nounish on Base!",
-      }
 
       addDebugLog("📤 Sending mint transaction...", "info")
       const hash = await writeContractAsync({
@@ -1046,6 +1048,8 @@ export default function TokenDetailPage() {
         errorMessage = "Transacción rechazada por el usuario"
       } else if (errorMessage.includes("insufficient")) {
         errorMessage = "Balance insuficiente de USDC o ETH para gas"
+      } else if (errorMessage.includes("429") || errorMessage.includes("rate limit")) {
+        errorMessage = "Límite de solicitudes alcanzado. Por favor intenta de nuevo en unos segundos."
       }
 
       setMintError(errorMessage)
@@ -1219,35 +1223,27 @@ export default function TokenDetailPage() {
                 setArtistName(displayName)
                 addDebugLog(`Artist found: ${displayName} (${moment.admin})`, "info")
               } else {
-                const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
-                setCreator(fallbackCreator)
-                const displayName = await getDisplayName(fallbackCreator)
-                setArtistName(displayName)
-                addDebugLog(
-                  `Artist not found in timeline, using fallback: ${displayName} (${fallbackCreator})`,
-                  "warning",
-                )
+                setCreator("")
+                setArtistName("Artista Desconocido")
+                addDebugLog(`Artist not found in timeline, using fallback: Artista Desconocido`, "warning")
               }
             } else {
-              const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
-              setCreator(fallbackCreator)
-              setArtistName(await getDisplayName(fallbackCreator))
-              addDebugLog(`Timeline empty, using fallback artist: ${await getDisplayName(fallbackCreator)}`, "warning")
+              setCreator("")
+              setArtistName("Artista Desconocido")
+              addDebugLog(`Timeline empty, using fallback artist: Artista Desconocido`, "warning")
             }
           } catch (error) {
             addDebugLog(`Error fetching artist from inprocess after retries: ${error}`, "error")
-            const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
-            setCreator(fallbackCreator)
-            setArtistName(`${fallbackCreator.slice(0, 6)}...${fallbackCreator.slice(-4)}`)
+            setCreator("")
+            setArtistName("Artista Desconocido")
           }
 
           setIsLoading(false)
           return
         }
 
-        const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
-        setCreator(fallbackCreator)
-        setArtistName(`${fallbackCreator.slice(0, 6)}...${fallbackCreator.slice(-4)}`)
+        setCreator("")
+        setArtistName("Artista Desconocido")
         setTokenData({
           name: `Obra de Arte #${tokenId}`,
           description: "Obra de arte digital única de la colección oficial",
@@ -1256,9 +1252,8 @@ export default function TokenDetailPage() {
         addDebugLog("Token URI not found, using fallback data", "warning")
       } catch (error) {
         addDebugLog(`Error fetching token metadata after retries: ${error}`, "error")
-        const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
-        setCreator(fallbackCreator)
-        setArtistName(`${fallbackCreator.slice(0, 6)}...${fallbackCreator.slice(-4)}`)
+        setCreator("")
+        setArtistName("Artista Desconocido")
         setTokenData({
           name: `Obra de Arte #${tokenId}`,
           description: "Obra de arte digital única de la colección oficial",
@@ -1366,6 +1361,14 @@ export default function TokenDetailPage() {
                           tokenId={tokenId}
                           onShareComplete={() => {}}
                         />
+                        <ShareToBaseappButton
+                          mode="collect"
+                          pieceId={`${contractAddress}-${tokenId}`}
+                          pieceTitle={tokenData?.name}
+                          contractAddress={contractAddress}
+                          tokenId={tokenId}
+                          onShareComplete={() => {}}
+                        />
                         <Button
                           onClick={() => {
                             setJustCollected(false)
@@ -1414,7 +1417,7 @@ export default function TokenDetailPage() {
 
                         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
                           <p className="text-blue-800 font-semibold">💰 Precio: 1 USDC por edición</p>
-                          <p className="text-blue-600 text-xs mt-1">💳 Tú pagas: {quantity} USDC + gas en Base</p>
+                          <p className="text-blue-600 text-xs mt-1">💳 Total: {quantity} USDC + gas en Base</p>
                           {isOwner && (
                             <p className="text-blue-600 text-xs mt-1">
                               🔧 Si no hay sales config, se configurará automáticamente
@@ -1430,7 +1433,7 @@ export default function TokenDetailPage() {
                           {!isConnected ? "Conecta tu Wallet" : isMinting ? "Coleccionando..." : "Coleccionar"}
                         </Button>
 
-                        <p className="text-xs text-center text-gray-500">💳 Pagas {quantity} USDC + gas en Base</p>
+                        <p className="text-xs text-center text-gray-500">💳 Total: {quantity} USDC + gas en Base</p>
                       </>
                     )}
                   </div>

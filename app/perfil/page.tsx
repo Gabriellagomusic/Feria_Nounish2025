@@ -3,9 +3,9 @@
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Image from "next/image"
-import { useRouter } from 'next/navigation'
+import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
-import { ArrowLeft, Plus, Trash2 } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2 } from "lucide-react"
 import { useAccount } from "wagmi"
 import { getDisplayName, getFarcasterProfilePic } from "@/lib/farcaster"
 import { getNounAvatarUrl } from "@/lib/noun-avatar"
@@ -13,6 +13,7 @@ import { getTimeline, type Moment } from "@/lib/inprocess"
 import { createPublicClient, http } from "viem"
 import { base } from "viem/chains"
 import { ShareToFarcasterButton } from "@/components/share/ShareToFarcasterButton"
+import { ShareToBaseappButton } from "@/components/share/ShareToBaseappButton"
 
 interface MomentWithImage extends Moment {
   imageUrl: string
@@ -343,13 +344,22 @@ export default function PerfilPage() {
                           </Button>
 
                           {moment.inGallery && (
-                            <ShareToFarcasterButton
-                              mode="add"
-                              pieceId={moment.id}
-                              pieceTitle={moment.title}
-                              contractAddress={moment.address}
-                              tokenId="1"
-                            />
+                            <>
+                              <ShareToFarcasterButton
+                                mode="add"
+                                pieceId={moment.id}
+                                pieceTitle={moment.title}
+                                contractAddress={moment.address}
+                                tokenId="1"
+                              />
+                              <ShareToBaseappButton
+                                mode="add"
+                                pieceId={moment.id}
+                                pieceTitle={moment.title}
+                                contractAddress={moment.address}
+                                tokenId="1"
+                              />
+                            </>
                           )}
                         </div>
                       </div>

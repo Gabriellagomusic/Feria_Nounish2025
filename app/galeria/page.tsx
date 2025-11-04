@@ -59,10 +59,8 @@ async function fetchContractOwner(contractAddress: string, publicClient: any): P
     return ownerAddress
   } catch (error) {
     console.error(`[v0] Error fetching owner for ${contractAddress}:`, error)
-    const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
-    const fallbackLower = fallbackCreator.toLowerCase()
-    contractOwnerCache.set(contractAddress.toLowerCase(), fallbackLower)
-    return fallbackLower
+    contractOwnerCache.set(contractAddress.toLowerCase(), "")
+    return ""
   }
 }
 
@@ -152,22 +150,23 @@ export default function GaleriaPage() {
                 }
               } catch (error) {
                 console.error(`[v0] Error processing token ${config.contractAddress}:`, error)
-                const fallbackArtist = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
-                artistAddresses.push(fallbackArtist.toLowerCase())
+                artistAddresses.push("")
                 return {
                   config,
-                  artistAddress: fallbackArtist.toLowerCase(),
+                  artistAddress: "",
                   tokenURI: null,
                 }
               }
             }),
           )
 
-          const artistDisplayNames = await batchGetDisplayNames(artistAddresses)
+          const artistDisplayNames = await batchGetDisplayNames(artistAddresses.filter((a) => a !== ""))
 
           for (const result of batchResults) {
             const { config, artistAddress, tokenURI } = result
-            const artistDisplay = artistDisplayNames.get(artistAddress) || formatAddress(artistAddress)
+            const artistDisplay = artistAddress
+              ? artistDisplayNames.get(artistAddress) || formatAddress(artistAddress)
+              : "Artista Desconocido"
 
             if (tokenURI) {
               let metadataUrl = tokenURI.replace("{id}", "1")

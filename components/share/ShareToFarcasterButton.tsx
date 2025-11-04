@@ -47,28 +47,14 @@ export function ShareToFarcasterButton({
         window.location.ancestorOrigins?.[0]?.includes("warpcast")
 
       if (isMiniKitContext) {
-        // Try programmatic posting via API
-        const response = await fetch("/api/farcaster/cast", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            text,
-            embeds: [pieceUrl],
-          }),
-        })
-
-        const data = await response.json()
-
-        if (data.ok) {
-          alert("¡Publicado en Farcaster exitosamente!")
-          onShareComplete?.()
-          return
-        }
-      }
-
-      if (isMiniKitContext) {
         const farcasterUrl = `farcaster://compose?text=${encodeURIComponent(text)}&embeds[]=${encodeURIComponent(pieceUrl)}`
         window.location.href = farcasterUrl
+
+        // Fallback to Warpcast after a short delay if Farcaster app doesn't open
+        setTimeout(() => {
+          openWarpcastComposer(text, pieceUrl)
+        }, 1500)
+
         onShareComplete?.()
       } else {
         // Fallback to Warpcast composer for web browsers
