@@ -20,6 +20,13 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { contractAddress, tokenId } = await params
 
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://ferianounish.vercel.app"
+  const tokenUrl = `${baseUrl}/galeria/${contractAddress}/${tokenId}`
+
+  let imageUrl = "/placeholder.svg"
+  let tokenName = `Obra de Arte #${tokenId}`
+  let tokenDescription = "Obra de arte digital única de la Feria Nounish"
+
   try {
     const publicClient = createPublicClient({
       chain: base,
@@ -40,7 +47,7 @@ export async function generateMetadata({
       }
 
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 5000)
 
       try {
         const response = await fetch(metadataUrl, { signal: controller.signal })
@@ -49,43 +56,16 @@ export async function generateMetadata({
         if (response.ok) {
           const metadata = await response.json()
 
-          let imageUrl = metadata.image
-          if (imageUrl?.startsWith("ipfs://")) {
-            imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-          } else if (imageUrl?.startsWith("ar://")) {
-            imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
-          }
+          if (metadata.name) tokenName = metadata.name
+          if (metadata.description) tokenDescription = metadata.description
 
-          const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://ferianounish.vercel.app"
-          const canonicalUrl = `${baseUrl}/galeria/${contractAddress}/${tokenId}`
-
-          return {
-            title: `${metadata.name || `Obra de Arte #${tokenId}`} | Feria Nounish`,
-            description: metadata.description || "Obra de arte digital única de la Feria Nounish",
-            metadataBase: new URL(baseUrl),
-            openGraph: {
-              title: metadata.name || `Obra de Arte #${tokenId}`,
-              description: metadata.description || "Obra de arte digital única de la Feria Nounish",
-              url: canonicalUrl,
-              type: "website",
-              images: [
-                {
-                  url: imageUrl || "/placeholder.svg",
-                  width: 1200,
-                  height: 1200,
-                  alt: metadata.name || `Obra de Arte #${tokenId}`,
-                },
-              ],
-            },
-            twitter: {
-              card: "summary_large_image",
-              title: metadata.name || `Obra de Arte #${tokenId}`,
-              description: metadata.description || "Obra de arte digital única de la Feria Nounish",
-              images: [imageUrl || "/placeholder.svg"],
-            },
-            alternates: {
-              canonical: canonicalUrl,
-            },
+          if (metadata.image) {
+            imageUrl = metadata.image
+            if (imageUrl.startsWith("ipfs://")) {
+              imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+            } else if (imageUrl.startsWith("ar://")) {
+              imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+            }
           }
         }
       } catch (fetchError) {
@@ -97,22 +77,51 @@ export async function generateMetadata({
     console.error("Error generating metadata:", error)
   }
 
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://ferianounish.vercel.app"
-  const fallbackUrl = `${baseUrl}/galeria/${contractAddress}/${tokenId}`
-
   return {
-    title: `Obra de Arte #${tokenId} | Feria Nounish`,
-    description: "Obra de arte digital única de la Feria Nounish",
+    title: `${tokenName} | Feria Nounish`,
+    description: tokenDescription,
     metadataBase: new URL(baseUrl),
     openGraph: {
-      title: `Obra de Arte #${tokenId}`,
-      description: "Obra de arte digital única de la Feria Nounish",
-      url: fallbackUrl,
+      title: tokenName,
+      description: tokenDescription,
+      url: tokenUrl,
       type: "website",
-      images: ["/placeholder.svg"],
+      images: [
+        {
+          url: imageUrl,
+          width: 1200,
+          height: 1200,
+          alt: tokenName,
+        },
+      ],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: tokenName,
+      description: tokenDescription,
+      images: [imageUrl],
     },
     alternates: {
-      canonical: fallbackUrl,
+      canonical: tokenUrl,
+    },
+    other: {
+      // Farcaster Frames v2 metadata
+      "fc:frame": "vNext",
+      "fc:frame:image": imageUrl,
+      "fc:frame:image:aspect_ratio": "1:1",
+      "fc:frame:button:1": "Coleccionar 🎨",
+      "fc:frame:button:1:action": "link",
+      "fc:frame:button:1:target": tokenUrl,
+      "fc:frame:post_url": tokenUrl,
+
+      // Open Frames metadata for broader compatibility
+      "of:version": "vNext",
+      "of:accepts:farcaster": "vNext",
+      "of:image": imageUrl,
+      "of:image:aspect_ratio": "1:1",
+      "of:button:1": "Coleccionar 🎨",
+      "of:button:1:action": "link",
+      "of:button:1:target": tokenUrl,
     },
   }
 }
