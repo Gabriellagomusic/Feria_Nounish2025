@@ -639,9 +639,14 @@ async function fetchWithRetry<T>(fetchFn: () => Promise<T>, maxRetries = 3, base
       lastError = error as Error
       const isRateLimitError =
         error instanceof Error && (error.message.includes("429") || error.message.includes("rate limit"))
+
+      if (!isRateLimitError) {
+        throw error
+      }
+
       if (attempt < maxRetries) {
-        const delay = isRateLimitError ? baseDelay * Math.pow(3, attempt) : baseDelay * Math.pow(2, attempt)
-        console.log(`[v0] Retry attempt ${attempt + 1}/${maxRetries} after ${delay}ms delay`)
+        const delay = baseDelay * Math.pow(2, attempt)
+        console.log(`[v0] Rate limit hit, retry attempt ${attempt + 1}/${maxRetries} after ${delay}ms delay`)
         await new Promise((resolve) => setTimeout(resolve, delay))
       }
     }
@@ -912,7 +917,6 @@ export default function TokenDetailPage() {
               return
             }
 
-            // Recheck sales config after setup
             addDebugLog("🔄 Rechecking sales config after setup...", "info")
             const newSalesConfig = await checkSalesConfig()
 
@@ -955,22 +959,26 @@ export default function TokenDetailPage() {
       addDebugLog(`💰 Price per token: 1 USDC (hardcoded)`, "info")
       addDebugLog(`💰 Total cost: ${quantity} USDC`, "info")
 
-      // Step 2: Check USDC balance with retry
+      // Step 2: Check USDC balance
       addDebugLog("========== STEP 2: CHECK USDC BALANCE ==========", "info")
-      const balance = await fetchWithRetry(
-        async () => {
-          return await publicClient.readContract({
-            address: USDC_ADDRESS,
-            abi: ERC20_ABI,
-            functionName: "balanceOf",
-            args: [address],
-          })
-        },
-        5,
-        2000,
-      )
+      addDebugLog("💳 Checking USDC balance...", "info")
 
-      addDebugLog(`💵 USDC balance: ${Number(balance) / 1e6} USDC`, "info")
+      let balance: bigint
+      try {
+        balance = await publicClient.readContract({
+          address: USDC_ADDRESS,
+          abi: ERC20_ABI,
+          functionName: "balanceOf",
+          args: [address],
+        })
+        addDebugLog(`💵 USDC balance: ${Number(balance) / 1e6} USDC`, "info")
+      } catch (balanceError: any) {
+        addDebugLog(`❌ Error checking balance: ${balanceError.message}`, "error")
+        if (balanceError.message?.includes("429") || balanceError.message?.includes("rate limit")) {
+          throw new Error("RPC rate limit alcanzado. Por favor espera unos segundos e intenta de nuevo.")
+        }
+        throw new Error(`Error al verificar balance de USDC: ${balanceError.message}`)
+      }
 
       if (balance < totalCost) {
         addDebugLog("❌ Insufficient USDC balance", "error")
@@ -981,26 +989,30 @@ export default function TokenDetailPage() {
 
       addDebugLog("✅ Sufficient USDC balance", "success")
 
-      // Step 3: Check and approve USDC if needed with retry
+      // Step 3: Check and approve USDC if needed
       addDebugLog("========== STEP 3: CHECK USDC ALLOWANCE ==========", "info")
-      const allowance = await fetchWithRetry(
-        async () => {
-          return await publicClient.readContract({
-            address: USDC_ADDRESS,
-            abi: ERC20_ABI,
-            functionName: "allowance",
-            args: [address, ZORA_ERC20_MINTER],
-          })
-        },
-        5,
-        2000,
-      )
+      addDebugLog("💳 Checking USDC allowance...", "info")
 
-      addDebugLog(`💳 Current allowance: ${Number(allowance) / 1e6} USDC`, "info")
+      let allowance: bigint
+      try {
+        allowance = await publicClient.readContract({
+          address: USDC_ADDRESS,
+          abi: ERC20_ABI,
+          functionName: "allowance",
+          args: [address, ZORA_ERC20_MINTER],
+        })
+        addDebugLog(`💳 Current allowance: ${Number(allowance) / 1e6} USDC`, "info")
+      } catch (allowanceError: any) {
+        addDebugLog(`❌ Error checking allowance: ${allowanceError.message}`, "error")
+        if (allowanceError.message?.includes("429") || allowanceError.message?.includes("rate limit")) {
+          throw new Error("RPC rate limit alcanzado. Por favor espera unos segundos e intenta de nuevo.")
+        }
+        throw new Error(`Error al verificar allowance de USDC: ${allowanceError.message}`)
+      }
 
       if (allowance < totalCost) {
         addDebugLog("⚠️ Insufficient allowance, need to approve", "warning")
-        const approvalAmount = totalCost * BigInt(2) // Approve 2x for future mints
+        const approvalAmount = totalCost * BigInt(2)
         addDebugLog(`💳 Approving: ${Number(approvalAmount) / 1e6} USDC`, "info")
         await approveUSDC(approvalAmount)
       } else {
@@ -1009,8 +1021,8 @@ export default function TokenDetailPage() {
 
       // Step 4: Mint
       addDebugLog("========== STEP 4: MINT ==========", "info")
-
       addDebugLog("📤 Sending mint transaction...", "info")
+
       const hash = await writeContractAsync({
         address: ZORA_ERC20_MINTER,
         abi: ZORA_ERC20_MINTER_ABI,
@@ -1020,7 +1032,7 @@ export default function TokenDetailPage() {
           BigInt(quantity),
           contractAddress,
           BigInt(tokenId),
-          totalCost, // This was the bug - was pricePerToken, now totalCost
+          totalCost,
           USDC_ADDRESS,
           "0x0000000000000000000000000000000000000000",
           "Collected via Feria Nounish on Base!",
@@ -1050,8 +1062,8 @@ export default function TokenDetailPage() {
         errorMessage = "Transacción rechazada por el usuario"
       } else if (errorMessage.includes("insufficient")) {
         errorMessage = "Balance insuficiente de USDC o ETH para gas"
-      } else if (errorMessage.includes("429") || errorMessage.includes("rate limit")) {
-        errorMessage = "Límite de solicitudes alcanzado. Por favor intenta de nuevo en unos segundos."
+      } else if (errorMessage.includes("RPC rate limit")) {
+        errorMessage = "Límite de solicitudes alcanzado. Por favor espera 10 segundos e intenta de nuevo."
       }
 
       setMintError(errorMessage)
