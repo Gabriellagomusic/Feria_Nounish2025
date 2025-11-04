@@ -1012,7 +1012,8 @@ export default function TokenDetailPage() {
 
       if (allowance < totalCost) {
         addDebugLog("⚠️ Insufficient allowance, need to approve", "warning")
-        const approvalAmount = totalCost * BigInt(2)
+        // </CHANGE> Fixed approval amount - was multiplying by 2, now using exact totalCost
+        const approvalAmount = totalCost
         addDebugLog(`💳 Approving: ${Number(approvalAmount) / 1e6} USDC`, "info")
         await approveUSDC(approvalAmount)
       } else {
