@@ -14,6 +14,8 @@ import { ShareToFarcasterButton } from "@/components/share/ShareToFarcasterButto
 import { ShareToBaseappButton } from "@/components/share/ShareToBaseappButton"
 import { getTimeline, type Moment } from "@/lib/inprocess"
 import { useMiniKit } from "@coinbase/onchainkit/minikit"
+import { loadArtistData } from "@/lib/galeria-state"
+import { ArtistLink } from "@/components/ArtistLink"
 
 const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32d4f71b54bdA02913" as Address
 const ZORA_ERC20_MINTER = "0xE27d9Dc88dAB82ACa3ebC49895c663C6a0CfA014" as Address
@@ -1161,6 +1163,13 @@ export default function TokenDetailPage() {
       setIsLoading(true)
       addDebugLog("Fetching token metadata...", "info")
 
+      const cachedArtistData = loadArtistData(contractAddress, tokenId)
+      if (cachedArtistData) {
+        addDebugLog(`Using cached artist data: ${cachedArtistData.displayName}`, "info")
+        setCreator(cachedArtistData.address)
+        setArtistName(cachedArtistData.displayName)
+      }
+
       try {
         const publicClient = createPublicClient({
           chain: base,
@@ -1205,37 +1214,39 @@ export default function TokenDetailPage() {
           })
           addDebugLog("Token metadata fetched successfully", "success")
 
-          try {
-            const timelineData = await fetchWithRetry(async () => {
-              return await getTimeline(1, 100, true, undefined, 8453, false)
-            })
-
-            if (timelineData.moments && timelineData.moments.length > 0) {
-              const moment = timelineData.moments.find((m: Moment) => {
-                const addressMatch = m.address.toLowerCase() === contractAddress.toLowerCase()
-                const tokenIdMatch = m.tokenId?.toString() === tokenId.toString()
-                return addressMatch && tokenIdMatch
+          if (!cachedArtistData) {
+            try {
+              const timelineData = await fetchWithRetry(async () => {
+                return await getTimeline(1, 100, true, undefined, 8453, false)
               })
 
-              if (moment) {
-                setCreator(moment.admin)
-                const displayName = moment.username || (await getDisplayName(moment.admin))
-                setArtistName(displayName)
-                addDebugLog(`Artist found: ${displayName} (${moment.admin})`, "info")
+              if (timelineData.moments && timelineData.moments.length > 0) {
+                const moment = timelineData.moments.find((m: Moment) => {
+                  const addressMatch = m.address.toLowerCase() === contractAddress.toLowerCase()
+                  const tokenIdMatch = m.tokenId?.toString() === tokenId.toString()
+                  return addressMatch && tokenIdMatch
+                })
+
+                if (moment) {
+                  setCreator(moment.admin)
+                  const displayName = moment.username || (await getDisplayName(moment.admin))
+                  setArtistName(displayName)
+                  addDebugLog(`Artist found: ${displayName} (${moment.admin})`, "info")
+                } else {
+                  setCreator("")
+                  setArtistName("Artista Desconocido")
+                  addDebugLog(`Artist not found in timeline, using fallback: Artista Desconocido`, "warning")
+                }
               } else {
                 setCreator("")
                 setArtistName("Artista Desconocido")
-                addDebugLog(`Artist not found in timeline, using fallback: Artista Desconocido`, "warning")
+                addDebugLog(`Timeline empty, using fallback artist: Artista Desconocido`, "warning")
               }
-            } else {
+            } catch (error) {
+              addDebugLog(`Error fetching artist from inprocess after retries: ${error}`, "error")
               setCreator("")
               setArtistName("Artista Desconocido")
-              addDebugLog(`Timeline empty, using fallback artist: Artista Desconocido`, "warning")
             }
-          } catch (error) {
-            addDebugLog(`Error fetching artist from inprocess after retries: ${error}`, "error")
-            setCreator("")
-            setArtistName("Artista Desconocido")
           }
 
           setIsLoading(false)
@@ -1328,7 +1339,10 @@ export default function TokenDetailPage() {
               <Card>
                 <CardContent className="p-6">
                   <h1 className="font-extrabold text-3xl text-gray-800 mb-2">{tokenData?.name}</h1>
-                  <p className="text-sm text-gray-500 font-normal mb-4">por: {artistName || "Cargando..."}</p>
+                  <p className="text-sm text-gray-500 font-normal mb-4">
+                    por:{" "}
+                    <ArtistLink artistName={artistName || "Cargando..."} artistAddress={creator} className="text-sm" />
+                  </p>
 
                   <div className="border-t border-gray-200 pt-4 mb-4">
                     <h2 className="font-extrabold text-lg text-gray-800 mb-2">Descripción</h2>

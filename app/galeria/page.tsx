@@ -4,11 +4,13 @@ import { Card, CardContent } from "@/components/ui/card"
 import Image from "next/image"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useEffect, useState, useMemo } from "react"
+import { useEffect, useState, useMemo, useRef, useCallback } from "react"
 import { createPublicClient, http } from "viem"
 import { base } from "viem/chains"
 import { ArrowLeft, Search } from "lucide-react"
 import { getDisplayName } from "@/lib/farcaster"
+import { saveGaleriaState, loadGaleriaState, saveArtistData } from "@/lib/galeria-state"
+import { ArtistLink } from "@/components/ArtistLink"
 
 interface TokenMetadata {
   name: string
@@ -85,7 +87,7 @@ async function fetchContractOwner(contractAddress: string, publicClient: any): P
     return cached
   }
 
-  await new Promise((resolve) => setTimeout(resolve, 500))
+  await new Promise((resolve) => setTimeout(resolve, 300)) // Reduced RPC delay from 500ms to 300ms
 
   try {
     const owner = await publicClient.readContract({
@@ -139,9 +141,153 @@ export default function GaleriaPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedArtist, setSelectedArtist] = useState<string>("")
   const [isSearchOpen, setIsSearchOpen] = useState(false)
+  const [allTokenConfigs, setAllTokenConfigs] = useState<any[]>([])
+  const [currentIndex, setCurrentIndex] = useState(0)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const [hasMore, setHasMore] = useState(true)
+  const [allArtists, setAllArtists] = useState<Map<string, string>>(new Map())
+  const observerTarget = useRef<HTMLDivElement>(null)
+
+  const TOKENS_PER_LOAD = 4
+
+  const loadMoreTokens = useCallback(async () => {
+    if (isLoadingMore || !hasMore || allTokenConfigs.length === 0) return
+
+    setIsLoadingMore(true)
+
+    try {
+      const publicClient = createPublicClient({
+        chain: base,
+        transport: http(),
+      })
+
+      const endIndex = Math.min(currentIndex + TOKENS_PER_LOAD, allTokenConfigs.length)
+      const batch = allTokenConfigs.slice(currentIndex, endIndex)
+
+      const newTokens: TokenMetadata[] = []
+
+      for (const config of batch) {
+        try {
+          const artistAddress = await fetchContractOwner(config.contractAddress, publicClient)
+          const artistDisplay = artistAddress ? await getDisplayName(artistAddress) : "Artista Desconocido"
+
+          await new Promise((resolve) => setTimeout(resolve, 800)) // Reduced delay from 1000ms to 800ms
+
+          const tokenURI = await fetchWithRetry(async () => {
+            return await publicClient.readContract({
+              address: config.contractAddress as `0x${string}`,
+              abi: ERC1155_ABI,
+              functionName: "uri",
+              args: [BigInt(1)],
+            })
+          })
+
+          if (tokenURI) {
+            let metadataUrl = tokenURI.replace("{id}", "1")
+            if (metadataUrl.startsWith("ar://")) {
+              metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
+            }
+
+            try {
+              const metadata = await fetchWithRetry(async () => {
+                const response = await fetch(metadataUrl)
+                if (!response.ok) throw new Error(`HTTP ${response.status}`)
+                return await response.json()
+              })
+
+              let imageUrl = metadata.image
+              if (imageUrl?.startsWith("ipfs://")) {
+                imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+              } else if (imageUrl?.startsWith("ar://")) {
+                imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+              }
+
+              newTokens.push({
+                name: metadata.name || `Obra de Arte #${config.tokenId}`,
+                description: metadata.description || "Obra de arte digital única",
+                image: imageUrl || "/placeholder.svg",
+                artist: artistAddress,
+                artistDisplay: artistDisplay,
+                contractAddress: config.contractAddress,
+                tokenId: config.tokenId,
+              })
+            } catch (fetchError) {
+              console.error(`[v0] Error fetching metadata for ${config.contractAddress}:`, fetchError)
+              newTokens.push({
+                name: `Obra de Arte #${config.tokenId}`,
+                description: "Obra de arte digital única de la colección oficial",
+                image: "/placeholder.svg",
+                artist: artistAddress,
+                artistDisplay: artistDisplay,
+                contractAddress: config.contractAddress,
+                tokenId: config.tokenId,
+              })
+            }
+          } else {
+            newTokens.push({
+              name: `Obra de Arte #${config.tokenId}`,
+              description: "Obra de arte digital única de la colección oficial",
+              image: "/placeholder.svg",
+              artist: artistAddress,
+              artistDisplay: artistDisplay,
+              contractAddress: config.contractAddress,
+              tokenId: config.tokenId,
+            })
+          }
+
+          saveArtistData(config.contractAddress, config.tokenId, {
+            address: artistAddress,
+            displayName: artistDisplay,
+          })
+        } catch (error) {
+          console.error(`[v0] Error processing token ${config.contractAddress}:`, error)
+          newTokens.push({
+            name: `Obra de Arte #${config.tokenId}`,
+            description: "Obra de arte digital única de la colección oficial",
+            image: "/placeholder.svg",
+            artist: "",
+            artistDisplay: "Artista Desconocido",
+            contractAddress: config.contractAddress,
+            tokenId: config.tokenId,
+          })
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 1500)) // Reduced delay between tokens from 2000ms to 1500ms
+      }
+
+      setTokens((prev) => [...prev, ...newTokens])
+      setCurrentIndex(endIndex)
+      setHasMore(endIndex < allTokenConfigs.length)
+    } catch (error) {
+      console.error("[v0] Error loading more tokens:", error)
+    } finally {
+      setIsLoadingMore(false)
+    }
+  }, [currentIndex, allTokenConfigs, isLoadingMore, hasMore])
 
   useEffect(() => {
-    const fetchTokenMetadata = async () => {
+    const savedState = loadGaleriaState()
+    if (savedState) {
+      console.log("[v0] Restoring galeria state from session storage")
+      setTokens(savedState.tokens)
+      setAllTokenConfigs(savedState.allTokenConfigs)
+      setCurrentIndex(savedState.currentIndex)
+      setHasMore(savedState.currentIndex < savedState.allTokenConfigs.length)
+      setIsLoading(false)
+      return
+    }
+  }, [])
+
+  useEffect(() => {
+    if (tokens.length > 0 && allTokenConfigs.length > 0) {
+      saveGaleriaState(tokens, allTokenConfigs, currentIndex)
+    }
+  }, [tokens, allTokenConfigs, currentIndex])
+
+  useEffect(() => {
+    const fetchInitialTokens = async () => {
+      if (tokens.length > 0) return
+
       try {
         const galleryData = await fetchWithRetry(async () => {
           const response = await fetch("/api/gallery/list")
@@ -152,128 +298,87 @@ export default function GaleriaPage() {
         if (!galleryData.tokens || galleryData.tokens.length === 0) {
           setTokens([])
           setIsLoading(false)
+          setHasMore(false)
           return
         }
+
+        const shuffled = shuffleArray(galleryData.tokens)
+        setAllTokenConfigs(shuffled)
 
         const publicClient = createPublicClient({
           chain: base,
           transport: http(),
         })
 
-        const BATCH_SIZE = 3
-        const tokenData: TokenMetadata[] = []
-
-        for (let i = 0; i < galleryData.tokens.length; i += BATCH_SIZE) {
-          const batch = galleryData.tokens.slice(i, i + BATCH_SIZE)
-
-          for (const config of batch) {
-            try {
-              const artistAddress = await fetchContractOwner(config.contractAddress, publicClient)
-              const artistDisplay = artistAddress ? await getDisplayName(artistAddress) : "Artista Desconocido"
-
-              await new Promise((resolve) => setTimeout(resolve, 1000))
-
-              const tokenURI = await fetchWithRetry(async () => {
-                return await publicClient.readContract({
-                  address: config.contractAddress as `0x${string}`,
-                  abi: ERC1155_ABI,
-                  functionName: "uri",
-                  args: [BigInt(1)],
-                })
-              })
-
-              if (tokenURI) {
-                let metadataUrl = tokenURI.replace("{id}", "1")
-                if (metadataUrl.startsWith("ar://")) {
-                  metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
-                }
-
-                try {
-                  const metadata = await fetchWithRetry(async () => {
-                    const response = await fetch(metadataUrl)
-                    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-                    return await response.json()
-                  })
-
-                  let imageUrl = metadata.image
-                  if (imageUrl?.startsWith("ipfs://")) {
-                    imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-                  } else if (imageUrl?.startsWith("ar://")) {
-                    imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
-                  }
-
-                  tokenData.push({
-                    name: metadata.name || `Obra de Arte #${config.tokenId}`,
-                    description: metadata.description || "Obra de arte digital única",
-                    image: imageUrl || "/placeholder.svg",
-                    artist: artistAddress,
-                    artistDisplay: artistDisplay,
-                    contractAddress: config.contractAddress,
-                    tokenId: config.tokenId,
-                  })
-                } catch (fetchError) {
-                  console.error(`[v0] Error fetching metadata for ${config.contractAddress}:`, fetchError)
-                  tokenData.push({
-                    name: `Obra de Arte #${config.tokenId}`,
-                    description: "Obra de arte digital única de la colección oficial",
-                    image: "/placeholder.svg",
-                    artist: artistAddress,
-                    artistDisplay: artistDisplay,
-                    contractAddress: config.contractAddress,
-                    tokenId: config.tokenId,
-                  })
-                }
-              } else {
-                tokenData.push({
-                  name: `Obra de Arte #${config.tokenId}`,
-                  description: "Obra de arte digital única de la colección oficial",
-                  image: "/placeholder.svg",
-                  artist: artistAddress,
-                  artistDisplay: artistDisplay,
-                  contractAddress: config.contractAddress,
-                  tokenId: config.tokenId,
-                })
-              }
-            } catch (error) {
-              console.error(`[v0] Error processing token ${config.contractAddress}:`, error)
-              tokenData.push({
-                name: `Obra de Arte #${config.tokenId}`,
-                description: "Obra de arte digital única de la colección oficial",
-                image: "/placeholder.svg",
-                artist: "",
-                artistDisplay: "Artista Desconocido",
-                contractAddress: config.contractAddress,
-                tokenId: config.tokenId,
-              })
+        const artistMap = new Map<string, string>()
+        for (const config of shuffled) {
+          try {
+            const artistAddress = await fetchContractOwner(config.contractAddress, publicClient)
+            if (artistAddress) {
+              const displayName = await getDisplayName(artistAddress)
+              artistMap.set(artistAddress, displayName)
             }
-          }
-
-          setTokens(shuffleArray([...tokenData]))
-
-          if (i + BATCH_SIZE < galleryData.tokens.length) {
-            await new Promise((resolve) => setTimeout(resolve, 2000))
+            await new Promise((resolve) => setTimeout(resolve, 300))
+          } catch (error) {
+            console.error(`[v0] Error fetching artist for ${config.contractAddress}:`, error)
           }
         }
-      } catch (error) {
-        console.error("[v0] Fatal error in fetchTokenMetadata:", error)
-        setTokens([])
-      } finally {
+        setAllArtists(artistMap)
+
         setIsLoading(false)
+      } catch (error) {
+        console.error("[v0] Fatal error in fetchInitialTokens:", error)
+        setTokens([])
+        setIsLoading(false)
+        setHasMore(false)
       }
     }
 
-    fetchTokenMetadata()
+    fetchInitialTokens()
   }, [])
+
+  useEffect(() => {
+    if (!isLoading && allTokenConfigs.length > 0 && tokens.length === 0) {
+      loadMoreTokens()
+    }
+  }, [isLoading, allTokenConfigs, tokens.length, loadMoreTokens])
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !isLoadingMore) {
+          loadMoreTokens()
+        }
+      },
+      { threshold: 0.1 },
+    )
+
+    const currentTarget = observerTarget.current
+    if (currentTarget) {
+      observer.observe(currentTarget)
+    }
+
+    return () => {
+      if (currentTarget) {
+        observer.unobserve(currentTarget)
+      }
+    }
+  }, [hasMore, isLoadingMore, loadMoreTokens])
 
   const filteredTokens = useMemo(() => {
     let filtered = tokens
 
     if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase()
       filtered = filtered.filter(
         (token) =>
-          token.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          token.artist.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          token.artistDisplay.toLowerCase().includes(searchQuery.toLowerCase()),
+          token.name.toLowerCase().includes(query) ||
+          token.artist.toLowerCase().includes(query) ||
+          token.artistDisplay.toLowerCase().includes(query) ||
+          Array.from(allArtists.entries()).some(
+            ([address, displayName]) =>
+              address.toLowerCase().includes(query) || displayName.toLowerCase().includes(query),
+          ),
       )
     }
 
@@ -282,20 +387,14 @@ export default function GaleriaPage() {
     }
 
     return filtered
-  }, [tokens, searchQuery, selectedArtist])
+  }, [tokens, searchQuery, selectedArtist, allArtists])
 
   const uniqueArtists = useMemo(() => {
-    const artistMap = new Map<string, string>()
-    tokens.forEach((token) => {
-      if (!artistMap.has(token.artist)) {
-        artistMap.set(token.artist, token.artistDisplay)
-      }
-    })
-    return Array.from(artistMap.entries()).map(([address, displayName]) => ({
+    return Array.from(allArtists.entries()).map(([address, displayName]) => ({
       address,
       displayName,
     }))
-  }, [tokens])
+  }, [allArtists])
 
   return (
     <div className="min-h-screen relative overflow-hidden">
@@ -362,7 +461,7 @@ export default function GaleriaPage() {
         <main className="container mx-auto px-4 py-8">
           <div className="max-w-2xl mx-auto mb-8"></div>
 
-          {isLoading ? (
+          {isLoading || (tokens.length === 0 && isLoadingMore) ? (
             <div className="flex justify-center items-center min-h-[400px]">
               <div className="flex flex-col items-center gap-4">
                 <div className="w-16 h-16 rounded-full bg-black flex items-center justify-center">
@@ -372,33 +471,54 @@ export default function GaleriaPage() {
               </div>
             </div>
           ) : filteredTokens.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredTokens.map((token, index) => (
-                <Link
-                  key={`${token.contractAddress}-${token.tokenId}-${index}`}
-                  href={`/galeria/${token.contractAddress}/${token.tokenId}`}
-                  className="group block"
-                >
-                  <Card className="overflow-hidden transition-all duration-300 hover:shadow-2xl hover:-translate-y-2">
-                    <CardContent className="p-0">
-                      <div className="relative aspect-square overflow-hidden bg-gray-100">
-                        <Image
-                          src={token.image || "/placeholder.svg"}
-                          alt={token.name}
-                          fill
-                          className="object-cover transition-transform duration-300 group-hover:scale-105"
-                        />
-                      </div>
-                      <div className="p-6 bg-white">
-                        <h3 className="font-extrabold text-xl text-gray-800 mb-2">{token.name}</h3>
-                        <p className="text-sm text-gray-600 line-clamp-2 mb-2">{token.description}</p>
-                        <p className="text-xs text-gray-500">Por: {token.artistDisplay}</p>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </Link>
-              ))}
-            </div>
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {filteredTokens.map((token, index) => (
+                  <Link
+                    key={`${token.contractAddress}-${token.tokenId}-${index}`}
+                    href={`/galeria/${token.contractAddress}/${token.tokenId}`}
+                    className="group block"
+                  >
+                    <Card className="overflow-hidden transition-all duration-300 hover:shadow-2xl hover:-translate-y-2">
+                      <CardContent className="p-0">
+                        <div className="relative aspect-square overflow-hidden bg-gray-100">
+                          <Image
+                            src={token.image || "/placeholder.svg"}
+                            alt={token.name}
+                            fill
+                            className="object-cover transition-transform duration-300 group-hover:scale-105"
+                          />
+                        </div>
+                        <div className="p-6 bg-white">
+                          <h3 className="font-extrabold text-xl text-gray-800 mb-2">{token.name}</h3>
+                          <p className="text-sm text-gray-600 line-clamp-2 mb-2">{token.description}</p>
+                          <p className="text-xs text-gray-500">
+                            Por:{" "}
+                            <ArtistLink
+                              artistName={token.artistDisplay}
+                              artistAddress={token.artist}
+                              className="text-xs"
+                            />
+                          </p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </Link>
+                ))}
+              </div>
+
+              <div ref={observerTarget} className="flex justify-center items-center py-8">
+                {isLoadingMore && (
+                  <div className="flex flex-col items-center gap-4">
+                    <div className="w-12 h-12 rounded-full bg-black flex items-center justify-center">
+                      <div className="w-6 h-6 border-4 border-white border-t-transparent rounded-full animate-spin" />
+                    </div>
+                    <p className="text-white text-sm">Cargando más obras...</p>
+                  </div>
+                )}
+                {!hasMore && tokens.length > 0 && <p className="text-white/60 text-sm">Has visto todas las obras</p>}
+              </div>
+            </>
           ) : (
             <div className="text-center py-16">
               <p className="text-white text-lg">

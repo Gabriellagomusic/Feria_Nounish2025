@@ -10,7 +10,7 @@ const pendingBasenameRequests = new Map<string, Promise<string | null>>()
 
 // Rate limiting queue
 let lastRequestTime = 0
-const MIN_REQUEST_INTERVAL = 12000 // 12 seconds between requests for Neynar FREE plan (6 requests per 60s)
+const MIN_REQUEST_INTERVAL = 8000 // 8 seconds between requests for Neynar FREE plan (6 requests per 60s = 10s, using 8s to be safe)
 
 const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes in-memory
 const LOCALSTORAGE_CACHE_DURATION = 24 * 60 * 60 * 1000 // 24 hours in localStorage
