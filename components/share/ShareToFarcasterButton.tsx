@@ -10,7 +10,7 @@ interface ShareToFarcasterButtonProps {
   pieceTitle?: string
   contractAddress: string
   tokenId: string
-  artistUsername?: string // Added artistUsername prop to tag artist in share text
+  artistUsername?: string
   onShareComplete?: () => void
 }
 
@@ -20,7 +20,7 @@ export function ShareToFarcasterButton({
   pieceTitle,
   contractAddress,
   tokenId,
-  artistUsername, // Added artistUsername parameter
+  artistUsername,
   onShareComplete,
 }: ShareToFarcasterButtonProps) {
   const [isSharing, setIsSharing] = useState(false)
@@ -29,19 +29,24 @@ export function ShareToFarcasterButton({
     setIsSharing(true)
 
     try {
-      const pieceUrl = `${window.location.origin}/galeria/${contractAddress}/${tokenId}`
+      const baseUrl =
+        typeof window !== "undefined" && window.location.hostname === "localhost"
+          ? "https://ferianounish.vercel.app"
+          : window.location.origin
+
+      const pieceUrl = `${baseUrl}/galeria/${contractAddress}/${tokenId}`
 
       const artistTag = artistUsername ? ` by @${artistUsername}` : ""
 
       let text = ""
       if (mode === "add") {
         text = pieceTitle
-          ? `Mira mi nueva pieza para la Feria Nounish! "${pieceTitle}"${artistTag} ${pieceUrl}`
-          : `Mira mi nueva pieza para la Feria Nounish!${artistTag} ${pieceUrl}`
+          ? `Mira mi nueva pieza para la Feria Nounish! "${pieceTitle}"${artistTag}`
+          : `Mira mi nueva pieza para la Feria Nounish!${artistTag}`
       } else {
         text = pieceTitle
-          ? `¡Mira la pieza de la Feria Nounish que acabo de coleccionar! "${pieceTitle}"${artistTag} ${pieceUrl}`
-          : `¡Mira la pieza de la Feria Nounish que acabo de coleccionar!${artistTag} ${pieceUrl}`
+          ? `¡Mira la pieza de la Feria Nounish que acabo de coleccionar! "${pieceTitle}"${artistTag}`
+          : `¡Mira la pieza de la Feria Nounish que acabo de coleccionar!${artistTag}`
       }
 
       const isMiniKitContext =
@@ -54,20 +59,23 @@ export function ShareToFarcasterButton({
         const farcasterUrl = `farcaster://compose?text=${encodeURIComponent(text)}&embeds[]=${encodeURIComponent(pieceUrl)}`
         window.location.href = farcasterUrl
 
-        // Fallback to Warpcast after a short delay if Farcaster app doesn't open
         setTimeout(() => {
           openWarpcastComposer(text, pieceUrl)
         }, 1500)
 
         onShareComplete?.()
       } else {
-        // Fallback to Warpcast composer for web browsers
         openWarpcastComposer(text, pieceUrl)
       }
     } catch (error) {
       console.error("[v0] Error sharing to Farcaster:", error)
 
-      const pieceUrl = `${window.location.origin}/galeria/${contractAddress}/${tokenId}`
+      const baseUrl =
+        typeof window !== "undefined" && window.location.hostname === "localhost"
+          ? "https://ferianounish.vercel.app"
+          : window.location.origin
+
+      const pieceUrl = `${baseUrl}/galeria/${contractAddress}/${tokenId}`
       const artistTag = artistUsername ? ` by @${artistUsername}` : ""
 
       let text = ""

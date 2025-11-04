@@ -16,9 +16,9 @@ const ERC1155_ABI = [
 export async function generateMetadata({
   params,
 }: {
-  params: { contractAddress: string; tokenId: string }
+  params: Promise<{ contractAddress: string; tokenId: string }>
 }): Promise<Metadata> {
-  const { contractAddress, tokenId } = params
+  const { contractAddress, tokenId } = await params
 
   try {
     const publicClient = createPublicClient({
@@ -50,12 +50,17 @@ export async function generateMetadata({
           imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
         }
 
+        const canonicalUrl = `https://ferianounish.vercel.app/galeria/${contractAddress}/${tokenId}`
+
         return {
           title: `${metadata.name || `Obra de Arte #${tokenId}`} | Feria Nounish`,
           description: metadata.description || "Obra de arte digital única de la Feria Nounish",
+          metadataBase: new URL("https://ferianounish.vercel.app"),
           openGraph: {
             title: metadata.name || `Obra de Arte #${tokenId}`,
             description: metadata.description || "Obra de arte digital única de la Feria Nounish",
+            url: canonicalUrl,
+            type: "website",
             images: [
               {
                 url: imageUrl || "/placeholder.svg",
@@ -71,6 +76,9 @@ export async function generateMetadata({
             description: metadata.description || "Obra de arte digital única de la Feria Nounish",
             images: [imageUrl || "/placeholder.svg"],
           },
+          alternates: {
+            canonical: canonicalUrl,
+          },
         }
       }
     }
@@ -78,13 +86,21 @@ export async function generateMetadata({
     console.error("Error generating metadata:", error)
   }
 
+  const fallbackUrl = `https://ferianounish.vercel.app/galeria/${contractAddress}/${tokenId}`
+
   return {
     title: `Obra de Arte #${tokenId} | Feria Nounish`,
     description: "Obra de arte digital única de la Feria Nounish",
+    metadataBase: new URL("https://ferianounish.vercel.app"),
     openGraph: {
       title: `Obra de Arte #${tokenId}`,
       description: "Obra de arte digital única de la Feria Nounish",
+      url: fallbackUrl,
+      type: "website",
       images: ["/placeholder.svg"],
+    },
+    alternates: {
+      canonical: fallbackUrl,
     },
   }
 }

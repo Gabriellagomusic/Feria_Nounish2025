@@ -10,7 +10,7 @@ interface ShareToBaseappButtonProps {
   pieceTitle?: string
   contractAddress: string
   tokenId: string
-  artistUsername?: string // Added artistUsername prop to tag artist in share text
+  artistUsername?: string
   onShareComplete?: () => void
 }
 
@@ -20,7 +20,7 @@ export function ShareToBaseappButton({
   pieceTitle,
   contractAddress,
   tokenId,
-  artistUsername, // Added artistUsername parameter
+  artistUsername,
   onShareComplete,
 }: ShareToBaseappButtonProps) {
   const [isSharing, setIsSharing] = useState(false)
@@ -29,7 +29,12 @@ export function ShareToBaseappButton({
     setIsSharing(true)
 
     try {
-      const pieceUrl = `${window.location.origin}/galeria/${contractAddress}/${tokenId}`
+      const baseUrl =
+        typeof window !== "undefined" && window.location.hostname === "localhost"
+          ? "https://ferianounish.vercel.app"
+          : window.location.origin
+
+      const pieceUrl = `${baseUrl}/galeria/${contractAddress}/${tokenId}`
 
       const artistTag = artistUsername ? ` by @${artistUsername}` : ""
 
@@ -44,27 +49,29 @@ export function ShareToBaseappButton({
           : `¡Mira la pieza de la Feria Nounish que acabo de coleccionar!${artistTag}`
       }
 
-      // Check if we're in a mobile context
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
 
       if (isMobile) {
-        // Try Baseapp deep link first
         const baseappUrl = `baseapp://share?text=${encodeURIComponent(text)}&url=${encodeURIComponent(pieceUrl)}`
         window.location.href = baseappUrl
 
-        // Fallback to web share after a short delay if Baseapp doesn't open
         setTimeout(() => {
           openWebShare(text, pieceUrl)
         }, 1500)
       } else {
-        // Desktop: open Baseapp web interface
         openWebShare(text, pieceUrl)
       }
 
       onShareComplete?.()
     } catch (error) {
       console.error("[v0] Error sharing to Baseapp:", error)
-      const pieceUrl = `${window.location.origin}/galeria/${contractAddress}/${tokenId}`
+
+      const baseUrl =
+        typeof window !== "undefined" && window.location.hostname === "localhost"
+          ? "https://ferianounish.vercel.app"
+          : window.location.origin
+
+      const pieceUrl = `${baseUrl}/galeria/${contractAddress}/${tokenId}`
       const artistTag = artistUsername ? ` by @${artistUsername}` : ""
 
       let text = ""
@@ -77,6 +84,7 @@ export function ShareToBaseappButton({
           ? `¡Mira la pieza de la Feria Nounish que acabo de coleccionar! "${pieceTitle}"${artistTag}`
           : `¡Mira la pieza de la Feria Nounish que acabo de coleccionar!${artistTag}`
       }
+
       openWebShare(text, pieceUrl)
     } finally {
       setIsSharing(false)
@@ -84,7 +92,6 @@ export function ShareToBaseappButton({
   }
 
   const openWebShare = async (text: string, url: string) => {
-    // Try native Web Share API first
     if (navigator.share) {
       try {
         await navigator.share({
@@ -98,12 +105,10 @@ export function ShareToBaseappButton({
       }
     }
 
-    // Fallback: Copy to clipboard and show message
     try {
       await navigator.clipboard.writeText(`${text}\n\n${url}`)
       alert("¡Enlace copiado! Compártelo en Baseapp")
     } catch (error) {
-      // Final fallback: open in new window
       window.open(url, "_blank")
     }
   }
