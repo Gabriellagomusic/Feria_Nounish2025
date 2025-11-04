@@ -629,7 +629,14 @@ interface DebugLog {
   type: "info" | "success" | "error" | "warning"
 }
 
-async function fetchWithRetry<T>(fetchFn: () => Promise<T>, maxRetries = 3, baseDelay = 1000): Promise<T> {
+interface RPCCache {
+  balance?: { value: bigint; timestamp: number }
+  allowance?: { value: bigint; timestamp: number }
+}
+
+const RPC_CACHE_TTL = 30000 // 30 seconds
+
+async function fetchWithRetry<T>(fetchFn: () => Promise<T>, maxRetries = 2, baseDelay = 2000): Promise<T> {
   let lastError: Error | null = null
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -688,6 +695,8 @@ export default function TokenDetailPage() {
   const [showDebugPanel, setShowDebugPanel] = useState(false)
   const [copiedLogs, setCopiedLogs] = useState(false)
 
+  const rpcCacheRef = useRef<RPCCache>({})
+
   const addDebugLog = (message: string, type: DebugLog["type"] = "info") => {
     const timestamp = new Date().toLocaleTimeString("en-US", {
       hour12: false,
@@ -698,7 +707,7 @@ export default function TokenDetailPage() {
     })
     const log = { timestamp, message, type }
     setDebugLogs((prev) => [...prev, log])
-    console.log(`[v0] ${message}`)
+    console.log(`[${timestamp}] ${message}`)
   }
 
   const copyLogsToClipboard = async () => {
@@ -959,28 +968,36 @@ export default function TokenDetailPage() {
       addDebugLog(`💰 Price per token: 1 USDC (hardcoded)`, "info")
       addDebugLog(`💰 Total cost: ${quantity} USDC`, "info")
 
-      // Step 2: Check USDC balance
       addDebugLog("========== STEP 2: CHECK USDC BALANCE ==========", "info")
-      addDebugLog("💳 Checking USDC balance...", "info")
 
       let balance: bigint
-      try {
-        balance = await fetchWithRetry(
-          async () => {
-            return await publicClient.readContract({
-              address: USDC_ADDRESS,
-              abi: ERC20_ABI,
-              functionName: "balanceOf",
-              args: [address],
-            })
-          },
-          3,
-          2000,
-        )
-        addDebugLog(`💵 USDC balance: ${Number(balance) / 1e6} USDC`, "info")
-      } catch (balanceError: any) {
-        addDebugLog(`❌ Error checking balance: ${balanceError.message}`, "error")
-        throw new Error(`Error al verificar balance de USDC. Por favor espera unos segundos e intenta de nuevo.`)
+      const now = Date.now()
+      const cachedBalance = rpcCacheRef.current.balance
+
+      if (cachedBalance && now - cachedBalance.timestamp < RPC_CACHE_TTL) {
+        balance = cachedBalance.value
+        addDebugLog(`💵 USDC balance (cached): ${Number(balance) / 1e6} USDC`, "info")
+      } else {
+        addDebugLog("💳 Checking USDC balance...", "info")
+        try {
+          balance = await fetchWithRetry(
+            async () => {
+              return await publicClient.readContract({
+                address: USDC_ADDRESS,
+                abi: ERC20_ABI,
+                functionName: "balanceOf",
+                args: [address],
+              })
+            },
+            2,
+            2000,
+          )
+          rpcCacheRef.current.balance = { value: balance, timestamp: now }
+          addDebugLog(`💵 USDC balance: ${Number(balance) / 1e6} USDC`, "info")
+        } catch (balanceError: any) {
+          addDebugLog(`❌ Error checking balance: ${balanceError.message}`, "error")
+          throw new Error(`Error al verificar balance de USDC. Por favor espera unos segundos e intenta de nuevo.`)
+        }
       }
 
       if (balance < totalCost) {
@@ -992,36 +1009,43 @@ export default function TokenDetailPage() {
 
       addDebugLog("✅ Sufficient USDC balance", "success")
 
-      // Step 3: Check and approve USDC if needed
       addDebugLog("========== STEP 3: CHECK USDC ALLOWANCE ==========", "info")
-      addDebugLog("💳 Checking USDC allowance...", "info")
 
       let allowance: bigint
-      try {
-        allowance = await fetchWithRetry(
-          async () => {
-            return await publicClient.readContract({
-              address: USDC_ADDRESS,
-              abi: ERC20_ABI,
-              functionName: "allowance",
-              args: [address, ZORA_ERC20_MINTER],
-            })
-          },
-          3,
-          2000,
-        )
-        addDebugLog(`💳 Current allowance: ${Number(allowance) / 1e6} USDC`, "info")
-      } catch (allowanceError: any) {
-        addDebugLog(`❌ Error checking allowance: ${allowanceError.message}`, "error")
-        throw new Error(`Error al verificar allowance de USDC. Por favor espera unos segundos e intenta de nuevo.`)
+      const cachedAllowance = rpcCacheRef.current.allowance
+
+      if (cachedAllowance && now - cachedAllowance.timestamp < RPC_CACHE_TTL) {
+        allowance = cachedAllowance.value
+        addDebugLog(`💳 Current allowance (cached): ${Number(allowance) / 1e6} USDC`, "info")
+      } else {
+        addDebugLog("💳 Checking USDC allowance...", "info")
+        try {
+          allowance = await fetchWithRetry(
+            async () => {
+              return await publicClient.readContract({
+                address: USDC_ADDRESS,
+                abi: ERC20_ABI,
+                functionName: "allowance",
+                args: [address, ZORA_ERC20_MINTER],
+              })
+            },
+            2,
+            2000,
+          )
+          rpcCacheRef.current.allowance = { value: allowance, timestamp: now }
+          addDebugLog(`💳 Current allowance: ${Number(allowance) / 1e6} USDC`, "info")
+        } catch (allowanceError: any) {
+          addDebugLog(`❌ Error checking allowance: ${allowanceError.message}`, "error")
+          throw new Error(`Error al verificar allowance de USDC. Por favor espera unos segundos e intenta de nuevo.`)
+        }
       }
 
       if (allowance < totalCost) {
         addDebugLog("⚠️ Insufficient allowance, need to approve", "warning")
-        // </CHANGE> Fixed approval amount - was multiplying by 2, now using exact totalCost
         const approvalAmount = totalCost
         addDebugLog(`💳 Approving: ${Number(approvalAmount) / 1e6} USDC`, "info")
         await approveUSDC(approvalAmount)
+        rpcCacheRef.current.allowance = { value: approvalAmount, timestamp: Date.now() }
       } else {
         addDebugLog("✅ Sufficient allowance already exists", "success")
       }
@@ -1055,6 +1079,8 @@ export default function TokenDetailPage() {
       addDebugLog("✅ Mint confirmed!", "success")
       addDebugLog("========== MINT FLOW COMPLETE ==========", "success")
 
+      rpcCacheRef.current = {}
+
       setJustCollected(true)
       setIsMinting(false)
       await checkContractState()
@@ -1069,7 +1095,7 @@ export default function TokenDetailPage() {
         errorMessage = "Transacción rechazada por el usuario"
       } else if (errorMessage.includes("insufficient")) {
         errorMessage = "Balance insuficiente de USDC o ETH para gas"
-      } else if (errorMessage.includes("RPC rate limit")) {
+      } else if (errorMessage.includes("RPC rate limit") || errorMessage.includes("429")) {
         errorMessage = "Límite de solicitudes alcanzado. Por favor espera 10 segundos e intenta de nuevo."
       }
 
@@ -1153,27 +1179,32 @@ export default function TokenDetailPage() {
         transport: http(),
       })
 
-      const [userBalance, totalSupply] = await Promise.all([
-        publicClient.readContract({
-          address: contractAddress,
-          abi: ERC1155_ABI,
-          functionName: "balanceOf",
-          args: [address, BigInt(tokenId)],
-        }),
-        publicClient.readContract({
+      const userBalance = await publicClient.readContract({
+        address: contractAddress,
+        abi: ERC1155_ABI,
+        functionName: "balanceOf",
+        args: [address, BigInt(tokenId)],
+      })
+
+      let totalSupply = BigInt(0)
+      try {
+        totalSupply = await publicClient.readContract({
           address: contractAddress,
           abi: ERC1155_ABI,
           functionName: "totalSupply",
           args: [BigInt(tokenId)],
-        }),
-      ])
+        })
+      } catch (error) {
+        // Silently ignore totalSupply errors - some contracts don't implement it
+        console.log("[v0] totalSupply not available for this contract")
+      }
 
       setContractInfo({
         userBalance: userBalance.toString(),
         totalSupply: totalSupply.toString(),
       })
     } catch (error: any) {
-      addDebugLog(`Error checking contract state: ${error}`, "error")
+      addDebugLog(`Error checking contract state: ${error.message}`, "error")
     }
   }
 
