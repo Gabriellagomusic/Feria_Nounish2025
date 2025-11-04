@@ -255,7 +255,12 @@ export default function GaleriaPage() {
         await new Promise((resolve) => setTimeout(resolve, 1500)) // Reduced delay between tokens from 2000ms to 1500ms
       }
 
-      setTokens((prev) => [...prev, ...newTokens])
+      setTokens((prev) => {
+        const existingKeys = new Set(prev.map((t) => `${t.contractAddress}-${t.tokenId}`))
+        const uniqueNewTokens = newTokens.filter((t) => !existingKeys.has(`${t.contractAddress}-${t.tokenId}`))
+        return [...prev, ...uniqueNewTokens]
+      })
+
       setCurrentIndex(endIndex)
       setHasMore(endIndex < allTokenConfigs.length)
     } catch (error) {

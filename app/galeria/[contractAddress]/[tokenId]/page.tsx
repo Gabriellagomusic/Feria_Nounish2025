@@ -1524,7 +1524,7 @@ export default function TokenDetailPage() {
                           {!isConnected ? "Conecta tu Wallet" : isMinting ? "Coleccionando..." : "Comprar Más"}
                         </Button>
 
-                        <p className="text-xs text-center text-gray-500">💳 Total: {quantity} USDC + gas en Base</p>
+                        <p className="text-xs text-center text-gray-500">Total: {quantity} USDC</p>
                       </div>
                     ) : justCollected ? (
                       <div className="space-y-3">
@@ -1600,14 +1600,9 @@ export default function TokenDetailPage() {
                           </Button>
                         </div>
 
-                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
-                          <p className="text-blue-800 font-semibold">💰 Precio: 1 USDC por edición</p>
-                          <p className="text-blue-600 text-xs mt-1">💳 Total: {quantity} USDC + gas en Base</p>
-                          {isOwner && (
-                            <p className="text-blue-600 text-xs mt-1">
-                              🔧 Si no hay sales config, se configurará automáticamente
-                            </p>
-                          )}
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center">
+                          <p className="text-blue-800 font-semibold text-sm">Precio: 1 USDC por edición</p>
+                          <p className="text-blue-600 text-xs mt-1">Total: {quantity} USDC</p>
                         </div>
 
                         <Button
@@ -1618,7 +1613,7 @@ export default function TokenDetailPage() {
                           {!isConnected ? "Conecta tu Wallet" : isMinting ? "Coleccionando..." : "Coleccionar"}
                         </Button>
 
-                        <p className="text-xs text-center text-gray-500">💳 Total: {quantity} USDC + gas en Base</p>
+                        <p className="text-xs text-center text-gray-500">Total: {quantity} USDC</p>
                       </>
                     )}
                   </div>

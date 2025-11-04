@@ -77,6 +77,21 @@ export async function generateMetadata({
     console.error("Error generating metadata:", error)
   }
 
+  const frameDefinition = {
+    version: "1",
+    imageUrl: imageUrl,
+    button: {
+      title: "Coleccionar 🎨",
+      action: {
+        type: "launch_frame",
+        name: "Feria Nounish",
+        url: tokenUrl,
+        splashImageUrl: `${baseUrl}/icon.png`,
+        splashBackgroundColor: "#f5f0ec",
+      },
+    },
+  }
+
   return {
     title: `${tokenName} | Feria Nounish`,
     description: tokenDescription,
@@ -90,7 +105,7 @@ export async function generateMetadata({
         {
           url: imageUrl,
           width: 1200,
-          height: 1200,
+          height: 800,
           alt: tokenName,
         },
       ],
@@ -105,28 +120,7 @@ export async function generateMetadata({
       canonical: tokenUrl,
     },
     other: {
-      "fc:frame": "vNext",
-      "fc:frame:image": imageUrl,
-      "fc:frame:image:aspect_ratio": "1:1",
-      "fc:frame:button:1": "Ver Token",
-      "fc:frame:button:1:action": "link",
-      "fc:frame:button:1:target": tokenUrl,
-      "fc:frame:button:2": "Coleccionar",
-      "fc:frame:button:2:action": "link",
-      "fc:frame:button:2:target": tokenUrl,
-      "fc:frame:post_url": `${baseUrl}/api/frame`,
-
-      // Open Frames metadata for broader compatibility
-      "of:version": "vNext",
-      "of:accepts:farcaster": "vNext",
-      "of:image": imageUrl,
-      "of:image:aspect_ratio": "1:1",
-      "of:button:1": "Ver Token",
-      "of:button:1:action": "link",
-      "of:button:1:target": tokenUrl,
-      "of:button:2": "Coleccionar",
-      "of:button:2:action": "link",
-      "of:button:2:target": tokenUrl,
+      "fc:frame": JSON.stringify(frameDefinition),
     },
   }
 }
