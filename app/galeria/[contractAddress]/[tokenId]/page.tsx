@@ -391,11 +391,11 @@ const ZORA_ERC20_MINTER_ABI = [
   },
   {
     inputs: [
-      { internalType: "address", name: "", type: "address" },
-      { internalType: "uint256", name: "", type: "uint256" },
-      { internalType: "uint256", name: "", type: "uint256" },
-      { internalType: "uint256", name: "", type: "uint256" },
-      { internalType: "bytes", name: "", type: "bytes" },
+      { internalType: "", name: "", type: "address" },
+      { internalType: "", name: "", type: "uint256" },
+      { internalType: "", name: "", type: "uint256" },
+      { internalType: "", name: "", type: "uint256" },
+      { internalType: "", name: "", type: "bytes" },
     ],
     name: "requestMint",
     outputs: [
