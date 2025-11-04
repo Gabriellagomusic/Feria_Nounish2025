@@ -8,7 +8,7 @@ import { useEffect, useState, useMemo } from "react"
 import { createPublicClient, http } from "viem"
 import { base } from "viem/chains"
 import { ArrowLeft, Search } from "lucide-react"
-import { getDisplayName } from "@/lib/farcaster"
+import { batchGetDisplayNames, formatAddress } from "@/lib/farcaster"
 
 interface TokenMetadata {
   name: string
@@ -37,6 +37,35 @@ const ERC1155_ABI = [
   },
 ] as const
 
+const contractOwnerCache = new Map<string, string>()
+
+async function fetchContractOwner(contractAddress: string, publicClient: any): Promise<string> {
+  const cached = contractOwnerCache.get(contractAddress.toLowerCase())
+  if (cached) {
+    return cached
+  }
+
+  await new Promise((resolve) => setTimeout(resolve, 100))
+
+  try {
+    const owner = await publicClient.readContract({
+      address: contractAddress as `0x${string}`,
+      abi: ERC1155_ABI,
+      functionName: "owner",
+    })
+
+    const ownerAddress = (owner as string).toLowerCase()
+    contractOwnerCache.set(contractAddress.toLowerCase(), ownerAddress)
+    return ownerAddress
+  } catch (error) {
+    console.error(`[v0] Error fetching owner for ${contractAddress}:`, error)
+    const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
+    const fallbackLower = fallbackCreator.toLowerCase()
+    contractOwnerCache.set(contractAddress.toLowerCase(), fallbackLower)
+    return fallbackLower
+  }
+}
+
 function shuffleArray<T>(array: T[]): T[] {
   const shuffled = [...array]
   for (let i = shuffled.length - 1; i > 0; i--) {
@@ -62,21 +91,6 @@ async function fetchWithRetry<T>(fetchFn: () => Promise<T>, maxRetries = 3, base
   }
 
   throw lastError || new Error("Failed after retries")
-}
-
-async function fetchContractOwner(contractAddress: string, publicClient: any): Promise<string> {
-  try {
-    const owner = await publicClient.readContract({
-      address: contractAddress as `0x${string}`,
-      abi: ERC1155_ABI,
-      functionName: "owner",
-    })
-    return (owner as string).toLowerCase()
-  } catch (error) {
-    console.error(`[v0] Error fetching owner for ${contractAddress}:`, error)
-    const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
-    return fallbackCreator.toLowerCase()
-  }
 }
 
 export default function GaleriaPage() {
@@ -107,64 +121,86 @@ export default function GaleriaPage() {
           transport: http(),
         })
 
-        const BATCH_SIZE = 10
+        const BATCH_SIZE = 5
         const tokenData: TokenMetadata[] = []
 
         for (let i = 0; i < galleryData.tokens.length; i += BATCH_SIZE) {
           const batch = galleryData.tokens.slice(i, i + BATCH_SIZE)
 
+          const artistAddresses: string[] = []
           const batchResults = await Promise.all(
             batch.map(async (config: { contractAddress: string; tokenId: string }) => {
               try {
-                const [artistAddress, tokenURI] = await Promise.all([
-                  fetchContractOwner(config.contractAddress, publicClient),
-                  fetchWithRetry(async () => {
-                    return await publicClient.readContract({
-                      address: config.contractAddress as `0x${string}`,
-                      abi: ERC1155_ABI,
-                      functionName: "uri",
-                      args: [BigInt(1)],
-                    })
-                  }),
-                ])
+                const artistAddress = await fetchContractOwner(config.contractAddress, publicClient)
+                artistAddresses.push(artistAddress)
 
-                const artistDisplay = await getDisplayName(artistAddress)
+                await new Promise((resolve) => setTimeout(resolve, 150))
 
-                if (tokenURI) {
-                  let metadataUrl = tokenURI.replace("{id}", "1")
-                  if (metadataUrl.startsWith("ar://")) {
-                    metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
-                  }
-
-                  try {
-                    const metadata = await fetchWithRetry(async () => {
-                      const response = await fetch(metadataUrl)
-                      if (!response.ok) throw new Error(`HTTP ${response.status}`)
-                      return await response.json()
-                    })
-
-                    let imageUrl = metadata.image
-                    if (imageUrl?.startsWith("ipfs://")) {
-                      imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-                    } else if (imageUrl?.startsWith("ar://")) {
-                      imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
-                    }
-
-                    return {
-                      name: metadata.name || `Obra de Arte #${config.tokenId}`,
-                      description: metadata.description || "Obra de arte digital única",
-                      image: imageUrl || "/placeholder.svg",
-                      artist: artistAddress,
-                      artistDisplay: artistDisplay,
-                      contractAddress: config.contractAddress,
-                      tokenId: config.tokenId,
-                    }
-                  } catch (fetchError) {
-                    console.error(`[v0] Error fetching metadata for ${config.contractAddress}:`, fetchError)
-                  }
-                }
+                const tokenURI = await fetchWithRetry(async () => {
+                  return await publicClient.readContract({
+                    address: config.contractAddress as `0x${string}`,
+                    abi: ERC1155_ABI,
+                    functionName: "uri",
+                    args: [BigInt(1)],
+                  })
+                })
 
                 return {
+                  config,
+                  artistAddress,
+                  tokenURI,
+                }
+              } catch (error) {
+                console.error(`[v0] Error processing token ${config.contractAddress}:`, error)
+                const fallbackArtist = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
+                artistAddresses.push(fallbackArtist.toLowerCase())
+                return {
+                  config,
+                  artistAddress: fallbackArtist.toLowerCase(),
+                  tokenURI: null,
+                }
+              }
+            }),
+          )
+
+          const artistDisplayNames = await batchGetDisplayNames(artistAddresses)
+
+          for (const result of batchResults) {
+            const { config, artistAddress, tokenURI } = result
+            const artistDisplay = artistDisplayNames.get(artistAddress) || formatAddress(artistAddress)
+
+            if (tokenURI) {
+              let metadataUrl = tokenURI.replace("{id}", "1")
+              if (metadataUrl.startsWith("ar://")) {
+                metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
+              }
+
+              try {
+                const metadata = await fetchWithRetry(async () => {
+                  const response = await fetch(metadataUrl)
+                  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+                  return await response.json()
+                })
+
+                let imageUrl = metadata.image
+                if (imageUrl?.startsWith("ipfs://")) {
+                  imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+                } else if (imageUrl?.startsWith("ar://")) {
+                  imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+                }
+
+                tokenData.push({
+                  name: metadata.name || `Obra de Arte #${config.tokenId}`,
+                  description: metadata.description || "Obra de arte digital única",
+                  image: imageUrl || "/placeholder.svg",
+                  artist: artistAddress,
+                  artistDisplay: artistDisplay,
+                  contractAddress: config.contractAddress,
+                  tokenId: config.tokenId,
+                })
+              } catch (fetchError) {
+                console.error(`[v0] Error fetching metadata for ${config.contractAddress}:`, fetchError)
+                tokenData.push({
                   name: `Obra de Arte #${config.tokenId}`,
                   description: "Obra de arte digital única de la colección oficial",
                   image: "/placeholder.svg",
@@ -172,25 +208,26 @@ export default function GaleriaPage() {
                   artistDisplay: artistDisplay,
                   contractAddress: config.contractAddress,
                   tokenId: config.tokenId,
-                }
-              } catch (error) {
-                console.error(`[v0] Error processing token ${config.contractAddress}:`, error)
-                const fallbackArtist = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
-                return {
-                  name: `Obra de Arte #${config.tokenId}`,
-                  description: "Obra de arte digital única de la colección oficial",
-                  image: "/placeholder.svg",
-                  artist: fallbackArtist.toLowerCase(),
-                  artistDisplay: `${fallbackArtist.slice(0, 6)}...${fallbackArtist.slice(-4)}`,
-                  contractAddress: config.contractAddress,
-                  tokenId: config.tokenId,
-                }
+                })
               }
-            }),
-          )
+            } else {
+              tokenData.push({
+                name: `Obra de Arte #${config.tokenId}`,
+                description: "Obra de arte digital única de la colección oficial",
+                image: "/placeholder.svg",
+                artist: artistAddress,
+                artistDisplay: artistDisplay,
+                contractAddress: config.contractAddress,
+                tokenId: config.tokenId,
+              })
+            }
+          }
 
-          tokenData.push(...batchResults)
           setTokens(shuffleArray([...tokenData]))
+
+          if (i + BATCH_SIZE < galleryData.tokens.length) {
+            await new Promise((resolve) => setTimeout(resolve, 500))
+          }
         }
       } catch (error) {
         console.error("[v0] Fatal error in fetchTokenMetadata:", error)
