@@ -8,7 +8,7 @@ import { useEffect, useState, useMemo } from "react"
 import { createPublicClient, http } from "viem"
 import { base } from "viem/chains"
 import { ArrowLeft, Search } from "lucide-react"
-import { batchGetDisplayNames, formatAddress } from "@/lib/farcaster"
+import { getDisplayName } from "@/lib/farcaster"
 
 interface TokenMetadata {
   name: string
@@ -125,80 +125,64 @@ export default function GaleriaPage() {
         for (let i = 0; i < galleryData.tokens.length; i += BATCH_SIZE) {
           const batch = galleryData.tokens.slice(i, i + BATCH_SIZE)
 
-          const artistAddresses: string[] = []
-          const batchResults = await Promise.all(
-            batch.map(async (config: { contractAddress: string; tokenId: string }) => {
-              try {
-                const artistAddress = await fetchContractOwner(config.contractAddress, publicClient)
-                artistAddresses.push(artistAddress)
+          for (const config of batch) {
+            try {
+              const artistAddress = await fetchContractOwner(config.contractAddress, publicClient)
+              const artistDisplay = artistAddress ? await getDisplayName(artistAddress) : "Artista Desconocido"
 
-                await new Promise((resolve) => setTimeout(resolve, 150))
+              await new Promise((resolve) => setTimeout(resolve, 150))
 
-                const tokenURI = await fetchWithRetry(async () => {
-                  return await publicClient.readContract({
-                    address: config.contractAddress as `0x${string}`,
-                    abi: ERC1155_ABI,
-                    functionName: "uri",
-                    args: [BigInt(1)],
+              const tokenURI = await fetchWithRetry(async () => {
+                return await publicClient.readContract({
+                  address: config.contractAddress as `0x${string}`,
+                  abi: ERC1155_ABI,
+                  functionName: "uri",
+                  args: [BigInt(1)],
+                })
+              })
+
+              if (tokenURI) {
+                let metadataUrl = tokenURI.replace("{id}", "1")
+                if (metadataUrl.startsWith("ar://")) {
+                  metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
+                }
+
+                try {
+                  const metadata = await fetchWithRetry(async () => {
+                    const response = await fetch(metadataUrl)
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+                    return await response.json()
                   })
-                })
 
-                return {
-                  config,
-                  artistAddress,
-                  tokenURI,
+                  let imageUrl = metadata.image
+                  if (imageUrl?.startsWith("ipfs://")) {
+                    imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+                  } else if (imageUrl?.startsWith("ar://")) {
+                    imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+                  }
+
+                  tokenData.push({
+                    name: metadata.name || `Obra de Arte #${config.tokenId}`,
+                    description: metadata.description || "Obra de arte digital única",
+                    image: imageUrl || "/placeholder.svg",
+                    artist: artistAddress,
+                    artistDisplay: artistDisplay,
+                    contractAddress: config.contractAddress,
+                    tokenId: config.tokenId,
+                  })
+                } catch (fetchError) {
+                  console.error(`[v0] Error fetching metadata for ${config.contractAddress}:`, fetchError)
+                  tokenData.push({
+                    name: `Obra de Arte #${config.tokenId}`,
+                    description: "Obra de arte digital única de la colección oficial",
+                    image: "/placeholder.svg",
+                    artist: artistAddress,
+                    artistDisplay: artistDisplay,
+                    contractAddress: config.contractAddress,
+                    tokenId: config.tokenId,
+                  })
                 }
-              } catch (error) {
-                console.error(`[v0] Error processing token ${config.contractAddress}:`, error)
-                artistAddresses.push("")
-                return {
-                  config,
-                  artistAddress: "",
-                  tokenURI: null,
-                }
-              }
-            }),
-          )
-
-          const artistDisplayNames = await batchGetDisplayNames(artistAddresses.filter((a) => a !== ""))
-
-          for (const result of batchResults) {
-            const { config, artistAddress, tokenURI } = result
-            const artistDisplay = artistAddress
-              ? artistDisplayNames.get(artistAddress) || formatAddress(artistAddress)
-              : "Artista Desconocido"
-
-            if (tokenURI) {
-              let metadataUrl = tokenURI.replace("{id}", "1")
-              if (metadataUrl.startsWith("ar://")) {
-                metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
-              }
-
-              try {
-                const metadata = await fetchWithRetry(async () => {
-                  const response = await fetch(metadataUrl)
-                  if (!response.ok) throw new Error(`HTTP ${response.status}`)
-                  return await response.json()
-                })
-
-                let imageUrl = metadata.image
-                if (imageUrl?.startsWith("ipfs://")) {
-                  imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-                } else if (imageUrl?.startsWith("ar://")) {
-                  imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
-                }
-
-                tokenData.push({
-                  name: metadata.name || `Obra de Arte #${config.tokenId}`,
-                  description: metadata.description || "Obra de arte digital única",
-                  image: imageUrl || "/placeholder.svg",
-                  artist: artistAddress,
-                  artistDisplay: artistDisplay,
-                  contractAddress: config.contractAddress,
-                  tokenId: config.tokenId,
-                })
-              } catch (fetchError) {
-                console.error(`[v0] Error fetching metadata for ${config.contractAddress}:`, fetchError)
+              } else {
                 tokenData.push({
                   name: `Obra de Arte #${config.tokenId}`,
                   description: "Obra de arte digital única de la colección oficial",
@@ -209,13 +193,14 @@ export default function GaleriaPage() {
                   tokenId: config.tokenId,
                 })
               }
-            } else {
+            } catch (error) {
+              console.error(`[v0] Error processing token ${config.contractAddress}:`, error)
               tokenData.push({
                 name: `Obra de Arte #${config.tokenId}`,
                 description: "Obra de arte digital única de la colección oficial",
                 image: "/placeholder.svg",
-                artist: artistAddress,
-                artistDisplay: artistDisplay,
+                artist: "",
+                artistDisplay: "Artista Desconocido",
                 contractAddress: config.contractAddress,
                 tokenId: config.tokenId,
               })

@@ -1,11 +1,13 @@
 // In-memory cache for Farcaster data
 const usernameCache = new Map<string, { username: string | null; timestamp: number }>()
 const profilePicCache = new Map<string, { profilePicUrl: string | null; timestamp: number }>()
+const basenameCache = new Map<string, { basename: string | null; timestamp: number }>()
 const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
 
 // Pending requests to prevent duplicate calls
 const pendingUsernameRequests = new Map<string, Promise<string | null>>()
 const pendingProfilePicRequests = new Map<string, Promise<string | null>>()
+const pendingBasenameRequests = new Map<string, Promise<string | null>>()
 
 // Rate limiting queue
 let lastRequestTime = 0
@@ -145,19 +147,80 @@ export function formatAddress(address: string): string {
 }
 
 /**
- * Gets display name: Farcaster username or formatted address
+ * Fetches Basename for a wallet address
+ * With caching and deduplication
+ */
+export async function getBasename(address: string): Promise<string | null> {
+  const normalizedAddress = address.toLowerCase()
+
+  // Check cache first
+  const cached = basenameCache.get(normalizedAddress)
+  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+    return cached.basename
+  }
+
+  // Check if there's already a pending request for this address
+  const pending = pendingBasenameRequests.get(normalizedAddress)
+  if (pending) {
+    return pending
+  }
+
+  // Create new request with rate limiting
+  const requestPromise = (async () => {
+    try {
+      await waitForRateLimit()
+
+      // Query Basename API (Base's ENS-like service)
+      const response = await fetch(`https://resolver.base.org/v1/name/${normalizedAddress}`)
+
+      if (!response.ok) {
+        basenameCache.set(normalizedAddress, { basename: null, timestamp: Date.now() })
+        return null
+      }
+
+      const data = await response.json()
+      const basename = data.name || null
+
+      // Cache the result
+      basenameCache.set(normalizedAddress, { basename, timestamp: Date.now() })
+
+      return basename
+    } catch (error) {
+      console.error("[v0] Error fetching Basename:", error)
+      basenameCache.set(normalizedAddress, { basename: null, timestamp: Date.now() })
+      return null
+    } finally {
+      pendingBasenameRequests.delete(normalizedAddress)
+    }
+  })()
+
+  pendingBasenameRequests.set(normalizedAddress, requestPromise)
+
+  return requestPromise
+}
+
+/**
+ * Gets display name: Farcaster username, Basename, or formatted address
  * With caching and deduplication
  */
 export async function getDisplayName(address: string): Promise<string> {
   try {
+    // Try Farcaster username first
     const farcasterUsername = await getFarcasterUsername(address)
     if (farcasterUsername) {
       return farcasterUsername
     }
+
+    // Try Basename as fallback
+    const basename = await getBasename(address)
+    if (basename) {
+      return basename
+    }
   } catch (error) {
     console.error("[v0] Error in getDisplayName:", error)
   }
-  return formatAddress(address)
+
+  return "Artista Desconocido"
 }
 
 /**

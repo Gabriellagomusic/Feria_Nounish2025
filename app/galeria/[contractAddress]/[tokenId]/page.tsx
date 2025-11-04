@@ -15,7 +15,7 @@ import { ShareToBaseappButton } from "@/components/share/ShareToBaseappButton"
 import { getTimeline, type Moment } from "@/lib/inprocess"
 import { useMiniKit } from "@coinbase/onchainkit/minikit"
 
-const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as Address
+const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32d4f71b54bdA02913" as Address
 const ZORA_ERC20_MINTER = "0xE27d9Dc88dAB82ACa3ebC49895c663C6a0CfA014" as Address
 
 const ERC20_ABI = [
@@ -1018,7 +1018,7 @@ export default function TokenDetailPage() {
           BigInt(quantity),
           contractAddress,
           BigInt(tokenId),
-          pricePerToken,
+          totalCost, // This was the bug - was pricePerToken, now totalCost
           USDC_ADDRESS,
           "0x0000000000000000000000000000000000000000",
           "Collected via Feria Nounish on Base!",
