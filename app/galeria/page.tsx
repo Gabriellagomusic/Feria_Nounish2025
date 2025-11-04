@@ -7,22 +7,17 @@ import { useRouter } from "next/navigation"
 import { useEffect, useState, useMemo } from "react"
 import { createPublicClient, http } from "viem"
 import { base } from "viem/chains"
-import { ArrowLeft, Search, ChevronDown, ChevronUp, Copy, Check } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { ArrowLeft, Search } from "lucide-react"
+import { getDisplayName } from "@/lib/farcaster"
 
 interface TokenMetadata {
   name: string
   description: string
   image: string
   artist: string
+  artistDisplay: string
   contractAddress: string
   tokenId: string
-}
-
-interface DebugLog {
-  timestamp: string
-  message: string
-  data?: any
 }
 
 const ERC1155_ABI = [
@@ -51,33 +46,6 @@ function shuffleArray<T>(array: T[]): T[] {
   return shuffled
 }
 
-function formatAddress(address: string): string {
-  return address.slice(0, 6) + "..." + address.slice(-4)
-}
-
-async function fetchContractOwner(
-  contractAddress: string,
-  publicClient: any,
-  addLog: (message: string, data?: any) => void,
-): Promise<string> {
-  try {
-    addLog(`🔍 Fetching owner for contract: ${contractAddress}`)
-
-    const owner = await publicClient.readContract({
-      address: contractAddress as `0x${string}`,
-      abi: ERC1155_ABI,
-      functionName: "owner",
-    })
-
-    addLog(`✅ Found owner: ${owner}`)
-    return (owner as string).toLowerCase()
-  } catch (error) {
-    addLog(`❌ Error fetching owner, using fallback:`, error)
-    const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
-    return fallbackCreator.toLowerCase()
-  }
-}
-
 async function fetchWithRetry<T>(fetchFn: () => Promise<T>, maxRetries = 3, baseDelay = 1000): Promise<T> {
   let lastError: Error | null = null
 
@@ -86,7 +54,6 @@ async function fetchWithRetry<T>(fetchFn: () => Promise<T>, maxRetries = 3, base
       return await fetchFn()
     } catch (error) {
       lastError = error as Error
-
       if (attempt < maxRetries) {
         const delay = baseDelay * Math.pow(2, attempt)
         await new Promise((resolve) => setTimeout(resolve, delay))
@@ -97,61 +64,39 @@ async function fetchWithRetry<T>(fetchFn: () => Promise<T>, maxRetries = 3, base
   throw lastError || new Error("Failed after retries")
 }
 
+async function fetchContractOwner(contractAddress: string, publicClient: any): Promise<string> {
+  try {
+    const owner = await publicClient.readContract({
+      address: contractAddress as `0x${string}`,
+      abi: ERC1155_ABI,
+      functionName: "owner",
+    })
+    return (owner as string).toLowerCase()
+  } catch (error) {
+    console.error(`[v0] Error fetching owner for ${contractAddress}:`, error)
+    const fallbackCreator = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
+    return fallbackCreator.toLowerCase()
+  }
+}
+
 export default function GaleriaPage() {
   const router = useRouter()
   const [tokens, setTokens] = useState<TokenMetadata[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
+  const [selectedArtist, setSelectedArtist] = useState<string>("")
   const [isSearchOpen, setIsSearchOpen] = useState(false)
-
-  const [debugLogs, setDebugLogs] = useState<DebugLog[]>([])
-  const [showDebugPanel, setShowDebugPanel] = useState(false)
-  const [copiedLogs, setCopiedLogs] = useState(false)
-
-  const addDebugLog = (message: string, data?: any) => {
-    const timestamp = new Date().toLocaleTimeString("en-US", {
-      hour12: false,
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      fractionalSecondDigits: 3,
-    })
-    const log = { timestamp, message, data }
-    setDebugLogs((prev) => [...prev, log])
-  }
-
-  const copyLogsToClipboard = async () => {
-    const logsText = debugLogs
-      .map((log) => {
-        const dataStr = log.data ? `\n${JSON.stringify(log.data, null, 2)}` : ""
-        return `[${log.timestamp}] ${log.message}${dataStr}`
-      })
-      .join("\n\n")
-
-    try {
-      await navigator.clipboard.writeText(logsText)
-      setCopiedLogs(true)
-      setTimeout(() => setCopiedLogs(false), 2000)
-    } catch (error) {
-      console.error("Failed to copy logs:", error)
-    }
-  }
 
   useEffect(() => {
     const fetchTokenMetadata = async () => {
       try {
-        addDebugLog("🚀 Starting gallery fetch")
-
         const galleryData = await fetchWithRetry(async () => {
           const response = await fetch("/api/gallery/list")
           if (!response.ok) throw new Error(`HTTP ${response.status}`)
           return await response.json()
         })
 
-        addDebugLog(`📊 Fetched ${galleryData.tokens?.length || 0} tokens from gallery API`)
-
         if (!galleryData.tokens || galleryData.tokens.length === 0) {
-          addDebugLog("⚠️ No tokens found in gallery data")
           setTokens([])
           setIsLoading(false)
           return
@@ -167,17 +112,12 @@ export default function GaleriaPage() {
 
         for (let i = 0; i < galleryData.tokens.length; i += BATCH_SIZE) {
           const batch = galleryData.tokens.slice(i, i + BATCH_SIZE)
-          addDebugLog(
-            `📦 Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(galleryData.tokens.length / BATCH_SIZE)}`,
-          )
 
           const batchResults = await Promise.all(
             batch.map(async (config: { contractAddress: string; tokenId: string }) => {
               try {
-                addDebugLog(`🎨 Processing token: ${config.contractAddress} #${config.tokenId}`)
-
                 const [artistAddress, tokenURI] = await Promise.all([
-                  fetchContractOwner(config.contractAddress, publicClient, addDebugLog),
+                  fetchContractOwner(config.contractAddress, publicClient),
                   fetchWithRetry(async () => {
                     return await publicClient.readContract({
                       address: config.contractAddress as `0x${string}`,
@@ -187,6 +127,8 @@ export default function GaleriaPage() {
                     })
                   }),
                 ])
+
+                const artistDisplay = await getDisplayName(artistAddress)
 
                 if (tokenURI) {
                   let metadataUrl = tokenURI.replace("{id}", "1")
@@ -208,21 +150,17 @@ export default function GaleriaPage() {
                       imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
                     }
 
-                    addDebugLog(`✅ Successfully processed token: ${metadata.name}`, {
-                      artist: artistAddress,
-                      contract: config.contractAddress,
-                    })
-
                     return {
                       name: metadata.name || `Obra de Arte #${config.tokenId}`,
                       description: metadata.description || "Obra de arte digital única",
                       image: imageUrl || "/placeholder.svg",
                       artist: artistAddress,
+                      artistDisplay: artistDisplay,
                       contractAddress: config.contractAddress,
                       tokenId: config.tokenId,
                     }
                   } catch (fetchError) {
-                    addDebugLog(`❌ Error fetching metadata:`, fetchError)
+                    console.error(`[v0] Error fetching metadata for ${config.contractAddress}:`, fetchError)
                   }
                 }
 
@@ -231,18 +169,19 @@ export default function GaleriaPage() {
                   description: "Obra de arte digital única de la colección oficial",
                   image: "/placeholder.svg",
                   artist: artistAddress,
+                  artistDisplay: artistDisplay,
                   contractAddress: config.contractAddress,
                   tokenId: config.tokenId,
                 }
               } catch (error) {
-                addDebugLog(`❌ Error processing token:`, error)
-
+                console.error(`[v0] Error processing token ${config.contractAddress}:`, error)
                 const fallbackArtist = "0x697C7720dc08F1eb1fde54420432eFC6aD594244"
                 return {
                   name: `Obra de Arte #${config.tokenId}`,
                   description: "Obra de arte digital única de la colección oficial",
                   image: "/placeholder.svg",
                   artist: fallbackArtist.toLowerCase(),
+                  artistDisplay: `${fallbackArtist.slice(0, 6)}...${fallbackArtist.slice(-4)}`,
                   contractAddress: config.contractAddress,
                   tokenId: config.tokenId,
                 }
@@ -253,10 +192,8 @@ export default function GaleriaPage() {
           tokenData.push(...batchResults)
           setTokens(shuffleArray([...tokenData]))
         }
-
-        addDebugLog(`🎉 Gallery fetch complete! Loaded ${tokenData.length} tokens`)
       } catch (error) {
-        addDebugLog(`❌ Fatal error in fetchTokenMetadata:`, error)
+        console.error("[v0] Fatal error in fetchTokenMetadata:", error)
         setTokens([])
       } finally {
         setIsLoading(false)
@@ -273,12 +210,30 @@ export default function GaleriaPage() {
       filtered = filtered.filter(
         (token) =>
           token.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          token.artist.toLowerCase().includes(searchQuery.toLowerCase()),
+          token.artist.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          token.artistDisplay.toLowerCase().includes(searchQuery.toLowerCase()),
       )
     }
 
+    if (selectedArtist) {
+      filtered = filtered.filter((token) => token.artist === selectedArtist)
+    }
+
     return filtered
-  }, [tokens, searchQuery])
+  }, [tokens, searchQuery, selectedArtist])
+
+  const uniqueArtists = useMemo(() => {
+    const artistMap = new Map<string, string>()
+    tokens.forEach((token) => {
+      if (!artistMap.has(token.artist)) {
+        artistMap.set(token.artist, token.artistDisplay)
+      }
+    })
+    return Array.from(artistMap.entries()).map(([address, displayName]) => ({
+      address,
+      displayName,
+    }))
+  }, [tokens])
 
   return (
     <div className="min-h-screen relative overflow-hidden">
@@ -309,6 +264,22 @@ export default function GaleriaPage() {
               >
                 <Search className="w-5 h-5 text-white" />
               </button>
+
+              <select
+                value={selectedArtist}
+                onChange={(e) => setSelectedArtist(e.target.value)}
+                className="h-12 px-4 rounded-full bg-white/20 backdrop-blur-md border-2 border-white/30 text-white text-sm focus:border-white/60 focus:outline-none flex-shrink-0"
+                aria-label="Filtrar por artista"
+              >
+                <option value="" className="bg-gray-800">
+                  TODOS LOS ARTISTAS
+                </option>
+                {uniqueArtists.map((artist) => (
+                  <option key={artist.address} value={artist.address} className="bg-gray-800">
+                    {artist.displayName}
+                  </option>
+                ))}
+              </select>
             </div>
 
             {isSearchOpen && (
@@ -335,7 +306,7 @@ export default function GaleriaPage() {
                 <div className="w-16 h-16 rounded-full bg-black flex items-center justify-center">
                   <div className="w-8 h-8 border-4 border-white border-t-transparent rounded-full animate-spin" />
                 </div>
-                <p className="text-white text-lg">Cargando...</p>
+                <p className="text-white text-lg">Cargando galería...</p>
               </div>
             </div>
           ) : filteredTokens.length > 0 ? (
@@ -348,7 +319,7 @@ export default function GaleriaPage() {
                 >
                   <Card className="overflow-hidden transition-all duration-300 hover:shadow-2xl hover:-translate-y-2">
                     <CardContent className="p-0">
-                      <div className="relative aspect-square overflow-hidden bg-white">
+                      <div className="relative aspect-square overflow-hidden bg-gray-100">
                         <Image
                           src={token.image || "/placeholder.svg"}
                           alt={token.name}
@@ -359,7 +330,7 @@ export default function GaleriaPage() {
                       <div className="p-6 bg-white">
                         <h3 className="font-extrabold text-xl text-gray-800 mb-2">{token.name}</h3>
                         <p className="text-sm text-gray-600 line-clamp-2 mb-2">{token.description}</p>
-                        <p className="text-xs text-gray-400 font-mono">{formatAddress(token.artist)}</p>
+                        <p className="text-xs text-gray-500">Por: {token.artistDisplay}</p>
                       </div>
                     </CardContent>
                   </Card>
@@ -368,65 +339,11 @@ export default function GaleriaPage() {
             </div>
           ) : (
             <div className="text-center py-16">
-              <p className="text-white text-lg">No hay obras en la galería todavía</p>
+              <p className="text-white text-lg">
+                {searchQuery || selectedArtist ? "No se encontraron obras" : "No hay obras en la galería todavía"}
+              </p>
             </div>
           )}
-
-          <div className="fixed bottom-4 right-4 z-50 max-w-md">
-            <Card className="shadow-2xl">
-              <CardContent className="p-4">
-                <button
-                  onClick={() => setShowDebugPanel(!showDebugPanel)}
-                  className="w-full flex items-center justify-between text-sm font-semibold text-gray-700 hover:text-gray-900 transition-colors"
-                >
-                  <span>🐛 Debug Logs ({debugLogs.length})</span>
-                  {showDebugPanel ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                </button>
-
-                {showDebugPanel && (
-                  <div className="mt-4 space-y-2">
-                    <div className="flex justify-end">
-                      <Button
-                        onClick={copyLogsToClipboard}
-                        variant="outline"
-                        size="sm"
-                        className="text-xs bg-transparent"
-                      >
-                        {copiedLogs ? (
-                          <>
-                            <Check className="w-3 h-3 mr-1" />
-                            Copied!
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3 h-3 mr-1" />
-                            Copy Logs
-                          </>
-                        )}
-                      </Button>
-                    </div>
-
-                    <div className="max-h-96 overflow-y-auto bg-gray-900 rounded-lg p-3 space-y-1">
-                      {debugLogs.length === 0 ? (
-                        <p className="text-gray-400 text-xs">No logs yet...</p>
-                      ) : (
-                        debugLogs.map((log, index) => (
-                          <div key={index} className="text-xs font-mono text-gray-300">
-                            <span className="text-gray-500">[{log.timestamp}]</span> {log.message}
-                            {log.data && (
-                              <pre className="text-gray-400 mt-1 ml-4 text-[10px] overflow-x-auto">
-                                {JSON.stringify(log.data, null, 2)}
-                              </pre>
-                            )}
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
         </main>
       </div>
     </div>
