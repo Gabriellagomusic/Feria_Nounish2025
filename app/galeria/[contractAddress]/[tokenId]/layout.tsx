@@ -39,59 +39,71 @@ export async function generateMetadata({
         metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
       }
 
-      const response = await fetch(metadataUrl)
-      if (response.ok) {
-        const metadata = await response.json()
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout
 
-        let imageUrl = metadata.image
-        if (imageUrl?.startsWith("ipfs://")) {
-          imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-        } else if (imageUrl?.startsWith("ar://")) {
-          imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
-        }
+      try {
+        const response = await fetch(metadataUrl, { signal: controller.signal })
+        clearTimeout(timeoutId)
 
-        const canonicalUrl = `https://ferianounish.vercel.app/galeria/${contractAddress}/${tokenId}`
+        if (response.ok) {
+          const metadata = await response.json()
 
-        return {
-          title: `${metadata.name || `Obra de Arte #${tokenId}`} | Feria Nounish`,
-          description: metadata.description || "Obra de arte digital única de la Feria Nounish",
-          metadataBase: new URL("https://ferianounish.vercel.app"),
-          openGraph: {
-            title: metadata.name || `Obra de Arte #${tokenId}`,
+          let imageUrl = metadata.image
+          if (imageUrl?.startsWith("ipfs://")) {
+            imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+          } else if (imageUrl?.startsWith("ar://")) {
+            imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+          }
+
+          const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://ferianounish.vercel.app"
+          const canonicalUrl = `${baseUrl}/galeria/${contractAddress}/${tokenId}`
+
+          return {
+            title: `${metadata.name || `Obra de Arte #${tokenId}`} | Feria Nounish`,
             description: metadata.description || "Obra de arte digital única de la Feria Nounish",
-            url: canonicalUrl,
-            type: "website",
-            images: [
-              {
-                url: imageUrl || "/placeholder.svg",
-                width: 1200,
-                height: 1200,
-                alt: metadata.name || `Obra de Arte #${tokenId}`,
-              },
-            ],
-          },
-          twitter: {
-            card: "summary_large_image",
-            title: metadata.name || `Obra de Arte #${tokenId}`,
-            description: metadata.description || "Obra de arte digital única de la Feria Nounish",
-            images: [imageUrl || "/placeholder.svg"],
-          },
-          alternates: {
-            canonical: canonicalUrl,
-          },
+            metadataBase: new URL(baseUrl),
+            openGraph: {
+              title: metadata.name || `Obra de Arte #${tokenId}`,
+              description: metadata.description || "Obra de arte digital única de la Feria Nounish",
+              url: canonicalUrl,
+              type: "website",
+              images: [
+                {
+                  url: imageUrl || "/placeholder.svg",
+                  width: 1200,
+                  height: 1200,
+                  alt: metadata.name || `Obra de Arte #${tokenId}`,
+                },
+              ],
+            },
+            twitter: {
+              card: "summary_large_image",
+              title: metadata.name || `Obra de Arte #${tokenId}`,
+              description: metadata.description || "Obra de arte digital única de la Feria Nounish",
+              images: [imageUrl || "/placeholder.svg"],
+            },
+            alternates: {
+              canonical: canonicalUrl,
+            },
+          }
         }
+      } catch (fetchError) {
+        clearTimeout(timeoutId)
+        console.error("Error fetching metadata:", fetchError)
       }
     }
   } catch (error) {
     console.error("Error generating metadata:", error)
   }
 
-  const fallbackUrl = `https://ferianounish.vercel.app/galeria/${contractAddress}/${tokenId}`
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://ferianounish.vercel.app"
+  const fallbackUrl = `${baseUrl}/galeria/${contractAddress}/${tokenId}`
 
   return {
     title: `Obra de Arte #${tokenId} | Feria Nounish`,
     description: "Obra de arte digital única de la Feria Nounish",
-    metadataBase: new URL("https://ferianounish.vercel.app"),
+    metadataBase: new URL(baseUrl),
     openGraph: {
       title: `Obra de Arte #${tokenId}`,
       description: "Obra de arte digital única de la Feria Nounish",

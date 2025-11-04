@@ -269,10 +269,12 @@ export default function GaleriaPage() {
     const savedState = loadGaleriaState()
     if (savedState) {
       console.log("[v0] Restoring galeria state from session storage")
-      setTokens(savedState.tokens)
-      setAllTokenConfigs(savedState.allTokenConfigs)
+      const shuffledTokens = shuffleArray(savedState.tokens)
+      const shuffledConfigs = shuffleArray(savedState.allTokenConfigs)
+      setTokens(shuffledTokens)
+      setAllTokenConfigs(shuffledConfigs)
       setCurrentIndex(savedState.currentIndex)
-      setHasMore(savedState.currentIndex < savedState.allTokenConfigs.length)
+      setHasMore(savedState.currentIndex < shuffledConfigs.length)
       setIsLoading(false)
       return
     }

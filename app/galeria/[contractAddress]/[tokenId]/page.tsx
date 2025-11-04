@@ -965,19 +965,22 @@ export default function TokenDetailPage() {
 
       let balance: bigint
       try {
-        balance = await publicClient.readContract({
-          address: USDC_ADDRESS,
-          abi: ERC20_ABI,
-          functionName: "balanceOf",
-          args: [address],
-        })
+        balance = await fetchWithRetry(
+          async () => {
+            return await publicClient.readContract({
+              address: USDC_ADDRESS,
+              abi: ERC20_ABI,
+              functionName: "balanceOf",
+              args: [address],
+            })
+          },
+          3,
+          2000,
+        )
         addDebugLog(`💵 USDC balance: ${Number(balance) / 1e6} USDC`, "info")
       } catch (balanceError: any) {
         addDebugLog(`❌ Error checking balance: ${balanceError.message}`, "error")
-        if (balanceError.message?.includes("429") || balanceError.message?.includes("rate limit")) {
-          throw new Error("RPC rate limit alcanzado. Por favor espera unos segundos e intenta de nuevo.")
-        }
-        throw new Error(`Error al verificar balance de USDC: ${balanceError.message}`)
+        throw new Error(`Error al verificar balance de USDC. Por favor espera unos segundos e intenta de nuevo.`)
       }
 
       if (balance < totalCost) {
@@ -995,19 +998,22 @@ export default function TokenDetailPage() {
 
       let allowance: bigint
       try {
-        allowance = await publicClient.readContract({
-          address: USDC_ADDRESS,
-          abi: ERC20_ABI,
-          functionName: "allowance",
-          args: [address, ZORA_ERC20_MINTER],
-        })
+        allowance = await fetchWithRetry(
+          async () => {
+            return await publicClient.readContract({
+              address: USDC_ADDRESS,
+              abi: ERC20_ABI,
+              functionName: "allowance",
+              args: [address, ZORA_ERC20_MINTER],
+            })
+          },
+          3,
+          2000,
+        )
         addDebugLog(`💳 Current allowance: ${Number(allowance) / 1e6} USDC`, "info")
       } catch (allowanceError: any) {
         addDebugLog(`❌ Error checking allowance: ${allowanceError.message}`, "error")
-        if (allowanceError.message?.includes("429") || allowanceError.message?.includes("rate limit")) {
-          throw new Error("RPC rate limit alcanzado. Por favor espera unos segundos e intenta de nuevo.")
-        }
-        throw new Error(`Error al verificar allowance de USDC: ${allowanceError.message}`)
+        throw new Error(`Error al verificar allowance de USDC. Por favor espera unos segundos e intenta de nuevo.`)
       }
 
       if (allowance < totalCost) {
@@ -1301,7 +1307,7 @@ export default function TokenDetailPage() {
     if (address) {
       checkContractState()
     }
-  }, [address])
+  }, [address, justCollected])
 
   if (isLoading) {
     return (
@@ -1315,6 +1321,9 @@ export default function TokenDetailPage() {
       </div>
     )
   }
+
+  // Determine ownership status based on contractInfo
+  const userOwnsToken = contractInfo && Number(contractInfo.userBalance) > 0
 
   return (
     <div className="min-h-screen relative overflow-hidden">
@@ -1370,7 +1379,78 @@ export default function TokenDetailPage() {
                       </div>
                     )}
 
-                    {justCollected ? (
+                    {userOwnsToken && !justCollected ? (
+                      <div className="space-y-3">
+                        <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
+                          <p className="text-green-800 font-semibold mb-1">✅ Ya tienes este token</p>
+                          <p className="text-green-600 text-xs">
+                            Tienes {contractInfo.userBalance} edición{Number(contractInfo.userBalance) > 1 ? "es" : ""}
+                          </p>
+                        </div>
+
+                        <ShareToFarcasterButton
+                          mode="collect"
+                          pieceId={`${contractAddress}-${tokenId}`}
+                          pieceTitle={tokenData?.name}
+                          contractAddress={contractAddress}
+                          tokenId={tokenId}
+                          artistUsername={artistName !== "Artista Desconocido" ? artistName : undefined}
+                          onShareComplete={() => {}}
+                        />
+
+                        <ShareToBaseappButton
+                          mode="collect"
+                          pieceId={`${contractAddress}-${tokenId}`}
+                          pieceTitle={tokenData?.name}
+                          contractAddress={contractAddress}
+                          tokenId={tokenId}
+                          artistUsername={artistName !== "Artista Desconocido" ? artistName : undefined}
+                          onShareComplete={() => {}}
+                        />
+
+                        <div className="flex items-center justify-center gap-4 p-4 bg-gray-50 rounded-lg">
+                          <Button
+                            onClick={() => {
+                              const newQuantity = Math.max(1, quantity - 1)
+                              setQuantity(newQuantity)
+                              setMintError(null)
+                            }}
+                            disabled={quantity <= 1}
+                            variant="outline"
+                            size="icon"
+                            className="h-10 w-10"
+                          >
+                            <Minus className="h-4 w-4" />
+                          </Button>
+                          <div className="text-center">
+                            <div className="text-2xl font-extrabold text-gray-800">{quantity}</div>
+                            <div className="text-xs text-gray-500">ediciones</div>
+                          </div>
+                          <Button
+                            onClick={() => {
+                              const newQuantity = quantity + 1
+                              setQuantity(newQuantity)
+                              setMintError(null)
+                            }}
+                            variant="outline"
+                            size="icon"
+                            className="h-10 w-10"
+                          >
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                        </div>
+
+                        <Button
+                          onClick={handleMint}
+                          disabled={!isConnected || isMinting}
+                          className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-extrabold py-6 text-base disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {!isConnected ? "Conecta tu Wallet" : isMinting ? "Coleccionando..." : "Comprar Más"}
+                        </Button>
+
+                        <p className="text-xs text-center text-gray-500">💳 Total: {quantity} USDC + gas en Base</p>
+                      </div>
+                    ) : justCollected ? (
                       <div className="space-y-3">
                         <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
                           <p className="text-green-800 font-semibold mb-1">¡Colección exitosa!</p>
