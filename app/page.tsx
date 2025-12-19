@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button"
 import Image from "next/image"
 import { useEffect, useState, useRef } from "react"
-import { useMiniKit } from "@coinbase/onchainkit/minikit"
+import { useMiniKit } from "@/hooks/use-minikit"
 import { useAccount, useConnect } from "wagmi"
 import Link from "next/link"
 import { getNounAvatarUrl } from "@/lib/noun-avatar"

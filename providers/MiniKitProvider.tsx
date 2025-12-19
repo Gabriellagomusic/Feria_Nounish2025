@@ -9,13 +9,7 @@ export function MiniKitContextProvider({ children, apiKey }: { children: ReactNo
   }
 
   return (
-    <OnchainKitProvider
-      apiKey={apiKey}
-      chain={base}
-      miniKit={{
-        enabled: true,
-      }}
-    >
+    <OnchainKitProvider apiKey={apiKey} chain={base}>
       {children}
     </OnchainKitProvider>
   )

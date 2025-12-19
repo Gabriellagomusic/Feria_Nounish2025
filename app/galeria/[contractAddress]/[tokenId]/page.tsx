@@ -13,7 +13,7 @@ import { getDisplayName } from "@/lib/farcaster"
 import { ShareToFarcasterButton } from "@/components/share/ShareToFarcasterButton"
 import { ShareToBaseappButton } from "@/components/share/ShareToBaseappButton"
 import { getTimeline, type Moment } from "@/lib/inprocess"
-import { useMiniKit } from "@coinbase/onchainkit/minikit"
+import { useMiniKit } from "@/hooks/use-minikit"
 import { loadArtistData, saveArtistData } from "@/lib/galeria-state"
 import { ArtistLink } from "@/components/ArtistLink"
 
@@ -825,7 +825,7 @@ export default function TokenDetailPage() {
     if (!address) throw new Error("No wallet connected")
 
     addDebugLog("========== WALLET ADDRESS VERIFICATION ==========", "info")
-    addDebugLog(`🔐 Connected wallet address: ${address}`, "info")
+    addDebugLog(` connected wallet address: ${address}`, "info")
     addDebugLog(`💰 This address will receive the funds from sales`, "info")
     addDebugLog("========================================", "info")
 
@@ -994,8 +994,8 @@ export default function TokenDetailPage() {
       }
 
       addDebugLog("✅ Sales config found!", "success")
-      const pricePerToken = parseUnits("1", 6)
-      const totalCost = pricePerToken * BigInt(quantity)
+      const priceInWei = parseUnits("1", 6) // Assuming 1 USDC as the price
+      const totalCost = priceInWei * BigInt(quantity)
 
       addDebugLog(`💰 Price per token: 1 USDC (hardcoded)`, "info")
       addDebugLog(`💰 Total cost: ${quantity} USDC`, "info")
