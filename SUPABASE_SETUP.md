@@ -57,7 +57,7 @@ Para conectar tu tabla de Supabase "Feria Nounish - Artistas", necesitas agregar
 
 El código ya está configurado para usar estas variables. Ejemplos:
 
-\`\`\`typescript
+```typescript
 // En API routes (servidor)
 import { getArtistByWallet, getAllArtists } from '@/lib/supabase-server'
 
@@ -66,13 +66,13 @@ const artist = await getArtistByWallet('0x...')
 
 // Obtener todos los artistas
 const artists = await getAllArtists()
-\`\`\`
+```
 
-\`\`\`typescript
+```typescript
 // Desde el cliente (llamando a las API routes)
 const response = await fetch('/api/artists/0x...')
 const artist = await response.json()
-\`\`\`
+```
 
 ## Estructura de la Tabla "artistas"
 

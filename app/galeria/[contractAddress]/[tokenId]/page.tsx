@@ -14,10 +14,10 @@ import { ShareToFarcasterButton } from "@/components/share/ShareToFarcasterButto
 import { ShareToBaseappButton } from "@/components/share/ShareToBaseappButton"
 import { getTimeline, type Moment } from "@/lib/inprocess"
 import { useMiniKit } from "@coinbase/onchainkit/minikit"
-import { loadArtistData } from "@/lib/galeria-state"
+import { loadArtistData, saveArtistData } from "@/lib/galeria-state"
 import { ArtistLink } from "@/components/ArtistLink"
 
-const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as Address
+const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32d4f71b54bdA02913" as Address
 const ZORA_ERC20_MINTER = "0xE27d9Dc88dAB82ACa3ebC49895c663C6a0CfA014" as Address
 
 const ERC20_ABI = [
@@ -1326,21 +1326,76 @@ export default function TokenDetailPage() {
                   setCreator(moment.admin)
                   const displayName = moment.username || (await getDisplayName(moment.admin))
                   setArtistName(displayName)
+                  saveArtistData(contractAddress, tokenId, {
+                    address: moment.admin,
+                    displayName: displayName,
+                  })
                   addDebugLog(`Artist found: ${displayName} (${moment.admin})`, "info")
                 } else {
-                  setCreator("")
-                  setArtistName("Artista Desconocido")
-                  addDebugLog(`Artist not found in timeline, using fallback: Artista Desconocido`, "warning")
+                  try {
+                    const owner = await publicClient.readContract({
+                      address: contractAddress,
+                      abi: ERC1155_ABI,
+                      functionName: "owner",
+                    })
+                    const ownerAddress = (owner as string).toLowerCase()
+                    const displayName = await getDisplayName(ownerAddress)
+                    setCreator(ownerAddress)
+                    setArtistName(displayName)
+                    saveArtistData(contractAddress, tokenId, {
+                      address: ownerAddress,
+                      displayName: displayName,
+                    })
+                    addDebugLog(`Artist found from contract owner: ${displayName}`, "info")
+                  } catch (ownerError) {
+                    setCreator("")
+                    setArtistName("Artista Desconocido")
+                    addDebugLog(`Could not fetch contract owner, using fallback`, "warning")
+                  }
                 }
               } else {
-                setCreator("")
-                setArtistName("Artista Desconocido")
-                addDebugLog(`Timeline empty, using fallback artist: Artista Desconocido`, "warning")
+                try {
+                  const owner = await publicClient.readContract({
+                    address: contractAddress,
+                    abi: ERC1155_ABI,
+                    functionName: "owner",
+                  })
+                  const ownerAddress = (owner as string).toLowerCase()
+                  const displayName = await getDisplayName(ownerAddress)
+                  setCreator(ownerAddress)
+                  setArtistName(displayName)
+                  saveArtistData(contractAddress, tokenId, {
+                    address: ownerAddress,
+                    displayName: displayName,
+                  })
+                  addDebugLog(`Artist found from contract owner: ${displayName}`, "info")
+                } catch (ownerError) {
+                  setCreator("")
+                  setArtistName("Artista Desconocido")
+                  addDebugLog(`Timeline empty and could not fetch owner, using fallback`, "warning")
+                }
               }
             } catch (error) {
               addDebugLog(`Error fetching artist from inprocess after retries: ${error}`, "error")
-              setCreator("")
-              setArtistName("Artista Desconocido")
+              try {
+                const owner = await publicClient.readContract({
+                  address: contractAddress,
+                  abi: ERC1155_ABI,
+                  functionName: "owner",
+                })
+                const ownerAddress = (owner as string).toLowerCase()
+                const displayName = await getDisplayName(ownerAddress)
+                setCreator(ownerAddress)
+                setArtistName(displayName)
+                saveArtistData(contractAddress, tokenId, {
+                  address: ownerAddress,
+                  displayName: displayName,
+                })
+                addDebugLog(`Artist found from contract owner fallback: ${displayName}`, "info")
+              } catch (finalError) {
+                setCreator("")
+                setArtistName("Artista Desconocido")
+              }
             }
           }
 

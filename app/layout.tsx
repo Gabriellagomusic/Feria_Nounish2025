@@ -48,7 +48,9 @@ export default function RootLayout({
     <html lang="en" className={barlowCondensed.variable}>
       <body>
         <WagmiContextProvider>
-          <MiniKitContextProvider>{children}</MiniKitContextProvider>
+          <MiniKitContextProvider apiKey={process.env.NEXT_PUBLIC_ONCHAINKIT_API_KEY}>
+            {children}
+          </MiniKitContextProvider>
         </WagmiContextProvider>
       </body>
     </html>
