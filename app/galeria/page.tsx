@@ -8,7 +8,7 @@ import { useEffect, useState, useMemo, useRef, useCallback } from "react"
 import { createPublicClient, http } from "viem"
 import { base } from "viem/chains"
 import { ArrowLeft, Search } from "lucide-react"
-import { getDisplayName, batchGetDisplayNames } from "@/lib/farcaster"
+import { batchGetDisplayNames } from "@/lib/farcaster"
 import { saveGaleriaState, loadGaleriaState, saveArtistData } from "@/lib/galeria-state"
 import { ArtistLink } from "@/components/ArtistLink"
 
@@ -25,6 +25,22 @@ interface TokenMetadata {
 interface TokenConfig {
   contractAddress: string
   tokenId: string
+}
+
+interface TokenData {
+  name: string
+  description: string
+  image: string
+  artist: string
+  artistName: string
+  contractAddress: string
+  tokenId: string
+}
+
+interface RetryQueueItem {
+  config: TokenConfig
+  attempts: number
+  lastAttempt: number
 }
 
 const ERC1155_ABI = [
@@ -44,22 +60,17 @@ const ERC1155_ABI = [
   },
 ] as const
 
-const LOCALSTORAGE_CACHE_DURATION = 24 * 60 * 60 * 1000 // 24 hours
-
 function getOwnerFromLocalStorage(contractAddress: string): string | null {
   if (typeof window === "undefined") return null
-
   try {
     const key = `contract_owner_${contractAddress.toLowerCase()}`
     const item = localStorage.getItem(key)
     if (!item) return null
-
     const parsed = JSON.parse(item)
-    if (Date.now() - parsed.timestamp > LOCALSTORAGE_CACHE_DURATION) {
+    if (Date.now() - parsed.timestamp > 24 * 60 * 60 * 1000) {
       localStorage.removeItem(key)
       return null
     }
-
     return parsed.value
   } catch {
     return null
@@ -68,68 +79,82 @@ function getOwnerFromLocalStorage(contractAddress: string): string | null {
 
 function setOwnerToLocalStorage(contractAddress: string, owner: string) {
   if (typeof window === "undefined") return
-
   try {
     const key = `contract_owner_${contractAddress.toLowerCase()}`
     localStorage.setItem(key, JSON.stringify({ value: owner, timestamp: Date.now() }))
-  } catch {
-    // Ignore localStorage errors
-  }
+  } catch {}
 }
-
-const contractOwnerCache = new Map<string, string>()
 
 async function fetchWithRetry<T>(fetchFn: () => Promise<T>, maxRetries = 3, baseDelay = 1000): Promise<T> {
   let lastError: Error | null = null
-
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await fetchFn()
-    } catch (error) {
+    } catch (error: any) {
       lastError = error as Error
+
+      // Check if it's a rate limit error (429)
+      const isRateLimit =
+        error?.message?.includes("429") || error?.message?.includes("rate limit") || error?.details?.code === -32016
+
       if (attempt < maxRetries) {
-        const delay = baseDelay * Math.pow(2, attempt)
+        // Use exponential backoff for rate limit errors, linear for others
+        const delay = isRateLimit ? baseDelay * Math.pow(2, attempt) : baseDelay * (attempt + 1)
         await new Promise((resolve) => setTimeout(resolve, delay))
       }
     }
   }
-
   throw lastError || new Error("Failed after retries")
 }
 
-async function fetchContractOwner(contractAddress: string, publicClient: any): Promise<string> {
-  const localStorageOwner = getOwnerFromLocalStorage(contractAddress)
-  if (localStorageOwner) {
-    contractOwnerCache.set(contractAddress.toLowerCase(), localStorageOwner)
-    return localStorageOwner
+async function fetchContractOwners(configs: TokenConfig[], publicClient: any): Promise<Map<string, string>> {
+  const results = new Map<string, string>()
+  const toFetch: TokenConfig[] = []
+
+  // Check localStorage cache first
+  for (const config of configs) {
+    const cached = getOwnerFromLocalStorage(config.contractAddress)
+    if (cached) {
+      results.set(config.contractAddress.toLowerCase(), cached)
+    } else {
+      toFetch.push(config)
+    }
   }
 
-  const cached = contractOwnerCache.get(contractAddress.toLowerCase())
-  if (cached) {
-    return cached
-  }
+  // Fetch remaining in parallel with small batches
+  const BATCH_SIZE = 10
+  for (let i = 0; i < toFetch.length; i += BATCH_SIZE) {
+    const batch = toFetch.slice(i, i + BATCH_SIZE)
 
-  await new Promise((resolve) => setTimeout(resolve, 100)) // Reduced RPC delay from 300ms to 100ms
-
-  try {
-    const owner = await fetchWithRetry(async () => {
-      return await publicClient.readContract({
-        address: contractAddress as `0x${string}`,
-        abi: ERC1155_ABI,
-        functionName: "owner",
-      })
+    const promises = batch.map(async (config) => {
+      try {
+        const owner = await publicClient.readContract({
+          address: config.contractAddress as `0x${string}`,
+          abi: ERC1155_ABI,
+          functionName: "owner",
+        })
+        const ownerAddress = (owner as string).toLowerCase()
+        setOwnerToLocalStorage(config.contractAddress, ownerAddress)
+        return { contractAddress: config.contractAddress.toLowerCase(), owner: ownerAddress }
+      } catch {
+        return { contractAddress: config.contractAddress.toLowerCase(), owner: "" }
+      }
     })
 
-    const ownerAddress = (owner as string).toLowerCase()
-    contractOwnerCache.set(contractAddress.toLowerCase(), ownerAddress)
-    setOwnerToLocalStorage(contractAddress, ownerAddress)
-    return ownerAddress
-  } catch (error) {
-    console.error(`[v0] Error fetching owner for ${contractAddress}:`, error)
-    // DO NOT cache failure
-    // contractOwnerCache.set(contractAddress.toLowerCase(), "")
-    return ""
+    const batchResults = await Promise.all(promises)
+    for (const { contractAddress, owner } of batchResults) {
+      if (owner) {
+        results.set(contractAddress, owner)
+      }
+    }
+
+    // Small delay between batches to avoid RPC rate limits
+    if (i + BATCH_SIZE < toFetch.length) {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
   }
+
+  return results
 }
 
 function shuffleArray<T>(array: T[]): T[] {
@@ -141,14 +166,7 @@ function shuffleArray<T>(array: T[]): T[] {
   return shuffled
 }
 
-const TOKENS_PER_LOAD = 8 // Increased from 6 to 8 for faster loading
-
-const RPC_DELAY = 50 // ms between RPC calls to avoid rate limiting
-const TOKEN_DELAY = 100 // ms between processing tokens
-const BATCH_DELAY = 300 // ms between batches
-
-const failedTokensQueue: Array<{ config: TokenConfig; attempts: number }> = []
-const MAX_RETRY_ATTEMPTS = 3
+const TOKENS_PER_LOAD = 12
 
 export default function GaleriaPage() {
   const router = useRouter()
@@ -163,277 +181,125 @@ export default function GaleriaPage() {
   const [hasMore, setHasMore] = useState(true)
   const [allArtists, setAllArtists] = useState<Map<string, string>>(new Map())
   const observerTarget = useRef<HTMLDivElement>(null)
-  const shouldBackgroundLoad = useRef(true)
+  const loadingRef = useRef(false)
+  const [retryQueue, setRetryQueue] = useState<RetryQueueItem[]>([])
 
-  const loadTokensByArtist = useCallback(
-    async (artistQuery: string) => {
-      if (!allTokenConfigs.length) return
+  const loadMoreTokens = useCallback(async () => {
+    if (loadingRef.current || !hasMore || allTokenConfigs.length === 0) return
+    loadingRef.current = true
+    setIsLoadingMore(true)
 
+    try {
       const publicClient = createPublicClient({
         chain: base,
         transport: http(),
       })
 
-      // First, gather ALL artist addresses we need to check
-      const configsToCheck = []
-      const addressesToFetch = new Set<string>()
+      const endIndex = Math.min(currentIndex + TOKENS_PER_LOAD, allTokenConfigs.length)
+      const batch = allTokenConfigs.slice(currentIndex, endIndex)
 
-      for (const config of allTokenConfigs) {
-        // Check if already loaded
-        const alreadyLoaded = tokens.some(
-          (t) => t.contractAddress === config.contractAddress && t.tokenId === config.tokenId,
-        )
-        if (alreadyLoaded) continue
+      // Step 1: Fetch all contract owners in parallel
+      const ownerMap = await fetchContractOwners(batch, publicClient)
 
-        configsToCheck.push(config)
-      }
+      // Step 2: Batch fetch all display names at once
+      const uniqueOwners = [...new Set(Array.from(ownerMap.values()).filter(Boolean))]
+      const displayNames = await batchGetDisplayNames(uniqueOwners)
 
-      // If we have too many, just check the first batch to avoid RPC overload
-      const batchToCheck = configsToCheck.slice(0, 50)
+      const newTokens: TokenData[] = []
 
-      const configOwnerMap = new Map<string, string>()
-
-      // Fetch owners for this batch
-      for (const config of batchToCheck) {
+      for (const config of batch) {
         try {
-          const artistAddress = await fetchContractOwner(config.contractAddress, publicClient)
-          if (artistAddress) {
-            configOwnerMap.set(config.contractAddress, artistAddress)
-            addressesToFetch.add(artistAddress)
-          }
-          await new Promise((resolve) => setTimeout(resolve, 20))
-        } catch (error) {
-          console.error(`[v0] Error checking artist for ${config.contractAddress}:`, error)
-        }
-      }
-
-      // Bulk fetch display names
-      const displayNames = await batchGetDisplayNames(Array.from(addressesToFetch))
-
-      const matchingConfigs = []
-
-      for (const config of batchToCheck) {
-        const address = configOwnerMap.get(config.contractAddress)
-        if (!address) continue
-
-        const name = displayNames.get(address) || ""
-
-        if (
-          address.toLowerCase().includes(artistQuery.toLowerCase()) ||
-          name.toLowerCase().includes(artistQuery.toLowerCase())
-        ) {
-          matchingConfigs.push(config)
-        }
-      }
-
-      // Load the matching tokens
-      if (matchingConfigs.length > 0) {
-        setIsLoadingMore(true)
-        const newTokens: TokenMetadata[] = []
-
-        for (const config of matchingConfigs.slice(0, 8)) {
-          // Load up to 8 tokens
-          try {
-            const artistAddress = configOwnerMap.get(config.contractAddress) || ""
-            const artistDisplay = artistAddress
-              ? displayNames.get(artistAddress) || "Artista Desconocido"
-              : "Artista Desconocido"
-
-            await new Promise((resolve) => setTimeout(resolve, TOKEN_DELAY))
-
-            const tokenURI = await fetchWithRetry(async () => {
+          const tokenURI = await fetchWithRetry(
+            async () => {
               return await publicClient.readContract({
                 address: config.contractAddress as `0x${string}`,
                 abi: ERC1155_ABI,
                 functionName: "uri",
                 args: [BigInt(1)],
               })
-            })
+            },
+            3,
+            1000,
+          ) // 3 retries with 1 second base delay
 
-            if (tokenURI) {
-              let metadataUrl = tokenURI.replace("{id}", "1")
-              if (metadataUrl.startsWith("ar://")) {
-                metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
-              }
+          if (!tokenURI) continue
 
-              try {
-                const metadata = await fetchWithRetry(async () => {
-                  const response = await fetch(metadataUrl)
-                  if (!response.ok) throw new Error(`HTTP ${response.status}`)
-                  return await response.json()
-                })
-
-                let imageUrl = metadata.image
-                if (imageUrl?.startsWith("ipfs://")) {
-                  imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-                } else if (imageUrl?.startsWith("ar://")) {
-                  imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
-                }
-
-                newTokens.push({
-                  name: metadata.name || `Obra de Arte #${config.tokenId}`,
-                  description: metadata.description || "Obra de arte digital única",
-                  image: imageUrl || "/placeholder.svg",
-                  artist: artistAddress,
-                  artistDisplay: artistDisplay,
-                  contractAddress: config.contractAddress,
-                  tokenId: config.tokenId,
-                })
-              } catch (fetchError) {
-                console.error(`[v0] Error fetching metadata for ${config.contractAddress}:`, fetchError)
-                failedTokensQueue.push({ config, attempts: 0 })
-              }
-            }
-
-            saveArtistData(config.contractAddress, config.tokenId, {
-              address: artistAddress,
-              displayName: artistDisplay,
-            })
-
-            await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY))
-          } catch (error) {
-            console.error(`[v0] Error processing token ${config.contractAddress}:`, error)
-            failedTokensQueue.push({ config, attempts: 0 })
+          let metadataUrl = (tokenURI as string).replace("{id}", "1")
+          if (metadataUrl.startsWith("ar://")) {
+            metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
           }
+
+          const response = await fetch(metadataUrl)
+          if (!response.ok) continue
+
+          const metadata = await response.json()
+
+          let imageUrl = metadata.image
+          if (imageUrl?.startsWith("ipfs://")) {
+            imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
+          } else if (imageUrl?.startsWith("ar://")) {
+            imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
+          }
+
+          const artistAddress = ownerMap.get(config.contractAddress.toLowerCase()) || ""
+          const artistDisplay = artistAddress
+            ? displayNames.get(artistAddress) || "Artista Desconocido"
+            : "Artista Desconocido"
+
+          // Save for future use
+          saveArtistData(config.contractAddress, config.tokenId, {
+            address: artistAddress,
+            displayName: artistDisplay,
+          })
+
+          newTokens.push({
+            name: metadata.name || `Obra de Arte #${config.tokenId}`,
+            description: metadata.description || "Obra de arte digital única",
+            image: imageUrl || "/placeholder.svg",
+            artist: artistAddress,
+            artistName: artistDisplay,
+            contractAddress: config.contractAddress,
+            tokenId: config.tokenId,
+          })
+
+          await new Promise((resolve) => setTimeout(resolve, 200))
+        } catch (error: any) {
+          console.error(`[v0] Error loading token ${config.contractAddress}:`, error.message)
+
+          setRetryQueue((prev) => {
+            const existing = prev.find(
+              (t) => t.config.contractAddress === config.contractAddress && t.config.tokenId === config.tokenId,
+            )
+            if (!existing) {
+              return [
+                ...prev,
+                {
+                  config,
+                  attempts: 0,
+                  lastAttempt: Date.now(),
+                },
+              ]
+            }
+            return prev
+          })
         }
-
-        setTokens((prev) => {
-          const existingKeys = new Set(prev.map((t) => `${t.contractAddress}-${t.tokenId}`))
-          const uniqueNewTokens = newTokens.filter((t) => !existingKeys.has(`${t.contractAddress}-${t.tokenId}`))
-          return [...prev, ...uniqueNewTokens]
-        })
-
-        setIsLoadingMore(false)
       }
-    },
-    [allTokenConfigs, tokens],
-  )
 
-  const loadMoreTokens = useCallback(
-    async (displayNames?: Map<string, string>) => {
-      if (isLoadingMore || !hasMore || allTokenConfigs.length === 0) return
+      setTokens((prev) => {
+        const existingKeys = new Set(prev.map((t) => `${t.contractAddress}-${t.tokenId}`))
+        const uniqueNewTokens = newTokens.filter((t) => !existingKeys.has(`${t.contractAddress}-${t.tokenId}`))
+        return [...prev, ...uniqueNewTokens]
+      })
 
-      setIsLoadingMore(true)
-
-      try {
-        const publicClient = createPublicClient({
-          chain: base,
-          transport: http(),
-        })
-
-        const endIndex = Math.min(currentIndex + TOKENS_PER_LOAD, allTokenConfigs.length)
-        const batch = allTokenConfigs.slice(currentIndex, endIndex)
-
-        const newTokens: TokenMetadata[] = []
-        const batchAddresses: string[] = []
-        const configOwnerMap = new Map<string, string>()
-
-        const ownerPromises = batch.map(async (config, index) => {
-          try {
-            await new Promise((resolve) => setTimeout(resolve, index * RPC_DELAY))
-            const artistAddress = await fetchContractOwner(config.contractAddress, publicClient)
-            if (artistAddress) {
-              batchAddresses.push(artistAddress)
-              configOwnerMap.set(config.contractAddress, artistAddress)
-            }
-          } catch (error) {
-            console.error(`[v0] Error fetching owner for ${config.contractAddress}:`, error)
-          }
-        })
-
-        await Promise.all(ownerPromises)
-
-        const displayNameMap = displayNames || (await batchGetDisplayNames(batchAddresses))
-
-        for (const config of batch) {
-          try {
-            const artistAddress = configOwnerMap.get(config.contractAddress) || ""
-            const artistDisplay = artistAddress
-              ? displayNameMap.get(artistAddress) || "Artista Desconocido"
-              : "Artista Desconocido"
-
-            await new Promise((resolve) => setTimeout(resolve, TOKEN_DELAY))
-
-            const tokenURI = await fetchWithRetry(
-              async () => {
-                return await publicClient.readContract({
-                  address: config.contractAddress as `0x${string}`,
-                  abi: ERC1155_ABI,
-                  functionName: "uri",
-                  args: [BigInt(1)],
-                })
-              },
-              3,
-              2000,
-            ) // 3 retries with 2s base delay for rate limit recovery
-
-            if (tokenURI) {
-              let metadataUrl = tokenURI.replace("{id}", "1")
-              if (metadataUrl.startsWith("ar://")) {
-                metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
-              }
-
-              try {
-                const metadata = await fetchWithRetry(
-                  async () => {
-                    const response = await fetch(metadataUrl)
-                    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-                    return await response.json()
-                  },
-                  3,
-                  1000,
-                )
-
-                let imageUrl = metadata.image
-                if (imageUrl?.startsWith("ipfs://")) {
-                  imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-                } else if (imageUrl?.startsWith("ar://")) {
-                  imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
-                }
-
-                newTokens.push({
-                  name: metadata.name || `Obra de Arte #${config.tokenId}`,
-                  description: metadata.description || "Obra de arte digital única",
-                  image: imageUrl || "/placeholder.svg",
-                  artist: artistAddress,
-                  artistDisplay: artistDisplay,
-                  contractAddress: config.contractAddress,
-                  tokenId: config.tokenId,
-                })
-              } catch (fetchError) {
-                console.error(`[v0] Error fetching metadata for ${config.contractAddress}:`, fetchError)
-                failedTokensQueue.push({ config, attempts: 0 })
-              }
-            }
-
-            saveArtistData(config.contractAddress, config.tokenId, {
-              address: artistAddress,
-              displayName: artistDisplay,
-            })
-
-            await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY))
-          } catch (error) {
-            console.error(`[v0] Error processing token ${config.contractAddress}:`, error)
-            failedTokensQueue.push({ config, attempts: 0 })
-          }
-        }
-
-        setTokens((prev) => {
-          const existingKeys = new Set(prev.map((t) => `${t.contractAddress}-${t.tokenId}`))
-          const uniqueNewTokens = newTokens.filter((t) => !existingKeys.has(`${t.contractAddress}-${t.tokenId}`))
-          return [...prev, ...uniqueNewTokens]
-        })
-
-        setCurrentIndex(endIndex)
-        setHasMore(endIndex < allTokenConfigs.length)
-      } catch (error) {
-        console.error("[v0] Error loading more tokens:", error)
-      } finally {
-        setIsLoadingMore(false)
-      }
-    },
-    [currentIndex, allTokenConfigs, isLoadingMore, hasMore],
-  )
+      setCurrentIndex(endIndex)
+      setHasMore(endIndex < allTokenConfigs.length)
+    } catch (error) {
+      console.error("[v0] Error loading more tokens:", error)
+    } finally {
+      setIsLoadingMore(false)
+      loadingRef.current = false
+    }
+  }, [currentIndex, allTokenConfigs, hasMore])
 
   useEffect(() => {
     const savedState = loadGaleriaState()
@@ -482,19 +348,27 @@ export default function GaleriaPage() {
           transport: http(),
         })
 
+        // Fetch ALL contract owners in one batch
+        console.log("[v0] Fetching owners for", shuffled.length, "contracts")
+        const ownerMap = await fetchContractOwners(shuffled, publicClient)
+
+        // Extract all unique artist addresses
+        const allArtistAddresses = [...new Set(Array.from(ownerMap.values()).filter(Boolean))]
+        console.log("[v0] Found", allArtistAddresses.length, "unique artists, batch fetching names...")
+
+        // Batch fetch ALL display names at once
+        const displayNamesMap = await batchGetDisplayNames(allArtistAddresses)
+
+        // Build the artist map
         const artistMap = new Map<string, string>()
-        for (const config of shuffled) {
-          try {
-            const artistAddress = await fetchContractOwner(config.contractAddress, publicClient)
-            if (artistAddress) {
-              const displayName = await getDisplayName(artistAddress)
-              artistMap.set(artistAddress, displayName)
-            }
-            await new Promise((resolve) => setTimeout(resolve, RPC_DELAY))
-          } catch (error) {
-            console.error(`[v0] Error fetching artist for ${config.contractAddress}:`, error)
+        for (const [contractAddr, artistAddr] of ownerMap) {
+          if (artistAddr) {
+            const displayName = displayNamesMap.get(artistAddr) || "Artista Desconocido"
+            artistMap.set(artistAddr, displayName)
           }
         }
+
+        console.log("[v0] Artist names fetched:", artistMap.size, "artists identified")
         setAllArtists(artistMap)
 
         setIsLoading(false)
@@ -540,7 +414,7 @@ export default function GaleriaPage() {
   useEffect(() => {
     let timeoutId: NodeJS.Timeout
 
-    if (hasMore && !isLoadingMore && !isLoading && tokens.length > 0 && shouldBackgroundLoad.current) {
+    if (hasMore && !isLoadingMore && !isLoading && tokens.length > 0 && !loadingRef.current) {
       timeoutId = setTimeout(() => {
         loadMoreTokens()
       }, 500)
@@ -550,109 +424,6 @@ export default function GaleriaPage() {
       if (timeoutId) clearTimeout(timeoutId)
     }
   }, [hasMore, isLoadingMore, isLoading, tokens.length, loadMoreTokens])
-
-  useEffect(() => {
-    const retryFailedTokens = async () => {
-      console.log(`[v0] Retrying ${failedTokensQueue.length} failed tokens...`)
-
-      const publicClient = createPublicClient({
-        chain: base,
-        transport: http(),
-      })
-
-      const tokensToRetry = [...failedTokensQueue]
-      failedTokensQueue.length = 0 // Clear the queue
-
-      for (const { config, attempts } of tokensToRetry) {
-        if (attempts >= MAX_RETRY_ATTEMPTS) {
-          console.log(`[v0] Max retries reached for ${config.contractAddress}, skipping`)
-          continue
-        }
-
-        try {
-          console.log(`[v0] Retry attempt ${attempts + 1} for ${config.contractAddress}`)
-
-          const artistAddress = await fetchContractOwner(config.contractAddress, publicClient)
-          const artistDisplay = artistAddress ? await getDisplayName(artistAddress) : "Artista Desconocido"
-
-          await new Promise((resolve) => setTimeout(resolve, TOKEN_DELAY))
-
-          const tokenURI = await fetchWithRetry(
-            async () => {
-              return await publicClient.readContract({
-                address: config.contractAddress as `0x${string}`,
-                abi: ERC1155_ABI,
-                functionName: "uri",
-                args: [BigInt(1)],
-              })
-            },
-            3,
-            2000,
-          )
-
-          if (tokenURI) {
-            let metadataUrl = tokenURI.replace("{id}", "1")
-            if (metadataUrl.startsWith("ar://")) {
-              metadataUrl = metadataUrl.replace("ar://", "https://arweave.net/")
-            }
-
-            const metadata = await fetchWithRetry(
-              async () => {
-                const response = await fetch(metadataUrl)
-                if (!response.ok) throw new Error(`HTTP ${response.status}`)
-                return await response.json()
-              },
-              3,
-              1000,
-            )
-
-            let imageUrl = metadata.image
-            if (imageUrl?.startsWith("ipfs://")) {
-              imageUrl = imageUrl.replace("ipfs://", "https://ipfs.io/ipfs/")
-            } else if (imageUrl?.startsWith("ar://")) {
-              imageUrl = imageUrl.replace("ar://", "https://arweave.net/")
-            }
-
-            const newToken = {
-              name: metadata.name || `Obra de Arte #${config.tokenId}`,
-              description: metadata.description || "Obra de arte digital única",
-              image: imageUrl || "/placeholder.svg",
-              artist: artistAddress,
-              artistDisplay: artistDisplay,
-              contractAddress: config.contractAddress,
-              tokenId: config.tokenId,
-            }
-
-            setTokens((prev) => {
-              // Check if token already exists
-              const exists = prev.some(
-                (t) => t.contractAddress === newToken.contractAddress && t.tokenId === newToken.tokenId,
-              )
-              if (exists) return prev
-              return [...prev, newToken]
-            })
-
-            saveArtistData(config.contractAddress, config.tokenId, {
-              address: artistAddress,
-              displayName: artistDisplay,
-            })
-
-            console.log(`[v0] Successfully retried ${config.contractAddress}`)
-          }
-
-          await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY))
-        } catch (error) {
-          console.error(`[v0] Retry failed for ${config.contractAddress}:`, error)
-          // Re-add to queue with incremented attempts
-          failedTokensQueue.push({ config, attempts: attempts + 1 })
-        }
-      }
-    }
-
-    const retryTimer = setTimeout(retryFailedTokens, 10000) // Retry after 10 seconds
-
-    return () => clearTimeout(retryTimer)
-  }, [tokens.length]) // Trigger when tokens change
 
   const filteredTokens = useMemo(() => {
     let filtered = tokens
@@ -789,7 +560,7 @@ export default function GaleriaPage() {
                           </Link>
 
                           <ArtistLink
-                            artistName={token.artistDisplay}
+                            artistName={token.artistName}
                             artistAddress={token.artist}
                             className="text-sm text-gray-600 hover:text-purple-600 transition-colors block mb-3"
                           />

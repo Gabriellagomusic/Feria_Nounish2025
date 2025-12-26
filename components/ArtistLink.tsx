@@ -9,9 +9,9 @@ interface ArtistLinkProps {
 }
 
 export function ArtistLink({ artistName, artistAddress, className = "" }: ArtistLinkProps) {
-  // Don't make it a link if it's the fallback
-  if (artistName === "Artista Desconocido" || !artistAddress) {
-    return <span className={className}>{artistName}</span>
+  // Don't make it a link if it's the fallback or undefined
+  if (!artistName || artistName === "Artista Desconocido" || !artistAddress) {
+    return <span className={className}>{artistName || "Cargando..."}</span>
   }
 
   // Create Farcaster profile URL

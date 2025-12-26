@@ -1,27 +1,11 @@
 import { type NextRequest, NextResponse } from "next/server"
 
-// Simple retry helper
-async function fetchWithRetry(url: string, options: RequestInit, retries = 3): Promise<Response> {
-  for (let i = 0; i < retries; i++) {
-    try {
-      const response = await fetch(url, options)
-      if (response.ok) return response
-      // If rate limited (429) or server error (5xx), wait and retry
-      if (response.status === 429 || response.status >= 500) {
-        await new Promise((resolve) => setTimeout(resolve, 1000 * Math.pow(2, i)))
-        continue
-      }
-      return response
-    } catch (error) {
-      if (i === retries - 1) throw error
-      await new Promise((resolve) => setTimeout(resolve, 1000 * Math.pow(2, i)))
-    }
-  }
-  throw new Error("Failed after retries")
-}
-
 const cache = new Map<string, { username: string | null; timestamp: number }>()
-const CACHE_TTL = 30 * 60 * 1000 // 30 minutes
+const CACHE_TTL = 60 * 60 * 1000 // 1 hour (increased from 30 min)
+
+// Rate limit tracking - Neynar allows 6 req/60s on FREE plan
+let lastRequestTime = 0
+const MIN_REQUEST_INTERVAL = 3000 // 3 seconds between bulk requests
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
@@ -56,9 +40,23 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ usernames })
   }
 
+  const timeSinceLastRequest = now - lastRequestTime
+  if (timeSinceLastRequest < MIN_REQUEST_INTERVAL) {
+    // Return cached results only, don't make API call
+    console.log(
+      `[v0] Rate limit protection: ${MIN_REQUEST_INTERVAL - timeSinceLastRequest}ms until next request allowed`,
+    )
+    toFetch.forEach((addr) => {
+      usernames[addr.toLowerCase()] = null
+    })
+    return NextResponse.json({ usernames, rateLimited: true })
+  }
+
+  lastRequestTime = now
+
   try {
-    // Neynar bulk API supports comma-separated addresses
-    const response = await fetchWithRetry(
+    // Neynar bulk API supports up to 350 addresses
+    const response = await fetch(
       `https://api.neynar.com/v2/farcaster/user/bulk-by-address?addresses=${toFetch.join(",")}`,
       {
         headers: {
@@ -69,14 +67,20 @@ export async function GET(request: NextRequest) {
     )
 
     if (!response.ok) {
-      console.log("[v0] Neynar Batch API error:", response.status)
-      // Return what we have from cache, don't update with failures
+      console.log("[v0] Neynar API error:", response.status)
+      // If rate limited, don't cache the failure
+      if (response.status === 429) {
+        toFetch.forEach((addr) => {
+          usernames[addr.toLowerCase()] = null
+        })
+        return NextResponse.json({ usernames, rateLimited: true })
+      }
       return NextResponse.json({ usernames }, { status: 200 })
     }
 
     const data = await response.json()
 
-    // Initialize fetched addresses to null (in case not found in response)
+    // Initialize fetched addresses to null
     toFetch.forEach((addr) => {
       usernames[addr.toLowerCase()] = null
     })
@@ -90,7 +94,7 @@ export async function GET(request: NextRequest) {
           usernames[addr.toLowerCase()] = username
           cache.set(addr.toLowerCase(), { username, timestamp: now })
         } else {
-          // Cache null result (user not found) but with shorter TTL
+          // Cache null result with same TTL
           cache.set(addr.toLowerCase(), { username: null, timestamp: now })
         }
       })
@@ -99,7 +103,6 @@ export async function GET(request: NextRequest) {
     // Ensure all requested addresses are in response
     addresses.forEach((addr) => {
       if (usernames[addr.toLowerCase()] === undefined) {
-        // Should be covered by cache check logic, but just in case
         usernames[addr.toLowerCase()] = null
       }
     })
